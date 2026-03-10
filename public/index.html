@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Lhamascred — Motor de Portabilidade</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%233B82F6'/><text x='8' y='24' font-size='22' font-weight='900' fill='white'>L</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#060A10;--sf:#0C1118;--card:#131A24;--brd:#1C2536;--acc:#3B82F6;--grn:#22C55E;--red:#EF4444;--ylw:#EAB308;--pur:#A78BFA;--org:#F97316;--pnk:#EC4899;--t1:#E2E8F0;--t2:#8896AB;--t3:#4A5568;--cyan:#06B6D4}
+body{background:var(--bg);color:var(--t1);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
+::selection{background:var(--acc);color:#000}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.fi{animation:fadeIn .35s ease both}.shake{animation:shake .3s ease}
+button{font-family:inherit;cursor:pointer;transition:all .12s;border:none;background:none}button:hover{filter:brightness(1.15)}
+input,select,textarea{font-family:inherit;outline:none}.rh:hover{background:rgba(59,130,246,0.03)!important}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-box{width:100%;max-width:400px;animation:fadeIn .4s ease}
+.login-logo{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:36px}
+.login-logo-icon{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--acc),var(--pur));display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff}
+.login-card{background:var(--sf);border:1px solid var(--brd);border-radius:16px;padding:36px 32px}
+.form-group{margin-bottom:18px}.form-label{display:block;font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.form-input{width:100%;padding:11px 14px;border-radius:8px;border:1px solid var(--brd);background:var(--card);color:var(--t1);font-size:13px}.form-input:focus{border-color:var(--acc)}
+.login-btn{width:100%;padding:12px;border-radius:8px;background:var(--acc);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-top:6px}
+.login-error{color:var(--red);font-size:12px;text-align:center;margin-top:14px;min-height:18px}
+.header{background:var(--sf);border-bottom:1px solid var(--brd);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:30px;height:30px;border-radius:7px;background:linear-gradient(135deg,var(--acc),var(--pur));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff}
+.hdr-user{display:flex;align-items:center;gap:8px;padding:4px 10px;border-radius:6px;background:var(--card);border:1px solid var(--brd);margin-right:6px}
+.hdr-user-icon{width:22px;height:22px;border-radius:50%;background:var(--acc);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff}
+.btn{padding:5px 13px;border-radius:6px;font-size:10px;font-weight:700;border:1px solid var(--brd);color:var(--t2);background:transparent}
+.btn-grn{border-color:var(--grn);color:var(--grn)}.btn-red{border-color:var(--red);color:var(--red)}.btn-cyan{border-color:var(--cyan);color:var(--cyan)}
+.btn-acc{background:var(--acc);color:#fff;border:none;padding:9px 24px;border-radius:8px;font-size:12px;font-weight:700}
+.btn-sm{padding:4px 10px;font-size:10px;border-radius:5px}
+.container{max-width:1440px;margin:0 auto;padding:20px 24px}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-box{background:var(--sf);border:1px solid var(--brd);border-radius:14px;padding:28px;max-width:560px;width:100%;animation:fadeIn .25s ease;max-height:90vh;overflow-y:auto}
+.table-wrap{background:var(--card);border-radius:10px;border:1px solid var(--brd);overflow:hidden}
+.table-scroll{overflow:auto;max-height:62vh}
+table{width:100%;border-collapse:collapse}
+th{padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--brd);cursor:pointer;user-select:none;position:sticky;top:0;background:var(--card);z-index:2;white-space:nowrap}
+td{padding:7px 12px;font-size:12px;color:var(--t1);border-bottom:1px solid var(--brd);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+td.right,th.right{text-align:right}td.mono{font-family:monospace;font-size:11px}
+.pill{display:inline-block;padding:2px 9px;border-radius:5px;font-size:10px;font-weight:700}
+.pill-default{background:rgba(255,255,255,.05);color:var(--t2)}.pill-acc{background:rgba(59,130,246,.1);color:var(--acc)}.pill-pur{background:rgba(167,139,250,.1);color:var(--pur)}.pill-ylw{background:rgba(234,179,8,.1);color:var(--ylw)}.pill-grn{background:rgba(34,197,94,.12);color:var(--grn)}.pill-red{background:rgba(239,68,68,.1);color:var(--red)}.pill-org{background:rgba(249,115,22,.12);color:var(--org)}.pill-pnk{background:rgba(236,72,153,.12);color:var(--pnk)}.pill-cyan{background:rgba(6,182,212,.12);color:var(--cyan)}
+.pager{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-top:1px solid var(--brd);background:var(--sf);font-size:11px}
+.pager-btns{display:flex;gap:3px;align-items:center}.pager-btns button{padding:3px 9px;border-radius:4px;border:1px solid var(--brd);background:var(--card);color:var(--t2);font-size:12px}
+.search-bar{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+.search-bar input{padding:7px 12px;border-radius:6px;border:1px solid var(--brd);background:var(--sf);color:var(--t1);font-size:12px;width:220px}
+.search-bar select{padding:7px 10px;border-radius:6px;border:1px solid var(--brd);background:var(--sf);color:var(--t1);font-size:12px}
+.kpi-grid{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.kpi{background:var(--card);border-radius:10px;padding:14px 16px;border:1px solid var(--brd);flex:1 1 150px;min-width:130px}
+.kpi-label{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;font-weight:600}.kpi-value{font-size:17px;font-weight:800}
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.tabs{display:flex;gap:2px;margin-bottom:18px;background:var(--sf);border-radius:9px;padding:3px;border:1px solid var(--brd);flex-wrap:wrap}
+.tab{padding:7px 14px;border-radius:6px;font-weight:700;font-size:11px;color:var(--t2)}.tab.active{background:var(--acc);color:#fff}
+.tab-badge{margin-left:4px;padding:0 5px;border-radius:3px;font-size:9px}.tab.active .tab-badge{background:rgba(255,255,255,.2)}.tab:not(.active) .tab-badge{background:var(--brd)}
+.upload-box{border:2px dashed var(--brd);border-radius:16px;padding:56px 44px;text-align:center;cursor:pointer;background:var(--sf);max-width:480px;width:100%}.upload-box:hover,.upload-box.drag{border-color:var(--acc)}
+.mapa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.rmc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.taxa-bar{height:6px;border-radius:3px;background:var(--brd);overflow:hidden}.taxa-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--acc),var(--pur))}
+/* Pipeline */
+.pipe-stages{display:flex;gap:4px;margin-bottom:20px;align-items:center}
+.pipe-stage{padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid var(--brd);background:var(--card);color:var(--t2);transition:all .15s}
+.pipe-stage.active{background:var(--acc);color:#fff;border-color:var(--acc)}
+.pipe-stage .pipe-n{margin-left:6px;padding:1px 6px;border-radius:4px;font-size:9px}
+.pipe-stage.active .pipe-n{background:rgba(255,255,255,.2)}
+.pipe-stage:not(.active) .pipe-n{background:var(--brd)}
+.pipe-arrow{color:var(--t3);font-size:16px}
+/* Checkbox */
+.chk{width:16px;height:16px;accent-color:var(--acc);cursor:pointer}
+/* WPP template */
+.wpp-tpl{width:100%;min-height:100px;padding:12px;border-radius:8px;border:1px solid var(--brd);background:var(--card);color:var(--t1);font-size:13px;resize:vertical}
+.wpp-vars{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.wpp-var{padding:3px 8px;border-radius:4px;background:var(--card);border:1px solid var(--brd);font-size:10px;color:var(--cyan);cursor:pointer}
+@media(max-width:900px){.dash-grid{grid-template-columns:1fr}.rmc-grid,.mapa-grid{grid-template-columns:1fr}.container{padding:12px}.header{padding:0 12px}.pipe-stages{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div id="loginScreen" class="login-wrap"><div class="login-box"><div class="login-logo"><div class="login-logo-icon">L</div><div><div style="font-size:22px;font-weight:800">Lhamascred</div><div style="font-size:11px;color:var(--t3)">Motor de Portabilidade</div></div></div><div class="login-card" id="loginCard"><div style="font-size:18px;font-weight:700;text-align:center;margin-bottom:4px">Bem-vindo</div><div style="font-size:12px;color:var(--t2);text-align:center;margin-bottom:28px">Entre com suas credenciais</div><div class="form-group"><label class="form-label">Usuário</label><input class="form-input" type="text" id="loginUser" placeholder="Usuário" onkeydown="if(event.key==='Enter')doLogin()"></div><div class="form-group"><label class="form-label">Senha</label><input class="form-input" type="password" id="loginPass" placeholder="Senha" onkeydown="if(event.key==='Enter')doLogin()"></div><button class="login-btn" onclick="doLogin()">Entrar</button><div class="login-error" id="loginError"></div></div></div></div>
+<div id="appScreen" style="display:none"><header class="header"><div class="logo" style="cursor:pointer" onclick="resetData()"><div class="logo-icon">L</div><div><div style="font-size:14px;font-weight:800">Lhamascred</div><div style="font-size:9px;color:var(--t3);font-weight:600">Motor v5</div></div></div><div style="display:flex;align-items:center;gap:6px"><div class="hdr-user" id="hdrUser"></div><div id="headerActions" style="display:flex;gap:6px;align-items:center"><span id="fileName" style="font-size:10px;color:var(--t3);margin-right:4px"></span><button class="btn btn-grn" onclick="exportXLSX()">↓ Exportar</button><button class="btn" style="border-color:var(--ylw);color:var(--ylw)" onclick="salvarProc()">💾 Salvar</button><button class="btn" onclick="resetData()">Nova Base</button></div><button class="btn btn-red btn-sm" onclick="doLogout()">Sair</button></div></header><div class="container" id="appContainer"></div></div>
+<div id="changePwModal" class="modal-overlay" style="display:none"><div class="modal-box" style="max-width:420px"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Alterar Senha</div><div class="form-group"><label class="form-label">Atual</label><input class="form-input" type="password" id="cpwOld"></div><div class="form-group"><label class="form-label">Nova</label><input class="form-input" type="password" id="cpwNew"></div><div class="form-group"><label class="form-label">Confirmar</label><input class="form-input" type="password" id="cpwConfirm"></div><div style="display:flex;gap:8px"><button class="login-btn" style="flex:1" onclick="doChangePw()">Salvar</button><button class="btn" style="padding:12px 20px" onclick="document.getElementById('changePwModal').style.display='none'">Cancelar</button></div><div class="login-error" id="cpwError"></div></div></div>
+<div id="phoneModal" class="modal-overlay" style="display:none"><div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:16px;font-weight:700">📱 Telefones</div><button class="btn btn-sm" onclick="document.getElementById('phoneModal').style.display='none'">✕</button></div><div id="pmName" style="font-size:13px;color:var(--t2);margin-bottom:2px"></div><div id="pmCPF" style="font-size:11px;color:var(--t3);margin-bottom:14px;font-family:monospace"></div><div id="pmContent"></div><div id="pmActions" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"></div></div></div>
+<div id="batchModal" class="modal-overlay" style="display:none"><div class="modal-box" style="max-width:420px"><div style="font-size:16px;font-weight:700;margin-bottom:12px">⏳ Processando</div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span id="bCnt" style="font-size:12px;color:var(--t2)">0/0</span><span id="bPct" style="font-size:12px;font-weight:700;color:var(--acc)">0%</span></div><div class="taxa-bar" style="height:8px"><div id="bBar" class="taxa-fill" style="width:0%"></div></div><div id="bStat" style="font-size:11px;color:var(--t2);margin:10px 0"></div><button class="btn btn-red" onclick="bCancel=true">Cancelar</button></div></div>
+<div id="wppModal" class="modal-overlay" style="display:none"><div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:16px;font-weight:700">💬 Mensagem WhatsApp</div><button class="btn btn-sm" onclick="document.getElementById('wppModal').style.display='none'">✕</button></div><div class="form-group"><label class="form-label">Template da Mensagem</label><textarea class="wpp-tpl" id="wppTpl">Olá {nome}, tudo bem? Aqui é da Lhamascred! Identificamos {qtd} oportunidade(s) de portabilidade com troco total de {troco}. Podemos conversar?</textarea></div><div class="form-group"><label class="form-label">Variáveis Disponíveis</label><div class="wpp-vars"><span class="wpp-var" onclick="insertVar('{nome}')">nome</span><span class="wpp-var" onclick="insertVar('{cpf}')">cpf</span><span class="wpp-var" onclick="insertVar('{troco}')">troco</span><span class="wpp-var" onclick="insertVar('{vlr_contrato}')">vlr_contrato</span><span class="wpp-var" onclick="insertVar('{banco}')">banco</span><span class="wpp-var" onclick="insertVar('{destino}')">destino</span><span class="wpp-var" onclick="insertVar('{qtd}')">qtd_contratos</span></div></div><div id="wppPreview" style="background:var(--card);border-radius:10px;padding:14px;margin-bottom:14px;border:1px solid var(--brd)"><div style="font-size:10px;color:var(--t3);margin-bottom:6px">PRÉ-VISUALIZAÇÃO</div><div id="wppPreviewText" style="font-size:13px;line-height:1.5"></div></div><div id="wppTargetInfo" style="font-size:12px;color:var(--t2);margin-bottom:14px"></div><div style="display:flex;gap:8px"><button class="btn-acc" style="flex:1" onclick="sendWppBatch()">💬 Enviar para Todos</button><button class="btn btn-grn" onclick="exportWppList()">↓ Exportar Lista</button></div></div></div>
+
+<script>
+// ══════ AUTH ══════
+function hp(p){let h=0;const s=p+"lhamas2024";for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0}return"H"+Math.abs(h).toString(36)}
+function getU(){try{return JSON.parse(localStorage.getItem("lhm_users"))}catch{return null}}
+function saveU(u){localStorage.setItem("lhm_users",JSON.stringify(u))}
+function initU(){let u=getU();if(!u){u=[{id:1,user:"admin",name:"Administrador",pw:hp("admin123"),role:"admin",created:Date.now()},{id:2,user:"operador",name:"Operador",pw:hp("op123"),role:"user",created:Date.now()}];saveU(u)}return u}
+function getSess(){try{let s=JSON.parse(localStorage.getItem("lhm_sess"));if(!s||Date.now()-s.ts>864e5)return null;return s}catch{return null}}
+let CU=null;
+function doLogin(){const u=document.getElementById("loginUser").value.trim().toLowerCase(),p=document.getElementById("loginPass").value,err=document.getElementById("loginError");if(!u||!p){err.textContent="Preencha todos os campos";return}const users=initU(),f=users.find(x=>x.user.toLowerCase()===u&&x.pw===hp(p));if(!f){err.textContent="Usuário ou senha incorretos";document.getElementById("loginCard").classList.add("shake");setTimeout(()=>document.getElementById("loginCard").classList.remove("shake"),350);return}CU=f;localStorage.setItem("lhm_sess",JSON.stringify({user:f.user,name:f.name,role:f.role,ts:Date.now()}));showApp()}
+function doLogout(){localStorage.removeItem("lhm_sess");CU=null;document.getElementById("appScreen").style.display="none";document.getElementById("loginScreen").style.display="flex";S={data:null,tab:"dash",q:"",sort:{c:null,d:"asc"},pg:0,rmcF:"ALL",fname:"",pipeStage:"sel"}}
+function showApp(){document.getElementById("loginScreen").style.display="none";document.getElementById("appScreen").style.display="block";document.getElementById("hdrUser").innerHTML=`<div class="hdr-user-icon">${CU.name.charAt(0)}</div><div><div style="font-size:11px;font-weight:600">${esc(CU.name)}</div><div style="font-size:9px;color:var(--t3)">${CU.role==="admin"?"Admin":"Op"}</div></div><button class="btn btn-sm" onclick="document.getElementById('changePwModal').style.display='flex'" style="margin-left:4px;font-size:9px">🔑</button>`;renderApp()}
+function doChangePw(){const o=document.getElementById("cpwOld").value,n=document.getElementById("cpwNew").value,c=document.getElementById("cpwConfirm").value,err=document.getElementById("cpwError");if(!o||!n||!c){err.textContent="Preencha tudo";return}if(hp(o)!==CU.pw){err.textContent="Incorreta";return}if(n.length<4){err.textContent="Mín 4";return}if(n!==c){err.textContent="Não conferem";return}let users=getU();let i=users.findIndex(u=>u.user===CU.user);if(i>=0){users[i].pw=hp(n);saveU(users);CU.pw=hp(n)}err.style.color="var(--grn)";err.textContent="Alterada!";setTimeout(()=>document.getElementById("changePwModal").style.display="none",1000)}
+
+// ══════ HISTORY ══════
+function getHist(){try{return JSON.parse(localStorage.getItem("lhm_hist")||"[]")}catch{return[]}}
+function getMyHist(){let h=getHist();if(!CU)return[];if(CU.role==="admin")return h;return h.filter(x=>x.userLogin===CU.user)}
+function saveHist(h){try{localStorage.setItem("lhm_hist",JSON.stringify(h.slice(0,50)))}catch{}}
+function addHist(fn,sm){let h=getHist();h.unshift({id:Date.now(),fname:fn,user:CU?CU.name:"",userLogin:CU?CU.user:"",date:new Date().toLocaleString("pt-BR"),summary:sm,saved:false});saveHist(h)}
+function delHist(id){localStorage.removeItem("lhm_data_"+id);saveHist(getHist().filter(x=>x.id!==id));renderApp()}
+function clearHist(){if(confirm("Limpar?")){let h=getMyHist();h.forEach(x=>localStorage.removeItem("lhm_data_"+x.id));let all=getHist();let ids=new Set(h.map(x=>x.id));saveHist(all.filter(x=>!ids.has(x.id)));renderApp()}}
+function salvarProc(){
+  if(!S.data)return;let hist=getHist();let cur=hist.find(h=>h.userLogin===CU.user&&!h.saved)||hist.find(h=>h.userLogin===CU.user);if(!cur)return;
+  try{let sv={elegiveis:S.data.elegiveis,mapaArr:S.data.mapaArr,rmcRcc:S.data.rmcRcc,taxaDist:S.data.taxaDist,aLen:S.data.analise.length,phones:{}};
+    for(let k of Object.keys(phoneCache))sv.phones[k]=phoneCache[k];
+    localStorage.setItem("lhm_data_"+cur.id,JSON.stringify(sv));cur.saved=true;saveHist(hist);alert("Salvo! Consulte no Histórico.");renderApp();
+  }catch(e){try{let m={elegiveis:S.data.elegiveis.slice(0,1500),mapaArr:S.data.mapaArr,aLen:S.data.analise.length,phones:{}};
+    for(let k of Object.keys(phoneCache))m.phones[k]=phoneCache[k];localStorage.setItem("lhm_data_"+cur.id,JSON.stringify(m));cur.saved=true;saveHist(hist);alert("Salvo (parcial).");renderApp();
+  }catch{alert("Sem espaço. Limpe processamentos antigos.")}}
+}
+function loadHist(id){try{let raw=localStorage.getItem("lhm_data_"+id);if(!raw){alert("Não salvo. Clique 💾 Salvar antes.");return}
+  let sv=JSON.parse(raw);if(sv.phones)for(let k of Object.keys(sv.phones))phoneCache[k]=sv.phones[k];
+  // Build analise as array with proper length for dashboard
+  let eleg=sv.elegiveis||[];
+  S.data={analise:eleg,elegiveis:eleg,mapaArr:sv.mapaArr||[],rmcRcc:sv.rmcRcc||[],taxaDist:sv.taxaDist||{},totalAnalise:sv.aLen||eleg.length};
+  let hist=getHist(),h=hist.find(x=>x.id===id);S.fname=h?h.fname+" (histórico)":"Histórico";S.tab="dash";S.pg=0;renderApp();
+  alert("✅ Processamento carregado com "+eleg.length+" elegíveis"+(Object.keys(sv.phones||{}).length?" e "+Object.keys(sv.phones).length+" telefones higienizados":""));
+}catch(e){alert("Erro ao carregar: "+e.message)}}
+
+// ══════ PIPELINE STATE ══════
+let selected=new Set(); // CPFs selected for pipeline
+let phoneCache={}; // Hygienized phone data
+let wppSent=new Set(); // CPFs with WPP sent
+let bCancel=false;
+let phoneMode="base"; // "base"=telefone da planilha, "api"=NovaVida (tem custo)
+
+function toggleSel(cpf){if(selected.has(cpf))selected.delete(cpf);else selected.add(cpf);renderApp()}
+function toggleSelAll(){if(!S.data)return;let all=S.data.elegiveis.map(e=>e.cpf);if(selected.size>=all.length){selected.clear()}else{all.forEach(c=>selected.add(c))}renderApp()}
+function selPage(){
+  if(!S.data)return;let filtered=filt(S.data.elegiveis);
+  let pageItems=filtered.slice(S.pg*PER,(S.pg+1)*PER);
+  let allChecked=pageItems.every(r=>selected.has(r.cpf));
+  pageItems.forEach(r=>{if(allChecked)selected.delete(r.cpf);else selected.add(r.cpf)});renderApp()
+}
+function selNone(){selected.clear();renderApp()}
+function moveToHig(){if(selected.size===0){alert("Selecione pelo menos um contrato");return}S.tab="pipe";S.pipeStage="sel";renderApp()}
+
+// ══════ GROUP BY CLIENT ══════
+function groupByCPF(items){
+  let map={};
+  for(let r of items){
+    if(!map[r.cpf]){map[r.cpf]={cpf:r.cpf,nome:r.nome,t1:r.t1||"",t2:r.t2||"",t3:r.t3||"",contratos:[],qtd:0,trocoTotal:0,vcTotal:0,bancos:new Set()}}
+    let g=map[r.cpf];g.contratos.push(r);g.qtd++;g.trocoTotal+=r.troco;g.vcTotal+=r.vc;g.bancos.add(r.dest);
+  }
+  return Object.values(map).sort((a,b)=>b.trocoTotal-a.trocoTotal);
+}
+
+// ══════ HIGIENIZAÇÃO ══════
+async function higienizarCPF(cpf,nome,bt1,bt2,bt3){
+  document.getElementById("phoneModal").style.display="flex";
+  document.getElementById("pmName").textContent=nome||"";
+  document.getElementById("pmCPF").textContent="CPF: "+cpf;
+  // Show base phones first
+  let baseHtml='<div style="font-size:11px;font-weight:700;color:var(--org);margin-bottom:6px;text-transform:uppercase">📋 Telefones da Base</div>';
+  let basePhones=[bt1,bt2,bt3].filter(t=>t&&t.length>5);
+  if(basePhones.length){
+    baseHtml+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+    for(let bp of basePhones){
+      let num=bp.replace(/\D/g,'');let wl=num.length>=10?`https://wa.me/55${num}`:"";
+      baseHtml+=`<div style="background:var(--card);border:1px solid var(--brd);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px"><span style="font-family:monospace;font-weight:700;font-size:13px">${esc(bp)}</span>${wl?`<a href="${wl}" target="_blank" style="text-decoration:none"><span class="pill pill-grn" style="cursor:pointer">💬</span></a>`:""}<button class="btn btn-sm" onclick="navigator.clipboard.writeText('${bp}')">📋</button></div>`;
+    }
+    baseHtml+='</div>';
+  }else{baseHtml+='<div style="color:var(--t3);font-size:11px;margin-bottom:16px">Nenhum telefone na base</div>'}
+  baseHtml+='<div style="border-top:1px solid var(--brd);padding-top:12px;margin-top:4px"><div style="font-size:11px;font-weight:700;color:var(--acc);margin-bottom:6px;text-transform:uppercase">📱 Telefones Higienizados</div></div>';
+
+  if(phoneCache[cpf]){document.getElementById("pmContent").innerHTML=baseHtml;showPhones(phoneCache[cpf],true);return}
+  document.getElementById("pmContent").innerHTML=baseHtml+'<div style="text-align:center;padding:20px;color:var(--t2)"><div style="animation:pulse 1.2s ease infinite;font-size:24px;margin-bottom:8px">📡</div>Consultando API...</div>';
+  document.getElementById("pmActions").innerHTML=`<button class="btn" onclick="document.getElementById('phoneModal').style.display='none'">Fechar (usar base)</button>`;
+  try{
+    const res=await fetch('/api/higienizar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cpf:cpf.replace(/\D/g,'')})});
+    const data=await res.json();
+    if(data.success){phoneCache[cpf]=data;document.getElementById("pmContent").innerHTML=baseHtml;showPhones(data,true)}
+    else{document.getElementById("pmContent").innerHTML=baseHtml+`<div style="text-align:center;padding:12px;color:var(--red)">❌ ${esc(data.error||'Erro na API')}</div>`;document.getElementById("pmActions").innerHTML=`<button class="btn" onclick="document.getElementById('phoneModal').style.display='none'">Fechar (usar base)</button>`}
+  }catch(e){document.getElementById("pmContent").innerHTML=baseHtml+`<div style="text-align:center;padding:12px;color:var(--red)">❌ Sem conexão — use os telefones da base</div>`;document.getElementById("pmActions").innerHTML=`<button class="btn" onclick="document.getElementById('phoneModal').style.display='none'">Fechar</button>`}
+}
+function showPhones(data,append){
+  let html="";
+  if(!data.telefones||!data.telefones.length){html=`<div style="text-align:center;padding:12px;color:var(--t3)">Nenhum telefone válido na API</div>`}
+  else{
+    html=`<div style="font-size:11px;color:var(--t2);margin-bottom:8px">${data.totalValidos} válido(s) de ${data.totalEncontrados}</div><table style="width:100%"><thead><tr><th style="font-size:9px">Telefone</th><th style="font-size:9px">Tipo</th><th style="font-size:9px">Operadora</th><th style="font-size:9px">Ação</th></tr></thead><tbody>`;
+    for(let t of data.telefones){
+      let full=`(${t.ddd}) ${t.telefone}`,wl=`https://wa.me/55${t.ddd}${t.telefone}`;
+      html+=`<tr><td style="font-family:monospace;font-weight:700;font-size:13px">${full}</td><td style="font-size:11px">${t.tipo||"-"}</td><td style="font-size:11px">${t.operadora||"-"}</td><td>${t.whatsapp?`<a href="${wl}" target="_blank" style="text-decoration:none"><span class="pill pill-grn" style="cursor:pointer">💬 Wpp</span></a>`:""}</td></tr>`;
+    }
+    html+=`</tbody></table>`;
+  }
+  if(append){document.getElementById("pmContent").innerHTML+=html}else{document.getElementById("pmContent").innerHTML=html}
+  if(data.telefones&&data.telefones.length){
+    let all=data.telefones.map(t=>`(${t.ddd}) ${t.telefone}`).join(", ");
+    document.getElementById("pmActions").innerHTML=`<button class="btn btn-grn" onclick="navigator.clipboard.writeText('${all}');this.textContent='✅ Copiado'">📋 Copiar Higienizados</button> <button class="btn" onclick="document.getElementById('phoneModal').style.display='none'">Fechar</button>`;
+  }
+}
+async function batchHig(){
+  let cpfs=[...selected].filter(c=>!phoneCache[c]);
+  if(!cpfs.length){alert("Todos já higienizados!");S.pipeStage="hig";renderApp();return}
+  if(!confirm(`Higienizar ${cpfs.length} CPFs?`))return;
+  bCancel=false;document.getElementById("batchModal").style.display="flex";
+  let done=0,ok=0;
+  for(let cpf of cpfs){
+    if(bCancel)break;
+    document.getElementById("bStat").textContent=cpf;
+    try{const r=await fetch('/api/higienizar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cpf:cpf.replace(/\D/g,'')})});const d=await r.json();if(d.success){phoneCache[cpf]=d;ok++}}catch{}
+    done++;let p=Math.round(done/cpfs.length*100);
+    document.getElementById("bCnt").textContent=`${done}/${cpfs.length}`;
+    document.getElementById("bPct").textContent=p+"%";
+    document.getElementById("bBar").style.width=p+"%";
+    await new Promise(r=>setTimeout(r,500));
+  }
+  document.getElementById("bStat").innerHTML=`<span style="color:var(--grn)">✅ ${ok} sucesso</span>`;
+  setTimeout(()=>{document.getElementById("batchModal").style.display="none";S.pipeStage="hig";renderApp()},1500);
+}
+
+// ══════ WHATSAPP ══════
+function insertVar(v){let ta=document.getElementById("wppTpl");ta.value+=v;updateWppPreview()}
+function updateWppPreview(){
+  let tpl=document.getElementById("wppTpl").value;
+  let preview=tpl.replace(/{nome}/g,'<strong>João Silva</strong>').replace(/{cpf}/g,'123.456.789-00').replace(/{troco}/g,'<strong style="color:var(--grn)">R$ 1.250,00</strong>').replace(/{vlr_contrato}/g,'R$ 8.500,00').replace(/{banco}/g,'237').replace(/{destino}/g,'QUALI').replace(/{qtd}/g,'<strong>3</strong>');
+  document.getElementById("wppPreviewText").innerHTML=preview;
+  let grouped=S.data?groupByCPF(S.data.elegiveis.filter(e=>selected.has(e.cpf))):[];
+  let ready=0;
+  if(phoneMode==="base"){ready=grouped.filter(g=>{let t=(g.t1||g.t2||g.t3||"").replace(/\D/g,"");return t.length>=10}).length}
+  else{ready=grouped.filter(g=>phoneCache[g.cpf]&&phoneCache[g.cpf].telefones.some(t=>t.whatsapp)).length}
+  document.getElementById("wppTargetInfo").innerHTML=`<span class="pill pill-grn">${ready}</span> contatos com telefone (modo: ${phoneMode==="base"?"📋 Base":"📡 NovaVida"}) de <span class="pill pill-acc">${grouped.length}</span> selecionados`;
+}
+function openWppModal(){document.getElementById("wppModal").style.display="flex";updateWppPreview()}
+function buildMsg(tpl,r){
+  return tpl.replace(/{nome}/g,r.nome||"").replace(/{cpf}/g,r.cpf||"").replace(/{troco}/g,R$(r.troco||0)).replace(/{vlr_contrato}/g,R$(r.vc||0)).replace(/{banco}/g,r.cod||"").replace(/{destino}/g,r.dest||"");
+}
+function sendWppBatch(){
+  if(!S.data)return;
+  let tpl=document.getElementById("wppTpl").value;
+  let targets=[];
+  let grouped=groupByCPF(S.data.elegiveis.filter(e=>selected.has(e.cpf)));
+  for(let g of grouped){
+    let msg=tpl.replace(/{nome}/g,g.nome).replace(/{cpf}/g,g.cpf).replace(/{troco}/g,R$(g.trocoTotal)).replace(/{vlr_contrato}/g,R$(g.vcTotal)).replace(/{qtd}/g,String(g.qtd)).replace(/{banco}/g,[...g.bancos].join(", ")).replace(/{destino}/g,[...g.bancos].join(", "));
+    let num="";
+    if(phoneMode==="base"){
+      let tel=(g.t1||g.t2||g.t3||"").replace(/\D/g,"");
+      if(tel.length>=10)num="55"+tel;
+    }else{
+      let ph=phoneCache[g.cpf];if(!ph||!ph.telefones)continue;
+      let wpp=ph.telefones.find(t=>t.whatsapp);if(!wpp)continue;
+      num=`55${wpp.ddd}${wpp.telefone}`;
+    }
+    if(num)targets.push({cpf:g.cpf,nome:g.nome,num,msg});
+  }
+  if(!targets.length){alert("Nenhum contato com telefone válido");return}
+  if(!confirm(`Abrir WhatsApp para ${targets.length} contatos?`))return;
+  let i=0;
+  function openNext(){
+    if(i>=targets.length)return;
+    let t=targets[i];
+    window.open(`https://wa.me/${t.num}?text=${encodeURIComponent(t.msg)}`,"_blank");
+    wppSent.add(t.cpf);
+    i++;
+    if(i<targets.length)setTimeout(openNext,1500);
+    else{S.pipeStage="wpp";renderApp();document.getElementById("wppModal").style.display="none"}
+  }
+  openNext();
+}
+function exportWppList(){
+  if(!S.data)return;
+  let tpl=document.getElementById("wppTpl")?document.getElementById("wppTpl").value:"";
+  let grouped=groupByCPF(S.data.elegiveis.filter(e=>selected.has(e.cpf)));
+  let rows=[];
+  for(let g of grouped){
+    let msg=tpl?tpl.replace(/{nome}/g,g.nome).replace(/{cpf}/g,g.cpf).replace(/{troco}/g,R$(g.trocoTotal)).replace(/{vlr_contrato}/g,R$(g.vcTotal)).replace(/{qtd}/g,String(g.qtd)).replace(/{banco}/g,[...g.bancos].join(", ")).replace(/{destino}/g,[...g.bancos].join(", ")):"";
+    let telBase=g.t1||g.t2||g.t3||"";
+    let telBaseNum=telBase.replace(/\D/g,"");
+    let ph=phoneCache[g.cpf];let apiPhones=ph?ph.telefones:[];let wppApi=apiPhones.find(t=>t.whatsapp);
+    let telUsar=phoneMode==="base"?telBase:(wppApi?`(${wppApi.ddd}) ${wppApi.telefone}`:"");
+    let numUsar=phoneMode==="base"?(telBaseNum.length>=10?"55"+telBaseNum:""):(wppApi?`55${wppApi.ddd}${wppApi.telefone}`:"");
+    rows.push({Nome:g.nome,CPF:g.cpf,"Qtd Contratos":g.qtd,Destinos:[...g.bancos].join(", "),"Troco Total":g.trocoTotal,"Vlr Contrato Total":g.vcTotal,
+      "Tel Base 1":g.t1||"","Tel Base 2":g.t2||"","Tel Base 3":g.t3||"",
+      "Tel Higienizado":wppApi?`(${wppApi.ddd}) ${wppApi.telefone}`:"",
+      "Telefone Usado":telUsar,"Num WhatsApp":numUsar,
+      Msg:msg,Modo:phoneMode==="base"?"BASE":"NOVAVIDA",
+      Status:wppSent.has(g.cpf)?"ENVIADO":phoneCache[g.cpf]?"HIGIENIZADO":"PENDENTE"});
+  }
+  let wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"WhatsApp");
+  XLSX.writeFile(wb,"lhamascred_whatsapp.xlsx");
+}
+
+// ══════ ENGINE ══════
+const COEFS=[{t:1.85,c:0.02299},{t:1.80,c:0.02451},{t:1.78,c:0.02250},{t:1.75,c:0.021985},{t:1.72,c:0.02175},{t:1.70,c:0.021604},{t:1.68,c:0.02145},{t:1.66,c:0.02130}];
+const BD={QUALI:{sMin:2000,tMin:250,pMin:0,pgMin:0,faixa:null,coefF:null,block:["359","246","025","047","063","070","320","394","422","654","212","626","935","753","330","149","012","752","082","079","329","643","243"]},FACTA:{sMin:0,tMin:100,pMin:50,pgMin:0,faixa:[1.70,1.85],coefF:null,block:["070","071","925","935","149","012","611","643","917"]},BRB:{sMin:3000,tMin:250,pMin:0,pgMin:0,faixa:null,coefF:0.02130,block:["070","623","935","149","012","071","925","380","079"]},DIGIO:{sMin:4500,tMin:250,pMin:0,pgMin:12,faixa:null,coefF:null,block:["237","001","041"]}};
+const ORDEM=["QUALI","FACTA","BRB","DIGIO"],B1P=["149","422","739","925","380","033","326","290","041","389","121"],ESP_INV=[4,5,6,32,33,34,51,83,92],CARTAO={PAN:"623",BMG:"318",Daycoval:"707"};
+function pV(v){if(v==null||v==="")return 0;if(typeof v==="number")return v;let s=String(v).replace(/R\$\s*/g,"").replace(/\s/g,"");if(s.includes(","))return parseFloat(s.replace(/\./g,"").replace(",","."))||0;if(s.includes("."))return parseFloat(s)||0;let n=parseInt(s,10);return isNaN(n)?0:n>99?n/100:n}
+function pP(v){if(v==null||v==="")return[0,0,0];let m=String(v).match(/(\d+)\s*[/\\]\s*(\d+)/);if(m){let r=+m[1],t=+m[2];return[r,t,t-r]}let n=parseInt(v,10);return[n||0,n||0,0]}
+function pC(v){if(v==null||v==="")return"";return String(typeof v==="number"?Math.floor(v):v).trim().padStart(3,"0")}
+function pEN(e){if(!e)return 0;let m=String(e).match(/^(\d+)/);return m?parseInt(m[1],10):0}
+function cAge(ns){if(ns==null)return null;let d;if(ns instanceof Date)d=ns;else if(typeof ns==="number")d=new Date((ns-25569)*864e5);else{let s=String(ns).trim(),m=s.match(/(\d{2})[/-](\d{2})[/-](\d{4})/);if(m)d=new Date(+m[3],+m[2]-1,+m[1]);else d=new Date(s)}if(!d||isNaN(d.getTime()))return null;let now=new Date(),a=now.getFullYear()-d.getFullYear();if(now.getMonth()<d.getMonth()||(now.getMonth()===d.getMonth()&&now.getDate()<d.getDate()))a--;return{age:a}}
+function cBY(dib){if(dib==null)return null;let d;if(dib instanceof Date)d=dib;else if(typeof dib==="number")d=new Date((dib-25569)*864e5);else{let s=String(dib).trim(),m=s.match(/(\d{2})[/-](\d{2})[/-](\d{4})/);if(m)d=new Date(+m[3],+m[2]-1,+m[1]);else d=new Date(s)}if(!d||isNaN(d.getTime()))return null;let now=new Date(),y=now.getFullYear()-d.getFullYear();if(now.getMonth()<d.getMonth()||(now.getMonth()===d.getMonth()&&now.getDate()<d.getDate()))y--;return y}
+function bestR(p,s,t,fx){let pool=fx?COEFS.filter(c=>c.t>=fx[0]&&c.t<=fx[1]):COEFS;for(let{t:tx,c}of pool){let vc=p/c,tr=vc-s;if(tr>=t)return{t:tx,c,vc,tr}}return null}
+function testar(p,s,pg,cd,inv,age,bY,rest){let i1=B1P.includes(cd);for(let b of ORDEM){let r=BD[b];if(r.block.includes(cd))continue;if(r.pMin&&p<r.pMin)continue;if(r.sMin&&s<r.sMin)continue;let pgR=i1?1:r.pgMin;if(pgR&&pg<pgR)continue;if(inv&&age!==null){if(age<55)continue;if(age>=55&&age<=57&&(bY===null||bY<15))continue;if(rest>0&&rest>(75-age)*12)continue}if(r.coefF){let vc=p/r.coefF,tr=vc-s;if(tr<r.tMin)continue;let tx=COEFS.find(x=>x.c===r.coefF);return{banco:b,troco:tr,vc,taxa:tx?tx.t:0,i1}}let res=bestR(p,s,r.tMin,r.faixa);if(res)return{banco:b,troco:res.tr,vc:res.vc,taxa:res.t,i1}}return null}
+function findAllPos(H,nm){let r=[],n=nm.toLowerCase().replace(/[^a-z0-9 ]/g,"").trim();for(let i=0;i<H.length;i++){let h=String(H[i]||"").toLowerCase().replace(/[^a-z0-9 ]/g,"").trim();if(h===n)r.push(i)}return r}
+function findFirst(H,ns){for(let nm of ns){let n=nm.toLowerCase().replace(/[^a-z0-9 ]/g,"").trim();for(let i=0;i<H.length;i++){let h=String(H[i]||"").toLowerCase().replace(/[^a-z0-9 ]/g,"").trim();if(h===n)return i}}return-1}
+function processar(data){
+  if(!data||data.length<2)return null;let H=data[0].map(h=>h?String(h).trim():""),rows=data.slice(1);
+  let cNm=findFirst(H,["Nome"]),cCP=findFirst(H,["CPF"]),cBn=findFirst(H,["Beneficio"]),cEs=findFirst(H,["Especie"]),cNs=findFirst(H,["Data Nascimento"]),cDI=findFirst(H,["DIB"]),cT1=findFirst(H,["Telefone1"]),cT2=findFirst(H,["Telefone2"]),cT3=findFirst(H,["Telefone3"]);
+  let allTE=findAllPos(H,"Tipo Emprestimo"),allCon=findAllPos(H,"Contrato"),allCod=findAllPos(H,"Codigo"),allVE=findAllPos(H,"Valor Emprestimo"),allMC=findAllPos(H,"Margem Cartao"),allVP=findAllPos(H,"Valor Parcela"),allPr=findAllPos(H,"Prazo"),allSQ=findAllPos(H,"Saldo Quitacao");
+  let cardBlocks=[];for(let te of allTE){let mc=allMC.find(m=>m>te&&m<te+8);if(mc!==undefined)cardBlocks.push(te)}
+  let rmcB=null,rccB=null;
+  if(cardBlocks.length>=1){let te=cardBlocks[0];rmcB={tipo:te,con:allCon.find(c=>c>te&&c<te+8),cod:allCod.find(c=>c>te&&c<te+8),val:allVE.find(v=>v>te&&v<te+8)}}
+  if(cardBlocks.length>=2){let te=cardBlocks[1];rccB={tipo:te,con:allCon.find(c=>c>te&&c<te+8),cod:allCod.find(c=>c>te&&c<te+8),val:allVE.find(v=>v>te&&v<te+8)}}
+  let lbs=[];for(let vp of allVP){let con=allCon.filter(c=>c<vp).pop(),cod=allCod.find(c=>c>con-1&&c<vp),prz=allPr.find(p=>p>vp&&p<vp+4),sq=allSQ.find(s=>s>vp&&s<vp+5);if(con!==undefined)lbs.push({cc:con,ck:cod,cp:vp,cz:prz,cs:sq})}
+  let analise=[],elegiveis=[],rmcAll=[];
+  let g=(r,c)=>c!=null&&c>=0&&r[c]!=null?String(r[c]).trim():"",gv=(r,c)=>c!=null&&c>=0?pV(r[c]):0,gr=(r,c)=>c!=null&&c>=0?r[c]:null;
+  for(let row of rows){
+    let nome=g(row,cNm),cpf=g(row,cCP);if(!nome&&!cpf)continue;
+    let ben=g(row,cBn),esp=g(row,cEs),t1=g(row,cT1),t2=g(row,cT2),t3=g(row,cT3);
+    let eN=pEN(esp),isInv=ESP_INV.includes(eN),ai=cAge(gr(row,cNs)),idade=ai?ai.age:null,bY=cBY(gr(row,cDI));
+    let tRmc=rmcB?g(row,rmcB.tipo):"",cRmc=rmcB?pC(gr(row,rmcB.cod)??""):"",vRmc=rmcB?gv(row,rmcB.val):0;
+    let tRcc=rccB?g(row,rccB.tipo):"",cRcc=rccB?pC(gr(row,rccB.cod)??""):"",vRcc=rccB?gv(row,rccB.val):0;
+    if(tRmc.toUpperCase().includes("RMC")||tRcc.toUpperCase().includes("RCC")||vRmc>0||vRcc>0)rmcAll.push({nome,cpf,ben,esp,t1,t2,t3,tRmc,cRmc,vRmc:Math.round(vRmc*100)/100,tRcc,cRcc,vRcc:Math.round(vRcc*100)/100});
+    for(let lb of lbs){
+      let con=g(row,lb.cc),par=gv(row,lb.cp),sal=gv(row,lb.cs);let[rest,tot,pag]=lb.cz!=null?pP(row[lb.cz]):[0,0,0];let cod=lb.ck!=null?pC(gr(row,lb.ck)??""):"";
+      if(!con&&par===0&&sal===0)continue;let i1=B1P.includes(cod);let res=testar(par,sal,pag,cod,isInv,idade,bY,rest);
+      let reg={nome,cpf,ben,esp,con,cod,par:Math.round(par*100)/100,sal:Math.round(sal*100)/100,prazo:`${rest}/${tot}`,pag,idade:idade??"-",isInv,is1p:i1,dest:res?res.banco:"-",troco:res?Math.round(res.troco*100)/100:0,vc:res?Math.round(res.vc*100)/100:0,taxa:res?res.taxa:"-",ok:!!res,t1,t2,t3};
+      analise.push(reg);if(res)elegiveis.push(reg);
+    }
+  }
+  let mapa={};for(let e of elegiveis){if(!mapa[e.dest])mapa[e.dest]={banco:e.dest,n:0,total:0,vcTotal:0};mapa[e.dest].n++;mapa[e.dest].total+=e.troco;mapa[e.dest].vcTotal+=e.vc}
+  let mapaArr=ORDEM.map(b=>mapa[b]||{banco:b,n:0,total:0,vcTotal:0}).filter(m=>m.n>0).map(m=>({...m,med:m.n?m.total/m.n:0,vcMed:m.n?m.vcTotal/m.n:0}));
+  let taxaDist={};for(let e of elegiveis)taxaDist[e.taxa]=(taxaDist[e.taxa]||0)+1;
+  return{analise,elegiveis,mapaArr,rmcRcc:rmcAll,taxaDist}
+}
+
+// ══════ STATE ══════
+let S={data:null,tab:"dash",q:"",sort:{c:null,d:"asc"},pg:0,rmcF:"ALL",fname:"",pipeStage:"sel"};
+const PER=50;const R$=v=>"R$ "+v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});const N=v=>v.toLocaleString("pt-BR");
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function handleFile(inp){let f=inp.files[0];if(!f)return;S.fname=f.name;document.getElementById("appContainer").innerHTML='<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:12px"><div style="font-size:30px;animation:pulse 1.2s ease infinite">⚙️</div><div style="font-size:13px;color:var(--t2)">Processando...</div></div>';setTimeout(()=>{let reader=new FileReader();reader.onload=function(e){try{let wb=XLSX.read(e.target.result,{type:"array",cellDates:true});let ws=wb.Sheets[wb.SheetNames[0]];S.data=processar(XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true}));S.tab="dash";S.pg=0;selected.clear();phoneCache={};wppSent.clear();if(S.data){let tT=S.data.elegiveis.reduce((s,e)=>s+e.troco,0),tVC=S.data.elegiveis.reduce((s,e)=>s+e.vc,0);let bens=[...new Set(S.data.analise.map(r=>r.ben).filter(b=>b))].slice(0,20);addHist(S.fname,{contratos:S.data.analise.length,elegiveis:S.data.elegiveis.length,troco:tT,valorContrato:tVC,rmcRcc:S.data.rmcRcc.length,beneficios:bens})}renderApp()}catch(err){alert("Erro: "+err.message);renderApp()}};reader.readAsArrayBuffer(f)},50)}
+function resetData(){S.data=null;S.fname="";selected.clear();phoneCache={};wppSent.clear();renderApp()}
+function setTab(t){S.tab=t;S.sort={c:null,d:"asc"};S.pg=0;renderApp()}
+function setQ(v){S.q=v;S.pg=0;renderApp()}
+function doSort(col){if(S.sort.c===col)S.sort.d=S.sort.d==="asc"?"desc":"asc";else S.sort={c:col,d:"asc"};S.pg=0;renderApp()}
+function setPg(p){S.pg=p;renderApp()}
+function filt(list){let f=list;if(S.q){let ql=S.q.toLowerCase();f=f.filter(r=>(r.nome||"").toLowerCase().includes(ql)||(r.cpf||"").includes(ql)||(r.con||"").includes(ql))}if(S.sort.c){let sc=S.sort.c,sd=S.sort.d;f=[...f].sort((a,b)=>{let va=a[sc],vb=b[sc];if(typeof va==="string"){va=va.toLowerCase();vb=String(vb||"").toLowerCase()}return(va<vb?-1:va>vb?1:0)*(sd==="asc"?1:-1)})}return f}
+const DC={QUALI:{c:"var(--acc)",bg:"rgba(59,130,246,.1)"},FACTA:{c:"var(--pur)",bg:"rgba(167,139,250,.1)"},BRB:{c:"var(--ylw)",bg:"rgba(234,179,8,.1)"},DIGIO:{c:"var(--grn)",bg:"rgba(34,197,94,.1)"}};
+const pCls={QUALI:"pill-acc",FACTA:"pill-pur",BRB:"pill-ylw",DIGIO:"pill-grn"};
+function si(col){if(S.sort.c!==col)return'<span style="opacity:.2;margin-left:3px;font-size:8px">⇅</span>';return`<span style="margin-left:3px;font-size:8px">${S.sort.d==="asc"?"▲":"▼"}</span>`}
+function TH(col,l,right){return`<th class="${right?"right":""}" onclick="doSort('${col}')">${l}${si(col)}</th>`}
+function pgr(cnt){let tot=Math.ceil(cnt/PER)||1;return`<div class="pager"><span style="color:var(--t3)">${N(cnt)} registros</span><div class="pager-btns"><button onclick="setPg(Math.max(0,S.pg-1))" ${S.pg===0?"disabled":""}>‹</button><span style="color:var(--t2);padding:0 6px;font-size:11px">${S.pg+1}/${tot}</span><button onclick="setPg(Math.min(${tot-1},S.pg+1))" ${S.pg>=tot-1?"disabled":""}>›</button></div></div>`}
+function renderAdmin(){if(!CU||CU.role!=="admin")return"";const users=getU()||[];let rows=users.map(u=>`<tr><td><strong>${esc(u.name)}</strong></td><td style="font-family:monospace;font-size:11px">${esc(u.user)}</td><td><span class="${u.role==="admin"?"role-admin":"role-user"}">${u.role==="admin"?"Admin":"Op"}</span></td><td>${u.user==="admin"?"—":`<button class="btn btn-sm" onclick="rpw('${u.user}')">Reset</button> <button class="btn btn-red btn-sm" onclick="dlu('${u.user}')">Excluir</button>`}</td></tr>`).join("");return`<div class="admin-panel fi"><div style="font-size:16px;font-weight:800;margin-bottom:16px">👥 Usuários</div><table class="users-table"><thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table><div class="add-user-form"><div class="form-group"><label class="form-label">Nome</label><input class="form-input" id="nN"></div><div class="form-group"><label class="form-label">Login</label><input class="form-input" id="nU"></div><div class="form-group"><label class="form-label">Senha</label><input class="form-input" id="nP" type="password"></div><div class="form-group"><label class="form-label">Perfil</label><select class="form-input" id="nR"><option value="user">Operador</option><option value="admin">Admin</option></select></div><button class="btn-acc" style="height:36px;padding:0 20px;font-size:11px" onclick="addU()">+ Add</button></div><div class="login-error" id="aErr" style="text-align:left;margin-top:8px"></div></div>`}
+function addU(){const n=document.getElementById("nN").value.trim(),u=document.getElementById("nU").value.trim().toLowerCase(),p=document.getElementById("nP").value,r=document.getElementById("nR").value,err=document.getElementById("aErr");if(!n||!u||!p){err.style.color="var(--red)";err.textContent="Preencha tudo";return}let users=getU()||[];if(users.find(x=>x.user===u)){err.style.color="var(--red)";err.textContent="Já existe";return}users.push({id:Date.now(),user:u,name:n,pw:hp(p),role:r,created:Date.now()});saveU(users);err.style.color="var(--grn)";err.textContent="Criado!";setTimeout(renderApp,500)}
+function dlu(u){if(confirm(`Excluir "${u}"?`)){saveU(getU().filter(x=>x.user!==u));renderApp()}}
+function rpw(u){const p=prompt(`Nova senha para "${u}":`);if(!p||p.length<4)return;let users=getU();let i=users.findIndex(x=>x.user===u);if(i>=0){users[i].pw=hp(p);saveU(users);alert("OK!")}}
+
+// ══════ CONSULTA UNITÁRIA ══════
+function detectTipo(v){let d=v.replace(/\D/g,"");if(d.length===11)return"cpf";if(d.length>=1)return"ben";return""}
+function updMcLabel(){let inp=document.getElementById("mcBenInput");let lbl=document.getElementById("mcTipoLabel");if(!inp||!lbl)return;let v=inp.value.replace(/\D/g,"");let t=detectTipo(inp.value);if(t==="cpf")lbl.innerHTML=`<span style="color:var(--cyan)">📋 Detectado: <strong>CPF</strong> (${v.substring(0,3)}.${v.substring(3,6)}.${v.substring(6,9)}-${v.substring(9)})</span>`;else if(t==="ben")lbl.innerHTML=`<span style="color:var(--grn)">🔢 Detectado: <strong>Benefício</strong></span>`;else lbl.innerHTML=""}
+function mcToRows(resp){
+  // Convert API response to flat rows — handle multiple response formats
+  let d=resp.data||resp;
+  // If response is array, merge objects
+  if(Array.isArray(d)){let merged={};d.forEach(o=>Object.assign(merged,o));d=merged}
+  // If response is string, try parsing
+  if(typeof d==="string"){try{d=JSON.parse(d)}catch{}}
+
+  let b=d.Beneficiario||d.beneficiario||{};
+  let rf=d.ResumoFinanceiro||d.resumoFinanceiro||{};
+  let db=d.DadosBancarios||d.dadosBancarios||{};
+  let rmc=d.Rmc||d.rmc||d.RMC||{};
+  let rcc=d.RCC||d.Rcc||d.rcc||{};
+  let emps=d.Emprestimos||d.emprestimos||[];
+  // If emps is not array (single object), wrap it
+  if(emps&&!Array.isArray(emps))emps=[emps];
+
+  let base={
+    nome:b.Nome||b.nome||"",cpf:b.CPF||b.cpf||"",ben:String(b.Beneficio||b.beneficio||""),esp:String(b.Especie||b.especie||""),
+    nasc:b.DataNascimento||b.dataNascimento||"",dib:b.DIB||b.dib||"",t1:"",t2:"",t3:"",
+    rmcBanco:String(rmc.Banco||rmc.banco||""),rmcValor:parseFloat(rmc.Valor_emprestimo||rmc.valor_emprestimo||0),rmcContrato:rmc.Contrato||"",
+    rccBanco:String(rcc.Banco||rcc.banco||""),rccValor:parseFloat(rcc.Valor_emprestimo||rcc.valor_emprestimo||0),rccContrato:rcc.Contrato||""
+  };
+  let ai=cAge(base.nasc),idade=ai?ai.age:null;
+  let bY=cBY(base.dib);
+  let eN=parseInt(base.esp)||0;
+  let isInv=ESP_INV.includes(eN);
+  let rmcEntry=null;
+  if(base.rmcValor>0||base.rccValor>0){
+    rmcEntry={nome:base.nome,cpf:base.cpf,ben:base.ben,esp:base.esp,t1:"",t2:"",t3:"",
+      tRmc:"RMC",cRmc:pC(base.rmcBanco),vRmc:base.rmcValor,
+      tRcc:"RCC",cRcc:pC(base.rccBanco),vRcc:base.rccValor};
+  }
+  let rows=[];
+  for(let emp of emps){
+    let par=parseFloat(emp.ValorParcela||emp.valorParcela||emp.valor_parcela||0);
+    let sal=parseFloat(emp.Quitacao||emp.quitacao||emp.SaldoQuitacao||emp.saldo_quitacao||0);
+    let prazoStr=String(emp.Prazo||emp.prazo||"0");
+    let restStr=String(emp.ParcelasRestantes||emp.parcelasRestantes||emp.parcelas_restantes||"0");
+    let rest=parseInt(restStr)||0;
+    let tot=parseInt(prazoStr)||0;
+    let pag=tot>rest?tot-rest:0;
+    let cod=pC(String(emp.Banco||emp.banco||""));
+    let con=String(emp.Contrato||emp.contrato||"");
+    let is1p=B1P.includes(cod);
+    let res=testar(par,sal,pag,cod,isInv,idade,bY,rest);
+    rows.push({
+      nome:base.nome,cpf:base.cpf,ben:base.ben,esp:base.esp,con,cod,
+      par:Math.round(par*100)/100,sal:Math.round(sal*100)/100,
+      prazo:`${rest}/${tot}`,pag,idade:idade??"-",isInv,is1p,
+      dest:res?res.banco:"-",troco:res?Math.round(res.troco*100)/100:0,
+      vc:res?Math.round(res.vc*100)/100:0,taxa:res?res.taxa:"-",ok:!!res,
+      t1:"",t2:"",t3:""
+    });
+  }
+  return{rows,rmcEntry};
+}
+
+async function consultarBeneficio(){
+  let inp=document.getElementById("mcBenInput");
+  if(!inp)return;
+  let raw=inp.value.replace(/\D/g,"").trim();
+  if(!raw){alert("Digite um CPF ou número de benefício");return}
+  let tipo=detectTipo(inp.value);
+  let label=tipo==="cpf"?`CPF ${raw.substring(0,3)}.***.***-${raw.substring(9)}`:`Benefício ${raw}`;
+
+  document.getElementById("batchModal").style.display="flex";
+  document.getElementById("bCnt").textContent="1/1";
+  document.getElementById("bPct").textContent="...";
+  document.getElementById("bBar").style.width="50%";
+  document.getElementById("bStat").textContent=`Consultando ${label}...`;
+
+  try{
+    const res=await fetch('/api/multicorban',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({beneficio:raw})});
+    if(!res.ok){
+      let errTxt=await res.text().catch(()=>"");
+      document.getElementById("batchModal").style.display="none";
+      alert(`Erro HTTP ${res.status}\n${errTxt.substring(0,200)}`);
+      return;
+    }
+    const data=await res.json();
+    if(!data.success||!data.data){
+      document.getElementById("batchModal").style.display="none";
+      alert(`Erro: ${data.error||data.detail||"Resposta inválida"}`);
+      return;
+    }
+
+    let{rows,rmcEntry}=mcToRows(data);
+    let elegiveis=rows.filter(r=>r.ok);
+    let allRmc=rmcEntry?[rmcEntry]:[];
+
+    if(rows.length===0){
+      document.getElementById("batchModal").style.display="none";
+      let nome=data.data.Beneficiario?data.data.Beneficiario.Nome:"";
+      alert(`${label}${nome?" — "+nome:""}\nNenhum contrato encontrado.`);
+      return;
+    }
+
+    let mapa={};
+    for(let e of elegiveis){
+      if(!mapa[e.dest])mapa[e.dest]={banco:e.dest,n:0,total:0,vcTotal:0};
+      mapa[e.dest].n++;mapa[e.dest].total+=e.troco;mapa[e.dest].vcTotal+=e.vc;
+    }
+    let mapaArr=ORDEM.map(b=>mapa[b]||{banco:b,n:0,total:0,vcTotal:0}).filter(m=>m.n>0).map(m=>({...m,med:m.n?m.total/m.n:0,vcMed:m.n?m.vcTotal/m.n:0}));
+    let taxaDist={};for(let e of elegiveis)taxaDist[e.taxa]=(taxaDist[e.taxa]||0)+1;
+
+    S.data={analise:rows,elegiveis,mapaArr,rmcRcc:allRmc,taxaDist};
+    let nome=rows[0]?rows[0].nome:"";
+    let ben=rows[0]?rows[0].ben:raw;
+    S.fname=`${tipo==="cpf"?"CPF":"Ben"} ${ben}${nome?" — "+nome:""}`;
+    S.tab="dash";S.pg=0;
+    selected.clear();phoneCache={};wppSent.clear();
+
+    let tT=elegiveis.reduce((s,e)=>s+e.troco,0);
+    let tVC=elegiveis.reduce((s,e)=>s+e.vc,0);
+    addHist(S.fname,{contratos:rows.length,elegiveis:elegiveis.length,troco:tT,valorContrato:tVC,rmcRcc:allRmc.length,beneficios:[ben],tipo});
+
+    document.getElementById("bPct").textContent="100%";
+    document.getElementById("bBar").style.width="100%";
+    document.getElementById("bStat").innerHTML=`<span style="color:var(--grn)">✅ ${nome} — ${rows.length} contratos, ${elegiveis.length} elegíveis</span>`;
+    setTimeout(()=>{document.getElementById("batchModal").style.display="none";renderApp()},1200);
+
+  }catch(e){
+    document.getElementById("batchModal").style.display="none";
+    alert(`Erro de conexão: ${e.message}\n\nVerifique se o arquivo api/multicorban.js existe no GitHub.`);
+  }
+}
+
+// ══════ RENDER ══════
+function renderApp(){
+  let D=S.data,c=document.getElementById("appContainer"),html="";
+  if(!D){document.getElementById("headerActions").style.display="none";let hist=getMyHist();
+    html=`<div style="display:flex;gap:20px;justify-content:center;align-items:flex-start;min-height:${hist.length?'40vh':'72vh'};flex-wrap:wrap;padding-top:40px" class="fi">
+      <div class="upload-box" id="uploadBox" onclick="document.getElementById('fileInput').click()" style="flex:1;max-width:380px;padding:40px 30px">
+        <div style="font-size:32px;margin-bottom:12px">📊</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px">Consulta em Lote</div>
+        <div style="font-size:11px;color:var(--t2);margin-bottom:18px">Suba a base completa offline</div>
+        <div class="btn-acc" style="font-size:11px;padding:8px 20px">Selecionar Arquivo</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:10px">.xlsx .xls .csv</div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFile(this)">
+      </div>
+      <div style="border:2px solid var(--brd);border-radius:16px;padding:40px 30px;background:var(--sf);flex:1;max-width:380px;text-align:center">
+        <div style="font-size:32px;margin-bottom:12px">🔍</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px">Consulta Unitária</div>
+        <div style="font-size:11px;color:var(--t2);margin-bottom:14px">CPF ou número do benefício</div>
+        <input id="mcBenInput" type="text" placeholder="CPF ou Benefício" style="width:100%;padding:12px;border-radius:8px;border:1px solid var(--brd);background:var(--card);color:var(--t1);font-size:16px;font-family:monospace;text-align:center;margin-bottom:6px;letter-spacing:1px" oninput="updMcLabel()" onkeydown="if(event.key==='Enter')consultarBeneficio()">
+        <div id="mcTipoLabel" style="font-size:10px;color:var(--t3);margin-bottom:10px;text-align:center;min-height:14px"></div>
+        <button class="btn-acc" style="font-size:11px;padding:8px 20px;width:100%;background:var(--cyan)" onclick="consultarBeneficio()">🔍 Consultar</button>
+      </div>
+    </div>`;
+    if(hist.length){html+=`<div class="fi" style="margin-top:12px"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><div style="font-size:14px;font-weight:700">📁 Histórico</div><button class="btn btn-red btn-sm" onclick="clearHist()">Limpar</button></div><div style="display:grid;gap:8px">`;for(let h of hist){let sm=h.summary||{};let bensStr=sm.beneficios&&sm.beneficios.length?sm.beneficios.slice(0,5).join(", ")+(sm.beneficios.length>5?" ...":""):"";html+=`<div style="background:var(--card);border:1px solid var(--brd);border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div style="flex:1;min-width:180px"><div style="font-size:12px;font-weight:700">${esc(h.fname)}</div><div style="font-size:10px;color:var(--t2)">${h.date}${CU&&CU.role==="admin"?` \u2014 <span style="color:var(--cyan)">${esc(h.user)}</span>`:""}</div>${bensStr?`<div style="font-size:9px;color:var(--t3);margin-top:3px;font-family:monospace">Ben: ${esc(bensStr)}</div>`:""}</div><div style="display:flex;gap:12px"><div style="text-align:right"><div style="font-size:12px;font-weight:700;color:var(--acc)">${sm.elegiveis?N(sm.elegiveis):"-"}</div><div style="font-size:8px;color:var(--t3)">ELEG</div></div><div style="text-align:right"><div style="font-size:12px;font-weight:700;color:var(--ylw)">${sm.valorContrato?R$(sm.valorContrato):"-"}</div><div style="font-size:8px;color:var(--t3)">VLR CONT</div></div><div style="text-align:right"><div style="font-size:12px;font-weight:700;color:var(--grn)">${sm.troco?R$(sm.troco):"-"}</div><div style="font-size:8px;color:var(--t3)">TROCO</div></div></div><div style="display:flex;gap:4px;align-items:center">${h.saved?`<button class="btn-acc" style="padding:4px 12px;font-size:10px;border-radius:5px" onclick="loadHist(${h.id})">📂 Carregar</button>`:`<span class="pill pill-default">Não salvo</span>`}<button class="btn btn-red btn-sm" onclick="delHist(${h.id})">✕</button></div></div>`}html+=`</div></div>`}
+    c.innerHTML=html;let ub=document.getElementById("uploadBox");ub.addEventListener("dragover",e=>{e.preventDefault();ub.classList.add("drag")});ub.addEventListener("dragleave",()=>ub.classList.remove("drag"));ub.addEventListener("drop",e=>{e.preventDefault();ub.classList.remove("drag");if(e.dataTransfer.files[0]){let inp=document.getElementById("fileInput");let dt=new DataTransfer();dt.items.add(e.dataTransfer.files[0]);inp.files=dt.files;handleFile(inp)}});return}
+  document.getElementById("headerActions").style.display="flex";document.getElementById("fileName").textContent="📁 "+S.fname;
+  let nSel=selected.size,nHig=[...selected].filter(c=>phoneCache[c]).length,nWpp=[...selected].filter(c=>wppSent.has(c)).length;
+  let tabs=[{k:"dash",l:"Dashboard"},{k:"an",l:"Análise",n:N((D.totalAnalise||D.analise.length))},{k:"el",l:"✅ Elegíveis",n:N(D.elegiveis.length)},{k:"pipe",l:"🔄 Pipeline",n:nSel||""},{k:"mp",l:"Mapa"},{k:"rc",l:"RMC/RCC",n:N(D.rmcRcc.length)}];
+  if(CU&&CU.role==="admin")tabs.push({k:"admin",l:"👥"});
+  html+=`<div class="tabs">${tabs.map(t=>`<button class="tab ${S.tab===t.k?"active":""}" onclick="setTab('${t.k}')">${t.l}${t.n?`<span class="tab-badge">${t.n}</span>`:""}</button>`).join("")}</div>`;
+  if(S.tab==="admin"){c.innerHTML=html+renderAdmin();return}
+
+  // ═══ DASHBOARD ═══
+  if(S.tab==="dash"){let tT=D.elegiveis.reduce((s,e)=>s+e.troco,0),tVC=D.elegiveis.reduce((s,e)=>s+e.vc,0);
+    html+=`<div class="kpi-grid"><div class="kpi"><div class="kpi-label">Contratos</div><div class="kpi-value" style="color:var(--acc)">${N((D.totalAnalise||D.analise.length))}</div></div><div class="kpi"><div class="kpi-label">Elegíveis</div><div class="kpi-value" style="color:var(--grn)">${N(D.elegiveis.length)}</div></div><div class="kpi"><div class="kpi-label">Aprovação</div><div class="kpi-value" style="color:var(--ylw)">${(D.totalAnalise||D.analise.length)?((D.elegiveis.length/(D.totalAnalise||D.analise.length))*100).toFixed(1)+"%":"0%"}</div></div><div class="kpi" style="border-color:rgba(234,179,8,.3)"><div class="kpi-label">💰 Vlr Contrato</div><div class="kpi-value" style="color:var(--ylw)">${R$(tVC)}</div></div><div class="kpi"><div class="kpi-label">Vlr Médio</div><div class="kpi-value" style="color:var(--org)">${D.elegiveis.length?R$(tVC/D.elegiveis.length):"R$ 0"}</div></div><div class="kpi"><div class="kpi-label">Troco Total</div><div class="kpi-value" style="color:var(--grn)">${R$(tT)}</div></div><div class="kpi"><div class="kpi-label">Troco Médio</div><div class="kpi-value" style="color:var(--acc)">${D.elegiveis.length?R$(tT/D.elegiveis.length):"R$ 0"}</div></div><div class="kpi"><div class="kpi-label">Pipeline</div><div class="kpi-value" style="color:var(--cyan)">${N(nSel)} <span style="font-size:10px;color:var(--t3)">sel</span> ${N(nHig)} <span style="font-size:10px;color:var(--t3)">hig</span></div></div></div>`;
+    html+=`<div class="dash-grid"><div><div style="font-size:12px;font-weight:700;color:var(--t2);margin-bottom:10px;text-transform:uppercase">Portabilidade por Banco</div><div style="display:grid;gap:10px">`;
+    for(let b of ORDEM){let m=D.mapaArr.find(x=>x.banco===b);let dc=DC[b];html+=`<div style="border-radius:10px;padding:14px 18px;border:1px solid var(--brd);background:${dc.bg};display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:16px;font-weight:800;color:${dc.c}">${b}</div><div style="font-size:11px;color:var(--t2)">${m?N(m.n):0} contr</div></div><div style="text-align:center"><div style="font-size:13px;font-weight:700;color:${dc.c}">${m?R$(m.vcTotal||0):"R$ 0"}</div><div style="font-size:9px;color:var(--t3)">Vlr Contrato</div></div><div style="text-align:right"><div style="font-size:13px;font-weight:700;color:var(--grn)">${m?R$(m.total):"R$ 0"}</div><div style="font-size:9px;color:var(--t3)">Troco</div></div></div>`}
+    html+=`</div></div><div><div style="font-size:12px;font-weight:700;color:var(--t2);margin-bottom:10px;text-transform:uppercase">Taxas</div><div style="background:var(--card);border-radius:10px;border:1px solid var(--brd);padding:16px">`;
+    for(let[t,cnt]of Object.entries(D.taxaDist).sort((a,b)=>b[0]-a[0])){let pct=D.elegiveis.length?(cnt/D.elegiveis.length)*100:0;html+=`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:12px;font-weight:700">${t}%</span><span style="font-size:11px;color:var(--t2)">${N(cnt)} (${pct.toFixed(1)}%)</span></div><div class="taxa-bar"><div class="taxa-fill" style="width:${pct}%"></div></div></div>`}
+    html+=`</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px"><div style="background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--brd)"><div style="font-size:10px;color:var(--t3);text-transform:uppercase;margin-bottom:4px">1 Paga</div><div style="font-size:16px;font-weight:800;color:var(--org)">${N(D.elegiveis.filter(e=>e.is1p).length)}</div></div><div style="background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--brd)"><div style="font-size:10px;color:var(--t3);text-transform:uppercase;margin-bottom:4px">Invalidez</div><div style="font-size:16px;font-weight:800;color:var(--pnk)">${N(D.elegiveis.filter(e=>e.isInv).length)}</div></div></div></div></div>`;
+    let bC={PAN:"var(--org)",BMG:"var(--acc)",Daycoval:"var(--pnk)"};html+=`<div style="font-size:12px;font-weight:700;color:var(--t2);margin-bottom:10px;text-transform:uppercase">RMC/RCC</div><div class="rmc-grid">`;for(let[n,cod]of Object.entries(CARTAO)){let f=D.rmcRcc.filter(r=>r.cRmc===cod||r.cRcc===cod);html+=`<div style="background:var(--card);border-radius:10px;padding:16px;border:1px solid var(--brd);border-left:3px solid ${bC[n]}"><div style="font-size:15px;font-weight:800;color:${bC[n]};margin-bottom:6px">${n}</div><div style="font-size:22px;font-weight:800">${f.length}</div></div>`}html+=`</div>`}
+
+  // ═══ ELEGÍVEIS (com checkbox) ═══
+  if(S.tab==="el"){
+    let filtered=filt(D.elegiveis),items=filtered.slice(S.pg*PER,(S.pg+1)*PER);
+    html+=`<div class="search-bar"><input type="text" placeholder="Buscar..." value="${esc(S.q)}" oninput="setQ(this.value)"><div style="display:flex;gap:4px;align-items:center;background:var(--card);border:1px solid var(--brd);border-radius:6px;padding:3px"><button class="btn btn-sm" style="font-size:9px;border:none;padding:3px 8px;color:var(--acc)" onclick="selPage()">☑ Página ${S.pg+1}</button><button class="btn btn-sm" style="font-size:9px;border:none;padding:3px 8px;color:var(--grn)" onclick="toggleSelAll()">☑ Todos (${D.elegiveis.length})</button><button class="btn btn-sm" style="font-size:9px;border:none;padding:3px 8px;color:var(--red)" onclick="selNone()">✕ Limpar</button></div><button class="btn-acc" style="padding:6px 14px;font-size:10px" onclick="moveToHig()">🔄 Pipeline (${selected.size})</button><span style="font-size:10px;color:var(--t3)">${selected.size} selecionados</span></div>`;
+    let pgItems=filtered.slice(S.pg*PER,(S.pg+1)*PER);let pgAllCk=pgItems.length>0&&pgItems.every(r=>selected.has(r.cpf));
+    html+=`<div class="table-wrap"><div class="table-scroll"><table><thead><tr><th style="width:30px"><input type="checkbox" class="chk" onclick="selPage()" ${pgAllCk?"checked":""}></th>${TH("nome","Nome")}${TH("cpf","CPF")}${TH("cod","Banco")}${TH("par","Parcela",1)}${TH("sal","Saldo",1)}${TH("prazo","Prazo")}${TH("dest","Destino")}${TH("vc","Vlr Cont",1)}${TH("troco","Troco",1)}${TH("taxa","Taxa")}</tr></thead><tbody>`;
+    for(let r of items){let dc=r.dest!=="-"?DC[r.dest]:null;let ck=selected.has(r.cpf);
+      html+=`<tr class="rh" style="${ck?"background:rgba(59,130,246,0.06)":""}"><td><input type="checkbox" class="chk" ${ck?"checked":""} onclick="toggleSel('${r.cpf}')"></td><td>${esc(r.nome)}</td><td class="mono">${esc(r.cpf)}</td><td><span class="pill pill-default">${esc(r.cod)}</span></td><td class="right mono">${R$(r.par)}</td><td class="right mono">${R$(r.sal)}</td><td class="mono">${esc(r.prazo)}</td><td>${dc?`<span class="pill ${pCls[r.dest]}">${r.dest}</span>`:"—"}</td><td class="right mono" style="color:var(--ylw)">${R$(r.vc)}</td><td class="right mono" style="color:var(--grn);font-weight:700">${R$(r.troco)}</td><td>${r.taxa!=="-"?r.taxa+"%":"—"}</td></tr>`}
+    if(!items.length)html+=`<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--t3)">Nenhum</td></tr>`;
+    html+=`</tbody></table></div>${pgr(filtered.length)}</div>`}
+
+  // ═══ ANÁLISE ═══
+  if(S.tab==="an"){let filtered=filt(D.analise),items=filtered.slice(S.pg*PER,(S.pg+1)*PER);
+    html+=`<div class="search-bar"><input type="text" placeholder="Buscar..." value="${esc(S.q)}" oninput="setQ(this.value)"></div>`;
+    html+=`<div class="table-wrap"><div class="table-scroll"><table><thead><tr>${TH("nome","Nome")}${TH("cpf","CPF")}${TH("cod","Banco")}${TH("par","Parcela",1)}${TH("sal","Saldo",1)}${TH("prazo","Prazo")}${TH("pag","Pagas")}${TH("dest","Destino")}${TH("vc","Vlr Cont",1)}${TH("troco","Troco",1)}${TH("taxa","Taxa")}${TH("ok","Status")}</tr></thead><tbody>`;
+    for(let r of items){let dc=r.dest!=="-"?DC[r.dest]:null;html+=`<tr class="rh"><td>${esc(r.nome)}</td><td class="mono">${esc(r.cpf)}</td><td><span class="pill pill-default">${esc(r.cod)}</span></td><td class="right mono">${R$(r.par)}</td><td class="right mono">${R$(r.sal)}</td><td class="mono">${esc(r.prazo)}</td><td>${r.pag}</td><td>${dc?`<span class="pill ${pCls[r.dest]}">${r.dest}</span>`:"—"}</td><td class="right mono" style="color:var(--ylw)">${r.vc>0?R$(r.vc):"—"}</td><td class="right mono" style="color:${r.troco>0?"var(--grn)":"var(--t3)"};font-weight:700">${r.troco>0?R$(r.troco):"—"}</td><td>${r.taxa!=="-"?r.taxa+"%":"—"}</td><td>${r.ok?'<span class="pill pill-grn">SIM</span>':'<span class="pill pill-red">NÃO</span>'}</td></tr>`}
+    if(!items.length)html+=`<tr><td colspan="12" style="padding:40px;text-align:center;color:var(--t3)">Nenhum</td></tr>`;
+    html+=`</tbody></table></div>${pgr(filtered.length)}</div>`}
+
+  // ═══ PIPELINE (agrupado por cliente) ═══
+  if(S.tab==="pipe"){
+    let selItems=D.elegiveis.filter(e=>selected.has(e.cpf));
+    let grouped=groupByCPF(selItems);
+    let grpHig=grouped.filter(g=>phoneCache[g.cpf]);
+    let grpWpp=grouped.filter(g=>wppSent.has(g.cpf));
+    let ps=S.pipeStage;
+    html+=`<div class="pipe-stages">
+      <div class="pipe-stage ${ps==="sel"?"active":""}" onclick="S.pipeStage='sel';renderApp()">1. Clientes <span class="pipe-n">${grouped.length}</span></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-stage ${ps==="hig"?"active":""}" onclick="S.pipeStage='hig';renderApp()">2. Higienizados <span class="pipe-n">${grpHig.length}</span></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-stage ${ps==="wpp"?"active":""}" onclick="S.pipeStage='wpp';renderApp()">3. WhatsApp <span class="pipe-n">${grpWpp.length}</span></div>
+    </div>`;
+    // KPIs do pipeline
+    let totalContratos=selItems.length,totalClientes=grouped.length,totalTroco=grouped.reduce((s,g)=>s+g.trocoTotal,0),totalVC=grouped.reduce((s,g)=>s+g.vcTotal,0);
+    html+=`<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="kpi" style="flex:1;min-width:120px"><div class="kpi-label">Clientes</div><div class="kpi-value" style="color:var(--cyan)">${N(totalClientes)}</div></div>
+      <div class="kpi" style="flex:1;min-width:120px"><div class="kpi-label">Contratos</div><div class="kpi-value" style="color:var(--acc)">${N(totalContratos)}</div></div>
+      <div class="kpi" style="flex:1;min-width:120px"><div class="kpi-label">Vlr Contrato</div><div class="kpi-value" style="color:var(--ylw)">${R$(totalVC)}</div></div>
+      <div class="kpi" style="flex:1;min-width:120px"><div class="kpi-label">Troco Total</div><div class="kpi-value" style="color:var(--grn)">${R$(totalTroco)}</div></div>
+    </div>`;
+
+    // Stage 1: Selecionados (agrupados)
+    if(ps==="sel"){
+      if(!grouped.length){html+=`<div style="text-align:center;padding:60px;color:var(--t3)"><div style="font-size:28px;margin-bottom:10px">📋</div>Nenhum cliente selecionado.<br>Vá para <strong>Elegíveis</strong>.</div>`}
+      else{
+        // Phone mode toggle
+        html+=`<div style="background:var(--sf);border:1px solid var(--brd);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="font-size:12px;font-weight:700;color:var(--t2)">📱 Origem do Telefone:</div>
+          <div style="display:flex;gap:4px;background:var(--card);border-radius:6px;padding:3px;border:1px solid var(--brd)">
+            <button class="sel-btn" style="color:${phoneMode==="base"?"var(--grn)":"var(--t3)"};${phoneMode==="base"?"background:rgba(34,197,94,0.1);border-radius:4px":""}" onclick="phoneMode='base';renderApp()">📋 Telefone da Base</button>
+            <button class="sel-btn" style="color:${phoneMode==="api"?"var(--cyan)":"var(--t3)"};${phoneMode==="api"?"background:rgba(6,182,212,0.1);border-radius:4px":""}" onclick="if(confirm('⚠️ A higienização via NovaVida tem CUSTO por consulta.\\n\\nDeseja continuar?')){phoneMode='api';renderApp()}">📡 NovaVida (custo)</button>
+          </div>
+          <span style="font-size:10px;color:var(--t3)">${phoneMode==="base"?"Usando telefones da planilha":"Usando API NovaVida (custo por consulta)"}</span>
+        </div>`;
+        html+=`<div class="search-bar">${phoneMode==="api"?`<button class="btn-acc" style="padding:6px 14px;font-size:10px" onclick="if(confirm('⚠️ Serão consultados ${grouped.length} CPFs na NovaVida.\\nIsso tem CUSTO. Confirma?'))batchHig()">📡 Higienizar ${grouped.length} (NovaVida)</button>`:"<span></span>"}<button class="btn btn-red" onclick="selected.clear();renderApp()">Limpar Seleção</button></div>`;
+        html+=`<div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Cliente</th><th>CPF</th><th style="text-align:center">Contr</th><th>Destinos</th><th class="right">Vlr Contrato</th><th class="right">Troco Total</th><th>Tel Base</th><th>Status</th><th>Ação</th></tr></thead><tbody>`;
+        for(let g of grouped){let hig=!!phoneCache[g.cpf];let sent=wppSent.has(g.cpf);let destinos=[...g.bancos].map(b=>`<span class="pill ${pCls[b]||"pill-default"}" style="margin-right:2px">${b}</span>`).join("");
+          let telBase=g.t1||g.t2||g.t3||"";
+          let telNum=telBase.replace(/\D/g,"");
+          let wppBase=telNum.length>=10?`https://wa.me/55${telNum}`:"";
+          html+=`<tr class="rh"><td>${esc(g.nome)}</td><td class="mono">${esc(g.cpf)}</td><td style="text-align:center"><span class="pill pill-acc">${g.qtd}</span></td><td>${destinos}</td><td class="right mono" style="color:var(--ylw)">${R$(g.vcTotal)}</td><td class="right mono" style="color:var(--grn);font-weight:700">${R$(g.trocoTotal)}</td><td class="mono">${telBase?`${esc(telBase)} ${wppBase?`<a href="${wppBase}" target="_blank" style="text-decoration:none"><span class="pill pill-grn" style="cursor:pointer">💬</span></a>`:""}`:'<span style="color:var(--t3)">—</span>'}</td><td>${sent?'<span class="pill pill-cyan">ENVIADO</span>':hig?'<span class="pill pill-grn">HIGIENIZADO</span>':`<span class="pill ${telBase?"pill-org":"pill-default"}">${telBase?"TEM TEL":"SEM TEL"}</span>`}</td><td>${phoneMode==="api"?`<button class="btn btn-sm ${hig?"btn-grn":"btn-cyan"}" onclick="higienizarCPF('${g.cpf}','${esc(g.nome)}','${esc(g.t1)}','${esc(g.t2)}','${esc(g.t3)}')">${hig?"📱 Ver":"📡 Hig"}</button> `:""}${wppBase&&phoneMode==="base"?`<a href="${wppBase}" target="_blank" style="text-decoration:none"><span class="pill pill-grn" style="cursor:pointer">💬 Wpp</span></a> `:""}<button class="btn btn-red btn-sm" onclick="selected.delete('${g.cpf}');renderApp()">✕</button></td></tr>`}
+        html+=`</tbody></table></div></div>`}}
+
+    // Stage 2: Higienizados / Pronto p/ WhatsApp
+    if(ps==="hig"){
+      // In base mode, all selected are "ready" if they have a phone
+      let readyItems=phoneMode==="base"?grouped.filter(g=>{let t=(g.t1||g.t2||g.t3||"").replace(/\D/g,"");return t.length>=10}):grpHig;
+      if(!readyItems.length){html+=`<div style="text-align:center;padding:60px;color:var(--t3)"><div style="font-size:28px;margin-bottom:10px">${phoneMode==="base"?"📋":"📡"}</div>${phoneMode==="base"?"Nenhum cliente com telefone na base.":"Nenhum cliente higienizado. Volte e clique Higienizar."}</div>`}
+      else{
+        let wppCount=readyItems.length;
+        html+=`<div class="search-bar"><button class="btn-acc" style="padding:6px 14px;font-size:10px" onclick="openWppModal()">💬 WhatsApp (${wppCount} contatos)</button><button class="btn btn-grn" onclick="exportWppList()">↓ Exportar</button><span style="font-size:10px;color:var(--t3)">Usando: ${phoneMode==="base"?"telefone da base":"NovaVida"}</span></div>`;
+        html+=`<div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Cliente</th><th>CPF</th><th style="text-align:center">Contr</th><th class="right">Troco Total</th><th>Telefone</th><th>WhatsApp</th><th>Ação</th></tr></thead><tbody>`;
+        for(let g of readyItems){
+          let telFinal="",wppLink="";
+          if(phoneMode==="base"){
+            telFinal=g.t1||g.t2||g.t3||"";
+            let num=telFinal.replace(/\D/g,"");
+            if(num.length>=10)wppLink=`https://wa.me/55${num}`;
+          }else{
+            let ph=phoneCache[g.cpf];let phones=ph?ph.telefones:[];let wpp=phones.find(t=>t.whatsapp);
+            telFinal=wpp?`(${wpp.ddd}) ${wpp.telefone}`:phones[0]?`(${phones[0].ddd}) ${phones[0].telefone}`:"";
+            if(wpp)wppLink=`https://wa.me/55${wpp.ddd}${wpp.telefone}`;
+          }
+          html+=`<tr class="rh"><td>${esc(g.nome)}</td><td class="mono">${esc(g.cpf)}</td><td style="text-align:center"><span class="pill pill-acc">${g.qtd}</span></td><td class="right mono" style="color:var(--grn);font-weight:700">${R$(g.trocoTotal)}</td><td class="mono">${telFinal?esc(telFinal):'<span style="color:var(--t3)">—</span>'}</td><td>${wppLink?`<span class="pill pill-grn">SIM</span>`:'<span class="pill pill-red">NÃO</span>'}</td><td>${wppLink?`<a href="${wppLink}" target="_blank" style="text-decoration:none"><span class="pill pill-grn" style="cursor:pointer">💬 Abrir</span></a> `:""}<button class="btn btn-sm btn-cyan" onclick="higienizarCPF('${g.cpf}','${esc(g.nome)}','${esc(g.t1)}','${esc(g.t2)}','${esc(g.t3)}')">📱</button></td></tr>`}
+        html+=`</tbody></table></div></div>`}}
+
+    // Stage 3: WhatsApp Enviados (agrupados)
+    if(ps==="wpp"){
+      if(!grpWpp.length){html+=`<div style="text-align:center;padding:60px;color:var(--t3)"><div style="font-size:28px;margin-bottom:10px">💬</div>Nenhum disparo realizado.</div>`}
+      else{
+        html+=`<div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Cliente</th><th>CPF</th><th style="text-align:center">Contr</th><th class="right">Troco Total</th><th>Telefone</th><th>Status</th></tr></thead><tbody>`;
+        for(let g of grpWpp){
+          let telShow="";
+          if(phoneMode==="base"){telShow=g.t1||g.t2||g.t3||""}
+          else{let ph=phoneCache[g.cpf];let wpp=ph?ph.telefones.find(t=>t.whatsapp):null;telShow=wpp?`(${wpp.ddd}) ${wpp.telefone}`:"-"}
+          html+=`<tr class="rh"><td>${esc(g.nome)}</td><td class="mono">${esc(g.cpf)}</td><td style="text-align:center"><span class="pill pill-acc">${g.qtd}</span></td><td class="right mono" style="color:var(--grn);font-weight:700">${R$(g.trocoTotal)}</td><td class="mono">${esc(telShow)}</td><td><span class="pill pill-cyan">✅ ENVIADO</span></td></tr>`}
+        html+=`</tbody></table></div></div>`}}}
+
+  // ═══ MAPA ═══
+  if(S.tab==="mp"){let rules={QUALI:"Saldo≥2000 | Troco≥250",FACTA:"Parcela≥50 | Troco≥100 | Taxa 1.70-1.85",BRB:"Saldo≥3000 | Troco≥250 | Coef 0.02130",DIGIO:"Saldo≥4500 | Troco≥250 | Pagas≥12(ou 1P)"};html+=`<div class="mapa-grid">`;for(let b of ORDEM){let m=D.mapaArr.find(x=>x.banco===b);let dc=DC[b];html+=`<div style="border-radius:12px;padding:22px;border:1px solid var(--brd);background:${dc.bg}"><div style="font-size:22px;font-weight:900;color:${dc.c};margin-bottom:16px">${b}</div><div style="margin-bottom:12px"><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Contratos</div><div style="font-size:28px;font-weight:800">${m?N(m.n):0}</div></div><div style="margin-bottom:12px"><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Vlr Contrato</div><div style="font-size:16px;font-weight:700;color:var(--ylw)">${m?R$(m.vcTotal||0):"R$ 0"}</div></div><div style="margin-bottom:12px"><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Troco</div><div style="font-size:16px;font-weight:700;color:${dc.c}">${m?R$(m.total):"R$ 0"}</div></div><div style="border-top:1px solid var(--brd);padding-top:10px;font-size:11px;color:var(--t2)">${rules[b]}</div></div>`}html+=`</div>`}
+
+  // ═══ RMC/RCC ═══
+  if(S.tab==="rc"){let src=D.rmcRcc;if(S.rmcF!=="ALL"){let cod=CARTAO[S.rmcF==="DAYCOVAL"?"Daycoval":S.rmcF];src=src.filter(r=>r.cRmc===cod||r.cRcc===cod)}let filtered=S.q?src.filter(r=>r.nome.toLowerCase().includes(S.q.toLowerCase())||r.cpf.includes(S.q)):src;let items=filtered.slice(S.pg*PER,(S.pg+1)*PER);
+    html+=`<div class="search-bar"><input type="text" placeholder="Buscar..." value="${esc(S.q)}" oninput="setQ(this.value)"><select onchange="S.rmcF=this.value;S.pg=0;renderApp()"><option value="ALL"${S.rmcF==="ALL"?" selected":""}>Todos</option><option value="PAN"${S.rmcF==="PAN"?" selected":""}>PAN</option><option value="BMG"${S.rmcF==="BMG"?" selected":""}>BMG</option><option value="DAYCOVAL"${S.rmcF==="DAYCOVAL"?" selected":""}>Daycoval</option></select></div>`;
+    html+=`<div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Nome</th><th>CPF</th><th>Espécie</th><th>Tel 1</th><th>Tipo RMC</th><th>Banco RMC</th><th class="right">Valor RMC</th><th>Tipo RCC</th><th>Banco RCC</th><th class="right">Valor RCC</th></tr></thead><tbody>`;
+    for(let r of items)html+=`<tr class="rh"><td>${esc(r.nome)}</td><td class="mono">${esc(r.cpf)}</td><td>${esc(r.esp)}</td><td class="mono">${esc(r.t1)}</td><td>${esc(r.tRmc)}</td><td><span class="pill pill-default">${esc(r.cRmc)}</span></td><td class="right mono" style="color:${r.vRmc>0?"var(--grn)":"var(--t3)"}">${r.vRmc>0?R$(r.vRmc):"—"}</td><td>${esc(r.tRcc)}</td><td><span class="pill pill-default">${esc(r.cRcc)}</span></td><td class="right mono" style="color:${r.vRcc>0?"var(--pur)":"var(--t3)"}">${r.vRcc>0?R$(r.vRcc):"—"}</td></tr>`;
+    if(!items.length)html+=`<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--t3)">Nenhum</td></tr>`;
+    html+=`</tbody></table></div>${pgr(filtered.length)}</div>`}
+  c.innerHTML=html}
+
+function exportXLSX(){let D=S.data;if(!D)return;let wb=XLSX.utils.book_new(),mk=(a,n)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(a),n);
+  mk(D.analise.map(r=>({Nome:r.nome,CPF:r.cpf,Espécie:r.esp,Idade:r.idade,Invalidez:r.isInv?"SIM":"NÃO","1Paga":r.is1p?"SIM":"NÃO",Contrato:r.con,"Banco Origem":r.cod,Parcela:r.par,"Saldo Quit.":r.sal,Prazo:r.prazo,Pagas:r.pag,Destino:r.dest,"Vlr Contrato":r.vc,Troco:r.troco,Taxa:r.taxa,Elegível:r.ok?"SIM":"NÃO"})),"Análise Completa");
+  mk(D.elegiveis.map(r=>{let ph=phoneCache[r.cpf],phs=ph?ph.telefones:[],wps=phs.filter(t=>t.whatsapp);return{Nome:r.nome,CPF:r.cpf,Contrato:r.con,"Banco Origem":r.cod,Parcela:r.par,"Saldo Quit.":r.sal,Prazo:r.prazo,Destino:r.dest,"Vlr Contrato":r.vc,Troco:r.troco,Taxa:r.taxa,"Tel Base 1":r.t1||"","Tel Base 2":r.t2||"","Tel Base 3":r.t3||"","Tel Hig 1":phs[0]?`(${phs[0].ddd}) ${phs[0].telefone}`:"","Tel Hig 2":phs[1]?`(${phs[1].ddd}) ${phs[1].telefone}`:"","WhatsApp":wps[0]?`55${wps[0].ddd}${wps[0].telefone}`:"",Higienizado:ph?"SIM":"NÃO"}}),"Elegíveis");
+  mk(D.mapaArr.map(m=>({"Banco":m.banco,Contratos:m.n,"Vlr Contrato":m.vcTotal,"Troco Total":m.total})),"Mapa");
+  mk(D.rmcRcc.map(r=>({Nome:r.nome,CPF:r.cpf,Espécie:r.esp,Tel1:r.t1,"Tipo RMC":r.tRmc,"Banco RMC":r.cRmc,"Valor RMC":r.vRmc,"Tipo RCC":r.tRcc,"Banco RCC":r.cRcc,"Valor RCC":r.vRcc})),"RMC-RCC");
+  for(let[n,cod]of Object.entries(CARTAO))mk(D.rmcRcc.filter(r=>r.cRmc===cod||r.cRcc===cod).map(r=>({Nome:r.nome,CPF:r.cpf,Tel1:r.t1,"Tipo RMC":r.tRmc,"Banco RMC":r.cRmc,"Valor RMC":r.vRmc,"Tipo RCC":r.tRcc,"Banco RCC":r.cRcc,"Valor RCC":r.vRcc})),`RMC ${n}`);
+  XLSX.writeFile(wb,"lhamascred_resultado.xlsx")}
+
+(function(){initU();let s=getSess();if(s){let u=getU()||[];let f=u.find(x=>x.user===s.user);if(f){CU=f;showApp();return}}document.getElementById("loginScreen").style.display="flex"})();
+</script>
+</body></html>
