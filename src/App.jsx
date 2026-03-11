@@ -1,713 +1,606 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-// ── Storage helpers ──────────────────────────────────────────────────────────
-const KEYS = { ops: "ops-data", partners: "partners-data", proposals: "proposals-data" };
-const STORAGE_VERSION = "v4"; // bump to force reset when seed data changes
-
+/* ═══════════════════════════════════════════════════════════════════════════
+   STORAGE
+   ═══════════════════════════════════════════════════════════════════════════ */
+const KEYS = { ops: "ops-data-v2", partners: "partners-data-v2", proposals: "proposals-data-v2" };
 async function load(key) {
-  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
-  catch { return null; }
+  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; } catch { return null; }
 }
 async function save(key, val) {
-  try { await window.storage.set(key, JSON.stringify(val)); } catch {}
+  try { await window.storage.set(key, JSON.stringify(val)); } catch (e) { console.error("save err", e); }
 }
-
-// normaliza string para comparação: minúsculo, sem acentos, sem pontuação extra
-function normStr(s) {
-  return String(s||"").toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-    .replace(/[.\-\/\\]/g," ").replace(/\s+/g," ").trim();
-}
-
-// match flexível de parceiro: tenta exact → contém → palavras-chave
-function matchPartner(raw, partners) {
-  const r = normStr(raw);
-  if (!r) return null;
-  // 1. exact
-  let m = partners.find(p => normStr(p.name) === r);
-  if (m) return m;
-  // 2. remove sufixos jurídicos e compara
-  const strip = s => normStr(s)
-    .replace(/\b(ltda|me|eireli|sa|s\.a|epp|mei|intermediacao de negocios|intermediação de negocios|servicos financeiros|negocios administrativos|consultoria empresarial|promotora de credito)\b/g,"")
-    .trim();
-  const rs = strip(r);
-  m = partners.find(p => strip(normStr(p.name)) === rs && rs.length > 3);
-  if (m) return m;
-  // 3. contém mútuo
-  m = partners.find(p => {
-    const pn = normStr(p.name);
-    return pn.includes(r) || r.includes(pn);
-  });
-  if (m) return m;
-  // 4. primeiras 3 palavras significativas
-  const words = rs.split(" ").filter(w => w.length > 3);
-  if (words.length >= 2) {
-    m = partners.find(p => {
-      const pw = strip(normStr(p.name)).split(" ").filter(w=>w.length>3);
-      const common = words.filter(w => pw.includes(w));
-      return common.length >= Math.min(2, words.length, pw.length);
-    });
-  }
-  return m || null;
-}
-
-// ── Seed ─────────────────────────────────────────────────────────────────────
-// Agentes e digitadores extraídos automaticamente da planilha PROPOSTAS_DIGITADAS.xlsx
-const SEED_PARTNERS = [
-  { id:"p1",  name:"NEWS NEGOCIOS ADMINISTRATIVOS LTDA",                    segment:"Correspondente Bancário", region:"Centro-Oeste", status:"Ativo",
-    digitadores:["Bruno Bortoli De Moraes","Dafini Machado Dos Santos","Daniela Cristina Sartori","Aline Bicalho Da Silva De Almeida","Alex Osvaldo Da Silva","Annedartian Alves","DANIELLE PREZOTO"] },
-  { id:"p2",  name:"CENTRAL BANCARIA INTERMEDIAÇÃO DE NEGOCIOS LTDA",       segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
-    digitadores:["Rubineia Ferreira Dos Santos","Alex Souza Da Silva","Carlos Aurelio Saralegui Lhamas Junior","Eduardo Jardim Freire Costa","Henrique Longo Da Silva","Isabelly Ramalho De Oliveira","Laura Rodrigues Da Silva Alves","Taina Lucio Da Luz","Victoria Carolina Rodrigues Mlaker","Priscila Keli Carvalho Lazini Leao","Nathalia Fromme Ferreira"] },
-  { id:"p3",  name:"MONAY INTERMEDIACOES DE NEGOCIOS LTDA",                 segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
-    digitadores:["Amanda Soares","Amanda Suelis Gonçalves Papaseit","Gedaias Moura","Moisés Lopes Gomes","Pamela Aparecida Alexandre"] },
-  { id:"p4",  name:"JVR SERVICOS FINANCEIROS LTDA",                         segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
-    digitadores:["Janaina Viana Teixeira","Francine Da Silva","Ricardo Luis Gomes","Priscila Keli Carvalho Lazini Leao"] },
-  { id:"p5",  name:"JACKELINE DESANTE ZIOTI",                               segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Jackeline Desante Zioti"] },
-  { id:"p6",  name:"DANUSA FRAGA DE SOUZA",                                 segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Danusa Fraga De Souza","Felipe Coimbra Da Silva","Gloria Maria Gomes Dos Santos","Laura Rodrigues Alves","Silvana Valentina De Jesus","Thiago Alves Barbosa"] },
-  { id:"p7",  name:"OSMAR FERNANDO DA SILVA JUNIOR",                        segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Osmar Fernando Da Silva Junior"] },
-  { id:"p8",  name:"MARINA FERNANDA CALDEIRA ZEFERINO",                     segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Marina Fernanda Caldeira Zeferino"] },
-  { id:"p9",  name:"ERISOM DIAS DE ALMEIDA INTERMEDIACAO DE NEGOCIOS",      segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
-    digitadores:["Erisom Dias De Almeida","Erika Neves Da Silva","Jaqueline Tieko Arakawa De Almeida"] },
-  { id:"p10", name:"ANA CLAUDIA KALTENEGGER",                               segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Ana Claudia Kaltenegger"] },
-  { id:"p11", name:"TATIANE CAMARGO GUERRA",                                segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Tatiane Camargo Guerra","Rafael De Gasperi Boassi","Rubineia Ferreira Dos Santos","Laura Rodrigues Da Silva"] },
-  { id:"p12", name:"LHAMASCRED PROMOTORA DE CREDITO",                       segment:"Promotora de Crédito",    region:"Centro-Oeste", status:"Ativo",
-    digitadores:["Carlos Aurelio Saralegui Lhamas Junior","Dafini Machado Dos Santos","Alex Osvaldo Da Silva","Alex Souza Da Silva"] },
-  { id:"p13", name:"CRISTIANO CAZELATO",                                    segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
-    digitadores:["Cristiano Cazelato"] },
-  { id:"p14", name:"INVEST CONSIG CONSULTORIA EMPRESARIAL LTDA",            segment:"Correspondente Bancário", region:"Sul",          status:"Ativo",
-    digitadores:["Priscila Keli Carvalho Lazini Leao","Angélica Cassiano"] },
-  { id:"p15", name:"IMOB CONSIGNADOS",                                      segment:"Correspondente Bancário", region:"Nordeste",     status:"Ativo",
-    digitadores:["Elania Raquel Maciel Alves"] },
-  { id:"p16", name:"RODRIGO PAES DE MELO",                                  segment:"Agente Autônomo",         region:"Sudeste",      status:"Inativo",
-    digitadores:["Rodrigo Paes De Melo"] },
-  { id:"p17", name:"LUANA PAULINO SILVA",                                   segment:"Agente Autônomo",         region:"Sudeste",      status:"Inativo",
-    digitadores:["Luana Paulino Silva"] },
-];
-
-// Base limpa — dados reais serão importados via planilha
-const SEED_OPS = [];
-
+const uid = () => "id_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 const TODAY = new Date().toISOString().split("T")[0];
+const fmtCur = v => "R$ " + Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+const fmtDate = d => { if (!d) return "—"; const p = d.split("-"); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d; };
 
-// Base limpa — propostas serão cadastradas manualmente
-const SEED_PROPOSALS = [];
-];
-
-const STAGES = [
-  { id: "Prospecção",        color: "#7C83FD", icon: "◎" },
-  { id: "Proposta Enviada",  color: "#00C2FF", icon: "◈" },
-  { id: "Negociação",        color: "#FFB830", icon: "◬" },
-  { id: "Aprovação Interna", color: "#9B59B6", icon: "◆" },
-  { id: "Fechado",           color: "#00FFB2", icon: "✦" },
-  { id: "Perdido",           color: "#FF4D6A", icon: "✕" },
-];
-
-const PRIORITY_COLOR = { Alta: "#FF4D6A", Média: "#FFB830", Baixa: "#00FFB2" };
-
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME
+   ═══════════════════════════════════════════════════════════════════════════ */
 const C = {
-  bg: "#070B14", surface: "#0D1526", card: "#111D35", border: "#1E3058",
-  accent: "#00C2FF", accent2: "#00FFB2", warn: "#FFB830", danger: "#FF4D6A",
-  text: "#E8F0FF", muted: "#5A7AA8",
+  bg: "#0B0F1A", surface: "#111827", card: "#151C2C", border: "#1E293B",
+  text: "#E8ECF4", muted: "#64748B", accent: "#6366F1", accent2: "#22C55E",
+  warn: "#F59E0B", danger: "#EF4444", info: "#38BDF8",
 };
 
-const SITUACAO_COLOR = {
-  "CONCRETIZADO":          "#00FFB2",
-  "PAGO":                  "#00FFB2",
-  "PAGO C/PENDÊNCIA":      "#FFB830",
-  "PORTABILIDADE AVERBADA":"#00C2FF",
-  "ANDAMENTO":             "#00C2FF",
-  "PROPOSTA CADASTRADA":   "#7C83FD",
-  "ANALISE BANCO":         "#FFB830",
-  "EM ANALISE":            "#FFB830",
-  "CRC CLIENTE":           "#FFB830",
-  "CANCELADA":             "#FF4D6A",
-  "ESTORNADO":             "#FF4D6A",
-  "PROPOSTA REPROVADA":    "#FF4D6A",
-};
-const SIT_BANCO_COLOR = {
-  "FINALIZADO":            "#00FFB2",
-  "PAGO":                  "#00FFB2",
-  "PAGO AO CLIENTE":       "#00FFB2",
-  "PAGAMENTO REALIZADO":   "#00FFB2",
-  "CONCRETIZADO":          "#00FFB2",
-  "INTEGRADA":             "#00C2FF",
-  "INTEGRADO":             "#00C2FF",
-  "INT - FINALIZADO":      "#00C2FF",
-  "INT - TED EMITIDA":     "#00C2FF",
-  "Portabilidade Averbada":"#00C2FF",
-  "EM ANALISE":            "#FFB830",
-  "ANALISE BANCO":         "#FFB830",
-  "TRATATIVA COMERCIAL":   "#FFB830",
-  "TRATATIVA PARCEIROS":   "#FFB830",
-  "aberto":                "#FFB830",
-  "CANCELADO":             "#FF4D6A",
-  "CANCELADA":             "#FF4D6A",
-  "Cancelada":             "#FF4D6A",
-  "NEGADA":                "#FF4D6A",
-  "REPROVADO":             "#FF4D6A",
-  "REPROVADA":             "#FF4D6A",
-  "REPROVADO CRÉDITO":     "#FF4D6A",
-  "REP - REPROVADO PELO BANCO":     "#FF4D6A",
-  "REP - SOLICITADO PELO CORRETOR": "#FF4D6A",
-};
-const STATUS_COLOR = {
-  "Concluída": "#00FFB2", "Em andamento": "#FFB830", "Cancelada": "#FF4D6A",
-  "Ativo": "#00FFB2", "Inativo": "#FF4D6A",
-};
+/* ═══════════════════════════════════════════════════════════════════════════
+   SEED DATA
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SEED_PARTNERS = [
+  { id: "p1", name: "TechVentures SP", segment: "Tecnologia", region: "Sudeste", status: "Ativo" },
+  { id: "p2", name: "AgriNorte Ltda", segment: "Agronegócio", region: "Norte", status: "Ativo" },
+  { id: "p3", name: "FinGroup Brasil", segment: "Financeiro", region: "Sul", status: "Ativo" },
+  { id: "p4", name: "RetailMax", segment: "Varejo", region: "Nordeste", status: "Ativo" },
+  { id: "p5", name: "Construtech CE", segment: "Construção", region: "Nordeste", status: "Inativo" },
+];
+const SEED_OPS = [
+  { id: "o1", date: "2026-01-10", partner: "p1", type: "Venda", value: 48000, status: "Concluída", banco: "BMG", operacao: "NOVO", convenio: "INSS", agente: "Ana Lima", situacaoBanco: "FINALIZADO", notes: "" },
+  { id: "o2", date: "2026-01-22", partner: "p2", type: "Contrato", value: 120000, status: "Em andamento", banco: "PAN", operacao: "PORTABILIDADE", convenio: "SIAPE", agente: "Carlos Rocha", situacaoBanco: "PENDENTE", notes: "" },
+  { id: "o3", date: "2026-02-05", partner: "p3", type: "Venda", value: 75000, status: "Concluída", banco: "C6", operacao: "NOVO", convenio: "INSS", agente: "Bruno Moraes", situacaoBanco: "FINALIZADO", notes: "" },
+  { id: "o4", date: "2026-02-18", partner: "p1", type: "Renovação", value: 36000, status: "Concluída", banco: "BMG", operacao: "REFINANCIAMENTO", convenio: "INSS", agente: "Ana Lima", situacaoBanco: "FINALIZADO", notes: "" },
+  { id: "o5", date: "2026-03-01", partner: "p4", type: "Venda", value: 22000, status: "Cancelada", banco: "SAFRA", operacao: "NOVO", convenio: "PREFEITURA", agente: "Marcos Silva", situacaoBanco: "ESTORNADO", notes: "" },
+  { id: "o6", date: "2026-03-05", partner: "p2", type: "Venda", value: 55000, status: "Concluída", banco: "PAN", operacao: "NOVO", convenio: "INSS", agente: "Carlos Rocha", situacaoBanco: "FINALIZADO", notes: "" },
+  { id: "o7", date: "2026-03-08", partner: "p3", type: "Contrato", value: 98000, status: "Em andamento", banco: "C6", operacao: "PORTABILIDADE", convenio: "SIAPE", agente: "Bruno Moraes", situacaoBanco: "PENDENTE", notes: "" },
+  { id: "o8", date: "2026-03-10", partner: "p1", type: "Venda", value: 61000, status: "Concluída", banco: "BMG", operacao: "NOVO", convenio: "INSS", agente: "Ana Lima", situacaoBanco: "FINALIZADO", notes: "" },
+];
+const SEED_PROPOSALS = [
+  { id: "pr1", title: "Expansão de Contrato 2026", partner: "p1", value: 95000, type: "Renovação", priority: "Alta", dueDate: "2026-05-15", responsible: "Ana Lima", notes: "Cliente sinalizou interesse", status: "Negociação", history: [{ status: "Prospecção", date: "2026-01-15", note: "Primeiro contato", user: "admin" }, { status: "Negociação", date: "2026-02-10", note: "Proposta enviada", user: "admin" }] },
+  { id: "pr2", title: "Novo Contrato Safra", partner: "p2", value: 140000, type: "Contrato", priority: "Alta", dueDate: "2026-06-01", responsible: "Carlos Rocha", notes: "", status: "Proposta Enviada", history: [{ status: "Prospecção", date: "2026-02-01", note: "", user: "admin" }, { status: "Proposta Enviada", date: "2026-03-01", note: "", user: "admin" }] },
+];
 
-const BANCOS_LIST    = ["QUALIBANKING","BRB","BRB - INCONTA","C6 BANK","CAPITAL CONSIG","CREFISACP","FACTA FINANCEIRA","INBURSA","LOTUS","NEOCREDITO","PAGBANK","PAN","PRATA DIGITAL","TOTALCASH","Outro"];
-const OPERACOES_LIST = ["NOVO","PORTABILIDADE","PORTAB/REFIN","REFINANCIAMENTO","RECOMPRA","CARTÃO","CARTÃO BENEFÍCIO","Outro"];
-const CONVENIOS_LIST = ["INSS","FGTS","FEDERAL","ESTADUAIS","PREFEITURAS","BAIXA RENDA","Outro"];
-const SITUACOES_LIST = ["PROPOSTA CADASTRADA","ANDAMENTO","ANALISE BANCO","EM ANALISE","CRC CLIENTE","PORTABILIDADE AVERBADA","CONCRETIZADO","PAGO","PAGO C/PENDÊNCIA","ESTORNADO","CANCELADA","PROPOSTA REPROVADA"];
-const SIT_BANCO_LIST = ["EM ANALISE","ANALISE BANCO","INTEGRADA","INTEGRADO","INT - FINALIZADO","INT - TED EMITIDA","FINALIZADO","PAGO","PAGO AO CLIENTE","PAGAMENTO REALIZADO","CONCRETIZADO","Portabilidade Averbada","TRATATIVA COMERCIAL","TRATATIVA PARCEIROS","CANCELADO","CANCELADA","NEGADA","REPROVADO","REPROVADA","REPROVADO CRÉDITO","REP - REPROVADO PELO BANCO","REP - SOLICITADO PELO CORRETOR"];
-
-const fmtBRL = (v) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
-const fmtDate = (d) => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR") : "—";
-const uid = () => Math.random().toString(36).slice(2, 9);
-const stageColor = (s) => STAGES.find(x => x.id === s)?.color ?? C.muted;
-
-const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: ${C.bg}; color: ${C.text}; font-family: 'DM Sans', sans-serif; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: ${C.surface}; }
-  ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
-  input, select, textarea { font-family: 'DM Sans', sans-serif; }
-  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
-  @keyframes slideIn { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:none; } }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-  .fade-in { animation: fadeIn .3s ease both; }
-  .slide-in { animation: slideIn .3s ease both; }
-`;
-
-// ── Base components ───────────────────────────────────────────────────────────
-function Pill({ label, color }) {
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", padding: "2px 9px",
-      borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: .4,
-      background: color + "20", color, border: `1px solid ${color}40`,
-    }}>{label}</span>
-  );
-}
-
-function Card({ children, style, onClick, hover }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <div onClick={onClick}
-      onMouseEnter={() => hover && setHov(true)}
-      onMouseLeave={() => hover && setHov(false)}
-      style={{
-        background: hov ? "#152040" : C.card,
-        border: `1px solid ${hov ? C.accent + "55" : C.border}`,
-        borderRadius: 14, padding: 20, transition: "all .18s",
-        cursor: onClick ? "pointer" : "default", ...style,
-      }}>{children}</div>
-  );
-}
-
-function Input({ label, ...props }) {
-  const [focus, setFocus] = useState(false);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      {label && <label style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>{label}</label>}
-      <input {...props}
-        onFocus={e => { setFocus(true); props.onFocus?.(e); }}
-        onBlur={e => { setFocus(false); props.onBlur?.(e); }}
-        style={{
-          background: C.surface, border: `1px solid ${focus ? C.accent : C.border}`,
-          borderRadius: 8, color: C.text, padding: "9px 12px", fontSize: 13,
-          outline: "none", transition: "border .2s", ...props.style,
-        }} />
-    </div>
-  );
-}
-
-function Sel({ label, options, ...props }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      {label && <label style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>{label}</label>}
-      <select {...props} style={{
-        background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
-        color: C.text, padding: "9px 12px", fontSize: 13, outline: "none", cursor: "pointer", ...props.style,
-      }}>
-        {options.map(o => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function Btn({ children, variant = "primary", ...props }) {
-  const [hov, setHov] = useState(false);
-  const s = {
-    primary: { background: hov ? "#00A8E0" : C.accent, color: C.bg, border: "none" },
-    ghost: { background: hov ? C.accent + "18" : "transparent", color: C.accent, border: `1px solid ${C.accent}44` },
-    danger: { background: hov ? C.danger + "33" : C.danger + "18", color: C.danger, border: `1px solid ${C.danger}44` },
-    success: { background: hov ? C.accent2 + "33" : C.accent2 + "18", color: C.accent2, border: `1px solid ${C.accent2}44` },
-    muted: { background: hov ? C.border : "transparent", color: C.muted, border: `1px solid ${C.border}` },
+/* ═══════════════════════════════════════════════════════════════════════════
+   SHARED COMPONENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+function Btn({ children, variant = "primary", style, ...p }) {
+  const base = { border: "none", borderRadius: 8, fontFamily: "DM Sans", fontWeight: 600, fontSize: 12, cursor: "pointer", padding: "8px 16px", transition: "all .15s" };
+  const variants = {
+    primary: { background: C.accent, color: "#fff" },
+    success: { background: C.accent2, color: "#fff" },
+    ghost: { background: C.surface, color: C.text, border: `1px solid ${C.border}` },
+    danger: { background: C.danger + "22", color: C.danger, border: `1px solid ${C.danger}44` },
   };
-  return (
-    <button {...props}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        padding: "8px 18px", borderRadius: 8, fontFamily: "DM Sans", fontWeight: 600,
-        fontSize: 13, cursor: "pointer", transition: "all .15s", ...s[variant], ...props.style,
-      }}>{children}</button>
-  );
+  return <button style={{ ...base, ...variants[variant], ...style }} {...p}>{children}</button>;
 }
 
-function Modal({ open, onClose, title, children, width = 520 }) {
+function Modal({ open, onClose, title, children, width = 560 }) {
   if (!open) return null;
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "#000000BB", zIndex: 200,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-    }} onClick={onClose}>
-      <div className="fade-in" onClick={e => e.stopPropagation()} style={{
-        background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
-        padding: 28, width, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto",
-        display: "flex", flexDirection: "column", gap: 16,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 16 }}>{title}</h3>
+    <div style={{ position: "fixed", inset: 0, background: "#000000CC", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, width, maxWidth: "96vw", maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 15, margin: 0 }}>{title}</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>×</button>
         </div>
-        {children}
+        <div style={{ padding: "18px 22px", flex: 1 }}>{children}</div>
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value, sub, color = C.accent, icon }) {
+function StatCard({ label, value, sub, color }) {
   return (
-    <Card style={{ display: "flex", flexDirection: "column", gap: 8, position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", top: 14, right: 16, fontSize: 22, opacity: .12 }}>{icon}</div>
-      <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, letterSpacing: 1, textTransform: "uppercase" }}>{label}</span>
-      <span style={{ fontSize: 26, fontFamily: "Syne", fontWeight: 800, color }}>{value}</span>
-      {sub && <span style={{ fontSize: 12, color: C.muted }}>{sub}</span>}
-      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,${color},transparent)` }} />
-    </Card>
-  );
-}
-
-function BarChart({ data, height = 140 }) {
-  const max = Math.max(...data.map(d => d.value), 1);
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height, paddingTop: 10 }}>
-      {data.map((d, i) => (
-        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <div title={fmtBRL(d.value)} style={{
-            width: "100%", borderRadius: "4px 4px 0 0",
-            height: `${(d.value / max) * (height - 30)}px`,
-            background: `linear-gradient(180deg, ${C.accent}, ${C.accent}88)`,
-            transition: "height .5s ease", minHeight: 2,
-          }} />
-          <span style={{ fontSize: 10, color: C.muted, whiteSpace: "nowrap" }}>{d.label}</span>
-        </div>
-      ))}
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 20px", flex: 1, minWidth: 140 }}>
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "Syne", color: color || C.text }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }
 
-// ── Proposal Form ─────────────────────────────────────────────────────────────
-function ProposalForm({ form, setForm, partners }) {
+function InputField({ label, value, onChange, type = "text", options, placeholder, style: st }) {
+  const base = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "8px 12px", fontSize: 12, outline: "none", width: "100%", fontFamily: "DM Sans" };
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <Input label="Título da Proposta *" value={form.title}
-        onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Ex: Renovação Contrato 2025" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Sel label="Parceiro *" value={form.partner}
-          onChange={e => setForm(f => ({ ...f, partner: e.target.value }))}
-          options={[{ value: "", label: "Selecione..." }, ...partners.map(p => ({ value: p.id, label: p.name }))]} />
-        <Input label="Valor (R$)" type="number" value={form.value}
-          onChange={e => setForm(f => ({ ...f, value: e.target.value }))} placeholder="0.00" />
-        <Sel label="Tipo" value={form.type}
-          onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-          options={["Venda", "Contrato", "Renovação", "Parceria", "Outro"]} />
-        <Sel label="Prioridade" value={form.priority}
-          onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
-          options={["Alta", "Média", "Baixa"]} />
-        <Input label="Prazo" type="date" value={form.dueDate}
-          onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
-        <Input label="Responsável" value={form.responsible}
-          onChange={e => setForm(f => ({ ...f, responsible: e.target.value }))} placeholder="Nome" />
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        <label style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>Observações</label>
-        <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-          rows={2} placeholder="Notas, contexto, próximos passos..."
-          style={{
-            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
-            color: C.text, padding: "9px 12px", fontSize: 13, outline: "none",
-            resize: "vertical", fontFamily: "DM Sans",
-          }} />
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...st }}>
+      {label && <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: "uppercase" }}>{label}</label>}
+      {options ? (
+        <select value={value} onChange={e => onChange(e.target.value)} style={{ ...base, cursor: "pointer" }}>
+          <option value="">— Selecione —</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : type === "textarea" ? (
+        <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} placeholder={placeholder} style={{ ...base, resize: "vertical" }} />
+      ) : (
+        <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={base} />
+      )}
     </div>
   );
 }
 
-// ── Proposal Detail Panel ─────────────────────────────────────────────────────
-function ProposalDetail({ proposal, partners, onClose, onSave, onDelete, currentUser }) {
-  const [editMode, setEditMode] = useState(false);
-  const [form, setForm] = useState({ ...proposal });
-  const [newNote, setNewNote] = useState("");
-  const [newStatus, setNewStatus] = useState(proposal.status);
-  const [confirm, setConfirm] = useState(false);
-  const partner = partners.find(p => p.id === proposal.partner);
-  const sc = stageColor(proposal.status);
-  const overdue = proposal.dueDate && proposal.dueDate < TODAY && !["Fechado", "Perdido"].includes(proposal.status);
-
-  const handleStatusUpdate = () => {
-    if (!newStatus || newStatus === proposal.status) return;
-    const entry = {
-      status: newStatus, date: TODAY,
-      note: newNote.trim() || `Status atualizado para "${newStatus}"`,
-      user: currentUser,
-    };
-    const updated = { ...proposal, status: newStatus, history: [...(proposal.history || []), entry] };
-    onSave(updated);
-    setNewNote("");
-  };
-
-  const handleEdit = () => { onSave({ ...form, value: Number(form.value) }); setEditMode(false); };
-
-  return (
-    <div className="slide-in" style={{
-      position: "fixed", right: 0, top: 0, bottom: 0, width: 480,
-      background: C.surface, borderLeft: `1px solid ${C.border}`,
-      display: "flex", flexDirection: "column", zIndex: 150, overflowY: "auto",
-    }}>
-      {/* Header */}
-      <div style={{
-        padding: "20px 24px", borderBottom: `1px solid ${C.border}`,
-        background: C.card, position: "sticky", top: 0, zIndex: 10,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ flex: 1, paddingRight: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7, flexWrap: "wrap" }}>
-              <Pill label={proposal.status} color={sc} />
-              <Pill label={proposal.priority} color={PRIORITY_COLOR[proposal.priority]} />
-              {overdue && <Pill label="Atrasado" color={C.danger} />}
-            </div>
-            <h2 style={{ fontFamily: "Syne", fontSize: 15, fontWeight: 700, lineHeight: 1.35 }}>{proposal.title}</h2>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{partner?.name} · {proposal.type}</div>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", flexShrink: 0 }}>×</button>
-        </div>
-      </div>
-
-      <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
-        {/* Key info */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {[
-            ["Valor", fmtBRL(proposal.value), C.accent2],
-            ["Prazo", fmtDate(proposal.dueDate), overdue ? C.danger : C.text],
-            ["Responsável", proposal.responsible || "—", C.text],
-            ["Segmento", partner?.segment || "—", C.text],
-          ].map(([label, val, color]) => (
-            <div key={label} style={{ background: C.card, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 3 }}>{label.toUpperCase()}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color }}>{val}</div>
-            </div>
-          ))}
-        </div>
-
-        {proposal.notes && (
-          <div style={{ background: C.card, borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 4 }}>OBSERVAÇÕES</div>
-            <p style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{proposal.notes}</p>
-          </div>
-        )}
-
-        {/* ── Status Update ── */}
-        <div style={{ background: C.card, borderRadius: 12, padding: 16, border: `1px solid ${C.accent}33` }}>
-          <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginBottom: 12, letterSpacing: 1 }}>↑ ATUALIZAR STATUS</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-            {STAGES.map(s => (
-              <button key={s.id} onClick={() => setNewStatus(s.id)} style={{
-                padding: "5px 11px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-                border: `1px solid ${newStatus === s.id ? s.color : C.border}`,
-                background: newStatus === s.id ? s.color + "25" : "transparent",
-                color: newStatus === s.id ? s.color : C.muted, cursor: "pointer", transition: "all .15s",
-              }}>{s.icon} {s.id}</button>
-            ))}
-          </div>
-          <textarea value={newNote} onChange={e => setNewNote(e.target.value)}
-            placeholder="Nota sobre esta atualização (opcional)..."
-            rows={2} style={{
-              width: "100%", background: C.surface, border: `1px solid ${C.border}`,
-              borderRadius: 8, color: C.text, padding: "8px 10px", fontSize: 12,
-              outline: "none", resize: "vertical", fontFamily: "DM Sans", marginBottom: 10,
-            }} />
-          <Btn
-            onClick={handleStatusUpdate}
-            variant={newStatus !== proposal.status ? "primary" : "muted"}
-            style={{ width: "100%", padding: "9px 0" }}>
-            {newStatus !== proposal.status ? `→ Mover para "${newStatus}"` : "Selecione um novo status acima"}
-          </Btn>
-        </div>
-
-        {/* ── History ── */}
-        <div>
-          <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginBottom: 14, letterSpacing: 1 }}>HISTÓRICO</div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {[...(proposal.history || [])].reverse().map((h, i, arr) => {
-              const sc2 = stageColor(h.status);
-              return (
-                <div key={i} style={{ display: "flex", gap: 12, paddingBottom: 16, position: "relative" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <div style={{
-                      width: 28, height: 28, borderRadius: "50%",
-                      background: sc2 + "25", border: `2px solid ${sc2}`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, color: sc2, flexShrink: 0, fontWeight: 700,
-                    }}>{STAGES.find(s => s.id === h.status)?.icon ?? "•"}</div>
-                    {i < arr.length - 1 && <div style={{ width: 1, flex: 1, background: C.border, marginTop: 4 }} />}
-                  </div>
-                  <div style={{ paddingTop: 5 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: sc2 }}>{h.status}</span>
-                      <span style={{ fontSize: 11, color: C.muted }}>{fmtDate(h.date)}</span>
-                    </div>
-                    {h.note && <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{h.note}</p>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div style={{
-        padding: "14px 24px", borderTop: `1px solid ${C.border}`,
-        display: "flex", gap: 8, background: C.card, position: "sticky", bottom: 0,
-      }}>
-        <Btn variant="ghost" onClick={() => { setForm({ ...proposal }); setEditMode(true); }} style={{ flex: 1 }}>✏ Editar</Btn>
-        <Btn variant="danger" onClick={() => setConfirm(true)}>🗑</Btn>
-      </div>
-
-      <Modal open={editMode} onClose={() => setEditMode(false)} title="Editar Proposta" width={500}>
-        <ProposalForm form={form} setForm={setForm} partners={partners} />
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setEditMode(false)}>Cancelar</Btn>
-          <Btn onClick={handleEdit}>Salvar Alterações</Btn>
-        </div>
-      </Modal>
-
-      <Modal open={confirm} onClose={() => setConfirm(false)} title="Excluir Proposta?" width={360}>
-        <p style={{ fontSize: 13, color: C.muted }}>
-          Deseja excluir <strong style={{ color: C.text }}>{proposal.title}</strong>? Esta ação não pode ser desfeita.
-        </p>
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setConfirm(false)}>Cancelar</Btn>
-          <Btn variant="danger" onClick={() => { onDelete(proposal.id); onClose(); }}>Excluir</Btn>
-        </div>
-      </Modal>
-    </div>
-  );
-}
-
-// ── Proposals View ────────────────────────────────────────────────────────────
-// ── Import Modal ──────────────────────────────────────────────────────────────
-// Uses SheetJS (loaded via CDN script tag injected once)
+/* ═══════════════════════════════════════════════════════════════════════════
+   SHEETJS LOADER (critical for import/export)
+   ═══════════════════════════════════════════════════════════════════════════ */
 function useSheetJS() {
   const [ready, setReady] = useState(!!window.XLSX);
   useEffect(() => {
     if (window.XLSX) { setReady(true); return; }
     const s = document.createElement("script");
     s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    s.onload = () => setReady(true);
+    s.onload = () => { setReady(true); };
+    s.onerror = () => { console.error("Failed to load SheetJS"); };
     document.head.appendChild(s);
   }, []);
   return ready;
 }
 
-const IMPORT_FIELDS = [
-  { key: "date",          label: "DATA",             required: true  },
-  { key: "partner",       label: "AGENTE",           required: true  },
-  { key: "banco",         label: "BANCO",            required: false },
-  { key: "operacao",      label: "OPERAÇÃO",         required: false },
-  { key: "convenio",      label: "CONVÊNIO",         required: false },
-  { key: "usuario",       label: "USUÁRIO",          required: false },
-  { key: "cpf",           label: "CPF",              required: false },
-  { key: "cliente",       label: "CLIENTE",          required: false },
-  { key: "proposta",      label: "PROPOSTA",         required: false },
-  { key: "contrato",      label: "Nº CONTRATO",      required: false },
-  { key: "prazo",         label: "PRAZO",            required: false },
-  { key: "value",         label: "VR. BRUTO",        required: false },
-  { key: "vrParcela",     label: "VR. PARCELA",      required: false },
-  { key: "vrLiquido",     label: "VR. LÍQUIDO",      required: false },
-  { key: "vrRepasse",     label: "VR. REPASSE",      required: false },
-  { key: "taxa",          label: "TAXA",             required: false },
-  { key: "produto",       label: "PRODUTO",          required: false },
-  { key: "situacao",      label: "SITUAÇÃO",         required: false },
-  { key: "situacaoBanco", label: "SITUAÇÃO BANCO",   required: false },
-  { key: "notes",         label: "OBS. SITUAÇÃO BANCO", required: false },
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOGIN
+   ═══════════════════════════════════════════════════════════════════════════ */
+const USERS = [
+  { username: "admin", password: "admin123", name: "Administrador", role: "Gerente" },
+  { username: "parceiro", password: "123456", name: "Parceiro Demo", role: "Parceiro" },
 ];
 
-const VALID_STAGES   = STAGES.map(s => s.id);
-const VALID_TYPES    = ["Venda","Contrato","Renovação","Parceria","Outro"];
-const VALID_PRIORITY = ["Alta","Média","Baixa"];
+function Login({ onLogin }) {
+  const [u, setU] = useState(""); const [p, setP] = useState(""); const [err, setErr] = useState("");
+  const go = () => {
+    const found = USERS.find(x => x.username === u && x.password === p);
+    if (found) onLogin(found); else setErr("Usuário ou senha inválidos");
+  };
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, fontFamily: "DM Sans" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: "40px 36px", width: 360 }}>
+        <h1 style={{ fontFamily: "Syne", fontSize: 22, fontWeight: 800, marginBottom: 4 }}>OpsManager</h1>
+        <p style={{ color: C.muted, fontSize: 12, marginBottom: 24 }}>Sistema de Gestão de Operações</p>
+        {err && <div style={{ background: C.danger + "22", color: C.danger, padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 12 }}>{err}</div>}
+        <InputField label="Usuário" value={u} onChange={setU} placeholder="admin" />
+        <div style={{ height: 10 }} />
+        <InputField label="Senha" value={p} onChange={setP} type="password" placeholder="••••••" />
+        <div style={{ height: 16 }} />
+        <Btn onClick={go} style={{ width: "100%", padding: "10px 0" }}>Entrar</Btn>
+        <div style={{ color: C.muted, fontSize: 10, marginTop: 16, textAlign: "center" }}>Demo: admin / admin123</div>
+      </div>
+    </div>
+  );
+}
 
-function normalizeStatus(v) {
-  if (!v) return "Prospecção";
-  const map = { "prospecção":"Prospecção","prospeccao":"Prospecção","prospection":"Prospecção",
-    "proposta enviada":"Proposta Enviada","enviada":"Proposta Enviada","sent":"Proposta Enviada",
-    "negociação":"Negociação","negociacao":"Negociação","negotiation":"Negociação",
-    "aprovação interna":"Aprovação Interna","aprovacao interna":"Aprovação Interna","approval":"Aprovação Interna",
-    "fechado":"Fechado","won":"Fechado","closed":"Fechado",
-    "perdido":"Perdido","lost":"Perdido","cancelled":"Perdido" };
-  return map[String(v).toLowerCase().trim()] ?? (VALID_STAGES.includes(v) ? v : "Prospecção");
+/* ═══════════════════════════════════════════════════════════════════════════
+   DASHBOARD
+   ═══════════════════════════════════════════════════════════════════════════ */
+function Dashboard({ ops, partners, proposals }) {
+  const total = ops.reduce((s, o) => s + (o.value || 0), 0);
+  const concluded = ops.filter(o => o.status === "Concluída");
+  const activePartners = partners.filter(p => p.status === "Ativo").length;
+  const openProposals = (proposals || []).filter(p => !["Fechado", "Perdido"].includes(p.status)).length;
+  const months = {};
+  ops.forEach(o => { const m = o.date?.slice(0, 7); if (m) months[m] = (months[m] || 0) + (o.value || 0); });
+  const sorted = Object.entries(months).sort((a, b) => a[0].localeCompare(b[0])).slice(-6);
+  const max = Math.max(...sorted.map(s => s[1]), 1);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 20 }}>Dashboard</h2>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Receita Total" value={fmtCur(total)} color={C.accent2} />
+        <StatCard label="Operações" value={ops.length} sub={`${concluded.length} concluídas`} />
+        <StatCard label="Parceiros Ativos" value={activePartners} />
+        <StatCard label="Propostas Abertas" value={openProposals} color={C.warn} />
+      </div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Receita Mensal</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 120 }}>
+          {sorted.map(([m, v]) => (
+            <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ fontSize: 10, color: C.muted }}>{fmtCur(v)}</div>
+              <div style={{ width: "100%", maxWidth: 48, background: C.accent, borderRadius: 6, height: Math.max(8, (v / max) * 100) + "%" }} />
+              <div style={{ fontSize: 10, color: C.muted }}>{m.slice(5)}/{m.slice(2, 4)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Top Parceiros</div>
+        {partners.filter(p => p.status === "Ativo").slice(0, 5).map(p => {
+          const pOps = ops.filter(o => o.partner === p.id);
+          const pVal = pOps.reduce((s, o) => s + (o.value || 0), 0);
+          return (
+            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ fontSize: 12 }}>{p.name}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.accent2 }}>{fmtCur(pVal)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
-function normalizePriority(v) {
-  if (!v) return "Média";
-  const map = { "alta":"Alta","high":"Alta","média":"Média","media":"Média","medium":"Média","baixa":"Baixa","low":"Baixa" };
-  return map[String(v).toLowerCase().trim()] ?? (VALID_PRIORITY.includes(v) ? v : "Média");
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PARTNERS
+   ═══════════════════════════════════════════════════════════════════════════ */
+function Partners({ partners, setPartners, ops }) {
+  const [modal, setModal] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const [form, setForm] = useState({ name: "", segment: "", region: "", status: "Ativo" });
+  const [search, setSearch] = useState("");
+
+  const openNew = () => { setForm({ name: "", segment: "", region: "", status: "Ativo" }); setEdit(null); setModal(true); };
+  const openEdit = p => { setForm({ ...p }); setEdit(p.id); setModal(true); };
+  const doSave = () => {
+    if (!form.name.trim()) return;
+    if (edit) setPartners(ps => ps.map(p => p.id === edit ? { ...p, ...form } : p));
+    else setPartners(ps => [...ps, { ...form, id: uid() }]);
+    setModal(false);
+  };
+
+  const filtered = partners.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 20 }}>Parceiros</h2>
+        <Btn onClick={openNew}>+ Novo Parceiro</Btn>
+      </div>
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar parceiro..." style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "8px 14px", fontSize: 12, outline: "none", fontFamily: "DM Sans" }} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+        {filtered.map(p => {
+          const pOps = ops.filter(o => o.partner === p.id);
+          const pVal = pOps.reduce((s, o) => s + (o.value || 0), 0);
+          return (
+            <div key={p.id} onClick={() => openEdit(p)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, cursor: "pointer", transition: "border-color .15s" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: p.status === "Ativo" ? C.accent2 + "22" : C.danger + "22", color: p.status === "Ativo" ? C.accent2 : C.danger }}>{p.status}</span>
+              </div>
+              <div style={{ fontSize: 11, color: C.muted }}>{p.segment} · {p.region}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{pOps.length} ops · {fmtCur(pVal)}</div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={modal} onClose={() => setModal(false)} title={edit ? "Editar Parceiro" : "Novo Parceiro"}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <InputField label="Nome" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} />
+          <InputField label="Segmento" value={form.segment} onChange={v => setForm(f => ({ ...f, segment: v }))} options={["Tecnologia", "Agronegócio", "Financeiro", "Varejo", "Construção", "Saúde", "Educação", "Outro"]} />
+          <InputField label="Região" value={form.region} onChange={v => setForm(f => ({ ...f, region: v }))} options={["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]} />
+          <InputField label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={["Ativo", "Inativo"]} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <Btn onClick={doSave} style={{ flex: 1 }}>Salvar</Btn>
+            {edit && <Btn variant="danger" onClick={() => { setPartners(ps => ps.filter(p => p.id !== edit)); setModal(false); }}>Excluir</Btn>}
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
 }
-function normalizeType(v) {
-  if (!v) return "Venda";
-  const found = VALID_TYPES.find(t => t.toLowerCase() === String(v).toLowerCase().trim());
-  return found ?? "Outro";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OPERATIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+const BANCOS = ["BMG", "PAN", "C6", "SAFRA", "MASTER", "OLÉ", "ITAÚ", "BRADESCO", "SANTANDER", "DAYCOVAL", "MERCANTIL"];
+const OPERACOES = ["NOVO", "PORTABILIDADE", "REFINANCIAMENTO", "CARTÃO", "SAQUE FGTS", "MARGEM LIVRE"];
+const CONVENIOS = ["INSS", "SIAPE", "PREFEITURA", "GOV. ESTADO", "FORÇAS ARMADAS", "PRIVADO"];
+const SIT_BANCO = ["PENDENTE", "FINALIZADO", "ESTORNADO", "EM ANÁLISE", "AVERBADO"];
+
+function Operations({ ops, setOps, partners }) {
+  const [modal, setModal] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [form, setForm] = useState({ date: TODAY, partner: "", type: "Venda", value: "", status: "Em andamento", banco: "", operacao: "", convenio: "", agente: "", situacaoBanco: "", notes: "" });
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+
+  const openNew = () => { setForm({ date: TODAY, partner: "", type: "Venda", value: "", status: "Em andamento", banco: "", operacao: "", convenio: "", agente: "", situacaoBanco: "", notes: "" }); setEdit(null); setModal(true); };
+  const openEdit = o => { setForm({ ...o, value: String(o.value || "") }); setEdit(o.id); setModal(true); };
+  const doSave = () => {
+    if (!form.partner) return;
+    const data = { ...form, value: parseFloat(String(form.value).replace(/[^\d.,]/g, "").replace(",", ".")) || 0 };
+    if (edit) setOps(os => os.map(o => o.id === edit ? { ...o, ...data } : o));
+    else setOps(os => [...os, { ...data, id: uid() }]);
+    setModal(false);
+  };
+
+  const handleImport = (imported) => {
+    setOps(prev => [...prev, ...imported]);
+  };
+
+  const filtered = ops
+    .filter(o => !statusFilter || o.status === statusFilter)
+    .filter(o => {
+      if (!search) return true;
+      const p = partners.find(x => x.id === o.partner);
+      const s = search.toLowerCase();
+      return (p?.name?.toLowerCase().includes(s)) || o.type?.toLowerCase().includes(s) || o.banco?.toLowerCase().includes(s) || o.agente?.toLowerCase().includes(s);
+    })
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 20 }}>Operações</h2>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="ghost" onClick={() => setImportOpen(true)}>📥 Importar</Btn>
+          <Btn variant="ghost" onClick={() => setExportOpen(true)}>📤 Exportar</Btn>
+          <Btn onClick={openNew}>+ Nova Operação</Btn>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..." style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "7px 12px", fontSize: 12, outline: "none", flex: 1, minWidth: 160, fontFamily: "DM Sans" }} />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "7px 10px", fontSize: 12, cursor: "pointer", fontFamily: "DM Sans" }}>
+          <option value="">Todos os status</option>
+          {["Em andamento", "Concluída", "Cancelada"].map(s => <option key={s}>{s}</option>)}
+        </select>
+      </div>
+      <div style={{ overflowX: "auto", borderRadius: 12, border: `1px solid ${C.border}` }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: C.surface }}>
+              {["Data", "Parceiro", "Banco", "Operação", "Convênio", "Agente", "Valor", "Sit. Banco", "Status", ""].map(h => (
+                <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: C.muted, fontSize: 10, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(o => {
+              const p = partners.find(x => x.id === o.partner);
+              const sc = o.status === "Concluída" ? C.accent2 : o.status === "Cancelada" ? C.danger : C.warn;
+              return (
+                <tr key={o.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>{fmtDate(o.date)}</td>
+                  <td style={{ padding: "10px 12px" }}>{p?.name || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{o.banco || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{o.operacao || o.type || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{o.convenio || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{o.agente || "—"}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 600 }}>{fmtCur(o.value)}</td>
+                  <td style={{ padding: "10px 12px" }}><span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: o.situacaoBanco === "FINALIZADO" ? C.accent2 + "22" : o.situacaoBanco === "ESTORNADO" ? C.danger + "22" : C.warn + "22", color: o.situacaoBanco === "FINALIZADO" ? C.accent2 : o.situacaoBanco === "ESTORNADO" ? C.danger : C.warn }}>{o.situacaoBanco || "—"}</span></td>
+                  <td style={{ padding: "10px 12px" }}><span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: sc + "22", color: sc }}>{o.status}</span></td>
+                  <td style={{ padding: "10px 12px" }}><button onClick={() => openEdit(o)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12 }}>✏</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.muted, fontSize: 12 }}>Nenhuma operação encontrada</div>}
+      </div>
+
+      {/* Modal Nova/Editar Op */}
+      <Modal open={modal} onClose={() => setModal(false)} title={edit ? "Editar Operação" : "Nova Operação"} width={620}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <InputField label="Data" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" />
+          <InputField label="Parceiro" value={form.partner} onChange={v => setForm(f => ({ ...f, partner: v }))} options={partners.map(p => p.id)} />
+          <InputField label="Banco" value={form.banco} onChange={v => setForm(f => ({ ...f, banco: v }))} options={BANCOS} />
+          <InputField label="Operação" value={form.operacao} onChange={v => setForm(f => ({ ...f, operacao: v }))} options={OPERACOES} />
+          <InputField label="Convênio" value={form.convenio} onChange={v => setForm(f => ({ ...f, convenio: v }))} options={CONVENIOS} />
+          <InputField label="Agente" value={form.agente} onChange={v => setForm(f => ({ ...f, agente: v }))} />
+          <InputField label="Valor (R$)" value={form.value} onChange={v => setForm(f => ({ ...f, value: v }))} />
+          <InputField label="Situação Banco" value={form.situacaoBanco} onChange={v => setForm(f => ({ ...f, situacaoBanco: v }))} options={SIT_BANCO} />
+          <InputField label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={["Em andamento", "Concluída", "Cancelada"]} />
+          <InputField label="Tipo" value={form.type} onChange={v => setForm(f => ({ ...f, type: v }))} options={["Venda", "Contrato", "Renovação", "Outro"]} />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <InputField label="Observações" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} type="textarea" />
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <Btn onClick={doSave} style={{ flex: 1 }}>Salvar</Btn>
+          {edit && <Btn variant="danger" onClick={() => { setOps(os => os.filter(o => o.id !== edit)); setModal(false); }}>Excluir</Btn>}
+        </div>
+      </Modal>
+
+      {/* Export Modal */}
+      <ExportModal open={exportOpen} onClose={() => setExportOpen(false)} ops={ops} partners={partners} />
+
+      {/* Import Modal */}
+      <ImportOpsModal open={importOpen} onClose={() => setImportOpen(false)} partners={partners} onImport={handleImport} />
+    </div>
+  );
 }
-function normalizeDate(v) {
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXPORT MODAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+function ExportModal({ open, onClose, ops, partners }) {
+  const xlsxReady = useSheetJS();
+  const [filters, setFilters] = useState({ banco: "", operacao: "", convenio: "", agente: "", situacaoBanco: "", parceiro: "", dateFrom: "", dateTo: "" });
+
+  const allBancos = [...new Set(ops.map(o => o.banco).filter(Boolean))].sort();
+  const allOps = [...new Set(ops.map(o => o.operacao || o.type).filter(Boolean))].sort();
+  const allConvenios = [...new Set(ops.map(o => o.convenio).filter(Boolean))].sort();
+  const allAgentes = [...new Set(ops.map(o => o.agente).filter(Boolean))].sort();
+  const allSituacoes = [...new Set(ops.map(o => o.situacaoBanco).filter(Boolean))].sort();
+
+  const filtered = ops.filter(o => {
+    return (!filters.banco || o.banco === filters.banco) &&
+      (!filters.operacao || (o.operacao || o.type) === filters.operacao) &&
+      (!filters.convenio || o.convenio === filters.convenio) &&
+      (!filters.agente || o.agente === filters.agente) &&
+      (!filters.situacaoBanco || o.situacaoBanco === filters.situacaoBanco) &&
+      (!filters.parceiro || o.partner === filters.parceiro) &&
+      (!filters.dateFrom || o.date >= filters.dateFrom) &&
+      (!filters.dateTo || o.date <= filters.dateTo);
+  });
+
+  const doExport = () => {
+    if (!window.XLSX) return;
+    const rows = filtered.map(o => {
+      const p = partners.find(x => x.id === o.partner);
+      return { "Data": o.date, "Parceiro": p?.name ?? "", "Banco": o.banco ?? "", "Operação": o.operacao || o.type || "", "Convênio": o.convenio ?? "", "Agente": o.agente ?? "", "Valor (R$)": o.value, "Sit. Banco": o.situacaoBanco ?? "", "Status": o.status, "Observações": o.notes ?? "" };
+    });
+    const ws = window.XLSX.utils.json_to_sheet(rows);
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Digitações");
+    window.XLSX.writeFile(wb, `digitacoes_${TODAY}.xlsx`);
+    onClose();
+  };
+
+  if (!open) return null;
+  return (
+    <Modal open={open} onClose={onClose} title="Exportar Digitações" width={640}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+        <InputField label="Banco" value={filters.banco} onChange={v => setFilters(f => ({ ...f, banco: v }))} options={allBancos} />
+        <InputField label="Operação" value={filters.operacao} onChange={v => setFilters(f => ({ ...f, operacao: v }))} options={allOps} />
+        <InputField label="Convênio" value={filters.convenio} onChange={v => setFilters(f => ({ ...f, convenio: v }))} options={allConvenios} />
+        <InputField label="Agente" value={filters.agente} onChange={v => setFilters(f => ({ ...f, agente: v }))} options={allAgentes} />
+        <InputField label="Sit. Banco" value={filters.situacaoBanco} onChange={v => setFilters(f => ({ ...f, situacaoBanco: v }))} options={allSituacoes} />
+        <InputField label="Parceiro" value={filters.parceiro} onChange={v => setFilters(f => ({ ...f, parceiro: v }))} options={partners.map(p => p.id)} />
+        <InputField label="De" value={filters.dateFrom} onChange={v => setFilters(f => ({ ...f, dateFrom: v }))} type="date" />
+        <InputField label="Até" value={filters.dateTo} onChange={v => setFilters(f => ({ ...f, dateTo: v }))} type="date" />
+      </div>
+      <div style={{ background: C.surface, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12 }}>
+        <strong style={{ color: C.accent }}>{filtered.length}</strong> operação(ões) selecionada(s) · Total: <strong style={{ color: C.accent2 }}>{fmtCur(filtered.reduce((s, o) => s + (o.value || 0), 0))}</strong>
+      </div>
+      <Btn onClick={doExport} style={{ width: "100%" }} variant="success" disabled={!xlsxReady}>
+        {xlsxReady ? `📤 Exportar ${filtered.length} registros` : "Carregando..."}
+      </Btn>
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPORT OPERATIONS MODAL (FIXED)
+   ═══════════════════════════════════════════════════════════════════════════ */
+const IMPORT_MAP = {
+  banco: { label: "Banco", aliases: ["banco"] },
+  cpf: { label: "CPF", aliases: ["cpf", "cpf/cnpj"] },
+  cliente: { label: "Cliente", aliases: ["cliente", "nome", "name"] },
+  proposta: { label: "Proposta", aliases: ["proposta", "nº proposta", "n proposta"] },
+  contrato: { label: "Nº Contrato", aliases: ["contrato", "nº contrato", "n contrato", "numero contrato"] },
+  data: { label: "Data", aliases: ["data", "date", "dt"] },
+  prazo: { label: "Prazo", aliases: ["prazo", "parcelas"] },
+  vrBruto: { label: "Vr. Bruto", aliases: ["vr. bruto", "vr bruto", "valor bruto", "bruto"] },
+  vrParcela: { label: "Vr. Parcela", aliases: ["vr. parcela", "vr parcela", "parcela"] },
+  vrLiquido: { label: "Vr. Líquido", aliases: ["vr. líquido", "vr liquido", "vr. liquido", "líquido", "liquido"] },
+  vrRepasse: { label: "Vr. Repasse", aliases: ["vr. repasse", "vr repasse", "repasse"] },
+  taxa: { label: "Taxa", aliases: ["taxa", "tax"] },
+  operacao: { label: "Operação", aliases: ["operação", "operacao", "tipo operação", "tipo"] },
+  situacao: { label: "Situação", aliases: ["situação", "situacao", "status"] },
+  produto: { label: "Produto", aliases: ["produto", "product"] },
+  convenio: { label: "Convênio", aliases: ["convênio", "convenio"] },
+  agente: { label: "Agente", aliases: ["agente", "agent", "vendedor"] },
+  situacaoBanco: { label: "Situação Banco", aliases: ["situação banco", "situacao banco", "sit. banco", "sit banco"] },
+  obsSituacao: { label: "Obs. Situação", aliases: ["obs. situação banco", "obs situação", "obs. situacao", "observação"] },
+  usuario: { label: "Usuário", aliases: ["usuário", "usuario", "user"] },
+};
+
+function normalizeImportDate(v) {
   if (!v) return "";
-  // Excel serial number
   if (typeof v === "number") {
     const d = new Date(Math.round((v - 25569) * 86400 * 1000));
-    return d.toISOString().split("T")[0];
+    if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+    return "";
   }
   const s = String(v).trim();
-  // dd/mm/yyyy
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (m) return `${m[3].length === 2 ? "20"+m[3] : m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
-  // yyyy-mm-dd already
+  const m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
+  if (m) return `${m[3].length === 2 ? "20" + m[3] : m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   return "";
 }
 
-function ImportModal({ open, onClose, partners, onImport, currentUser }) {
+function parseNumber(v) {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return v;
+  return parseFloat(String(v).replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
+}
+
+function ImportOpsModal({ open, onClose, partners, onImport }) {
   const xlsxReady = useSheetJS();
-  const fileRef = useRef();
-  const [step, setStep] = useState(1); // 1=upload  2=map  3=preview
-  const [rawRows, setRawRows] = useState([]);    // array of objects from sheet
-  const [headers, setHeaders] = useState([]);    // column names from file
-  const [mapping, setMapping] = useState({});    // fieldKey -> colName
-  const [preview, setPreview] = useState([]);    // parsed proposals ready to import
+  const fileRef = useRef(null);
+  const [step, setStep] = useState(1);
+  const [rawRows, setRawRows] = useState([]);
+  const [headers, setHeaders] = useState([]);
+  const [mapping, setMapping] = useState({});
+  const [preview, setPreview] = useState([]);
   const [errors, setErrors] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState("");
 
-  const reset = () => { setStep(1); setRawRows([]); setHeaders([]); setMapping({}); setPreview([]); setErrors([]); setFileName(""); };
+  const reset = () => {
+    setStep(1); setRawRows([]); setHeaders([]); setMapping({});
+    setPreview([]); setErrors([]); setFileName(""); setDragActive(false);
+  };
+
+  useEffect(() => { if (!open) reset(); }, [open]);
+
+  const autoDetectMapping = (cols) => {
+    const m = {};
+    Object.entries(IMPORT_MAP).forEach(([field, def]) => {
+      const found = cols.find(col => {
+        const cl = col.toLowerCase().trim();
+        return def.aliases.some(a => cl === a || cl.includes(a));
+      });
+      if (found) m[field] = found;
+    });
+    return m;
+  };
 
   const parseFile = (file) => {
-    if (!xlsxReady || !window.XLSX) return;
+    if (!xlsxReady || !window.XLSX) {
+      setErrors(["SheetJS ainda não carregou. Aguarde e tente novamente."]);
+      return;
+    }
     setFileName(file.name);
+    setErrors([]);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const wb = window.XLSX.read(e.target.result, { type: "array" });
+        const data = new Uint8Array(e.target.result);
+        const wb = window.XLSX.read(data, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = window.XLSX.utils.sheet_to_json(ws, { defval: "" });
-        if (!rows.length) { setErrors(["Planilha vazia ou sem cabeçalho"]); return; }
+        if (!rows.length) {
+          setErrors(["Planilha vazia ou sem cabeçalho. Verifique se a primeira linha contém os nomes das colunas."]);
+          return;
+        }
         setRawRows(rows);
         const cols = Object.keys(rows[0]);
         setHeaders(cols);
-        // Auto-detect mapping by matching real spreadsheet column names
-        const autoMap = {};
-        IMPORT_FIELDS.forEach(f => {
-          const found = cols.find(c => {
-            const cl = c.toLowerCase().trim().replace(/[º°]/g,"");
-            const fl = f.label.toLowerCase().replace(/[º°]/g,"");
-            const fk = f.key.toLowerCase();
-            return cl === fl || cl === fk ||
-              (f.key==="date"         && (cl==="data"||cl==="dat.inclusão"||cl==="dat inclusao")) ||
-              (f.key==="partner"      && (cl==="agente"||cl==="parceiro"||cl==="corretor")) ||
-              (f.key==="banco"        && cl==="banco") ||
-              (f.key==="operacao"     && (cl==="operação"||cl==="operacao"||cl==="tp. operação banco")) ||
-              (f.key==="convenio"     && (cl==="convênio"||cl==="convenio")) ||
-              (f.key==="usuario"      && (cl==="usuário"||cl==="usuario"||cl==="digitador")) ||
-              (f.key==="cpf"          && cl==="cpf") ||
-              (f.key==="cliente"      && cl==="cliente") ||
-              (f.key==="proposta"     && cl==="proposta") ||
-              (f.key==="contrato"     && (cl==="n contrato"||cl==="contrato"||cl==="n° contrato")) ||
-              (f.key==="prazo"        && cl==="prazo") ||
-              (f.key==="value"        && (cl==="vr. bruto"||cl==="valor bruto"||cl==="vr bruto")) ||
-              (f.key==="vrParcela"    && (cl==="vr. parcela"||cl==="parcela")) ||
-              (f.key==="vrLiquido"    && (cl==="vr. líquido"||cl==="vr liquido"||cl==="vlr líquido")) ||
-              (f.key==="vrRepasse"    && (cl==="vr. repasse"||cl==="repasse")) ||
-              (f.key==="taxa"         && cl==="taxa") ||
-              (f.key==="produto"      && (cl==="produto"||cl==="prod. banco")) ||
-              (f.key==="situacao"     && (cl==="situação"||cl==="situacao")) ||
-              (f.key==="situacaoBanco"&& (cl==="situação banco"||cl==="situacao banco")) ||
-              (f.key==="notes"        && (cl==="obs. situação banco"||cl==="observações"||cl==="obs"));
-          });
-          if (found) autoMap[f.key] = found;
-        });
-        setMapping(autoMap);
+        const detected = autoDetectMapping(cols);
+        setMapping(detected);
         setStep(2);
       } catch (err) {
         setErrors(["Erro ao ler arquivo: " + err.message]);
       }
     };
+    reader.onerror = () => setErrors(["Falha ao ler o arquivo."]);
     reader.readAsArrayBuffer(file);
   };
 
-  const handleFile = (e) => { const f = e.target.files[0]; if (f) parseFile(f); };
-  const handleDrop = (e) => {
-    e.preventDefault(); setDragActive(false);
-    const f = e.dataTransfer.files[0];
-    if (f) parseFile(f);
-  };
+  const handleFile = (e) => { const f = e.target.files?.[0]; if (f) parseFile(f); };
+  const handleDrop = (e) => { e.preventDefault(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) parseFile(f); };
 
   const buildPreview = () => {
     const errs = [];
     const built = rawRows.map((row, i) => {
-      const dateCol    = mapping.date;
-      const partnerCol = mapping.partner;
-      const dateRaw    = dateCol ? row[dateCol] : "";
-      const partnerRaw = partnerCol ? String(row[partnerCol] || "").trim() : "";
-      const dateStr    = normalizeDate(dateRaw);
+      const cliente = mapping.cliente ? String(row[mapping.cliente] || "").trim() : "";
+      const proposta = mapping.proposta ? String(row[mapping.proposta] || "").trim() : "";
+      const banco = mapping.banco ? String(row[mapping.banco] || "").trim() : "";
 
-      if (!dateStr) errs.push(`Linha ${i + 2}: "DATA" inválida ou vazia`);
+      if (!cliente && !proposta) errs.push(`Linha ${i + 2}: sem cliente nem proposta`);
 
-      const matchedPartner = matchPartner(partnerRaw, partners);
-
-      const getVal = (key) => mapping[key] ? row[mapping[key]] : "";
-      const numVal = (key) => parseFloat(String(getVal(key)).replace(/[R$\s.]/g,"").replace(",",".")) || 0;
+      // Try to match partner by banco name or agente
+      const agenteRaw = mapping.agente ? String(row[mapping.agente] || "").trim() : "";
+      const matchedPartner = partners.find(p =>
+        p.name.toLowerCase() === agenteRaw.toLowerCase() ||
+        p.name.toLowerCase().includes(agenteRaw.toLowerCase().split(" ")[0]?.toLowerCase() || "___")
+      );
 
       return {
         _row: i + 2,
-        _partnerRaw: partnerRaw,
-        _partnerMatched: matchedPartner ?? null,
-        id:           uid(),
-        date:         dateStr,
-        partner:      matchedPartner?.id ?? "",
-        banco:        String(getVal("banco")||"").trim(),
-        operacao:     String(getVal("operacao")||"").trim(),
-        convenio:     String(getVal("convenio")||"").trim(),
-        usuario:      String(getVal("usuario")||"").trim(),
-        cpf:          String(getVal("cpf")||"").trim(),
-        cliente:      String(getVal("cliente")||"").trim(),
-        proposta:     String(getVal("proposta")||"").trim(),
-        contrato:     String(getVal("contrato")||"").trim(),
-        prazo:        numVal("prazo"),
-        value:        numVal("value"),
-        vrParcela:    numVal("vrParcela"),
-        vrLiquido:    numVal("vrLiquido"),
-        vrRepasse:    numVal("vrRepasse"),
-        taxa:         numVal("taxa"),
-        produto:      String(getVal("produto")||"").trim(),
-        situacao:     String(getVal("situacao")||"PROPOSTA CADASTRADA").trim(),
-        situacaoBanco:String(getVal("situacaoBanco")||"EM ANALISE").trim(),
-        notes:        String(getVal("notes")||"").trim(),
+        _valid: !!(cliente || proposta),
+        id: uid(),
+        date: normalizeImportDate(mapping.data ? row[mapping.data] : ""),
+        partner: matchedPartner?.id || "",
+        type: mapping.operacao ? String(row[mapping.operacao] || "").trim() : "Venda",
+        value: parseNumber(mapping.vrBruto ? row[mapping.vrBruto] : (mapping.vrLiquido ? row[mapping.vrLiquido] : "")),
+        status: "Em andamento",
+        banco: banco,
+        operacao: mapping.operacao ? String(row[mapping.operacao] || "").trim() : "",
+        convenio: mapping.convenio ? String(row[mapping.convenio] || "").trim() : "",
+        agente: agenteRaw,
+        situacaoBanco: mapping.situacaoBanco ? String(row[mapping.situacaoBanco] || "").trim() : "",
+        notes: [
+          mapping.cpf ? `CPF: ${row[mapping.cpf]}` : "",
+          mapping.cliente ? `Cliente: ${row[mapping.cliente]}` : "",
+          mapping.proposta ? `Proposta: ${row[mapping.proposta]}` : "",
+          mapping.contrato ? `Contrato: ${row[mapping.contrato]}` : "",
+          mapping.obsSituacao ? `Obs: ${row[mapping.obsSituacao]}` : "",
+        ].filter(Boolean).join(" | "),
+        // extra visible fields for preview
+        _cliente: cliente,
+        _proposta: proposta,
+        _vrBruto: fmtCur(parseNumber(mapping.vrBruto ? row[mapping.vrBruto] : "")),
+        _situacao: mapping.situacao ? String(row[mapping.situacao] || "").trim() : "",
       };
     });
     setErrors(errs);
@@ -716,18 +609,18 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
   };
 
   const handleImport = () => {
-    const valid = preview.filter(p => p.date && p.partner);
-    onImport(valid);
-    reset();
+    const valid = preview.filter(p => p._valid);
+    // strip preview-only fields
+    const clean = valid.map(({ _row, _valid, _cliente, _proposta, _vrBruto, _situacao, ...rest }) => rest);
+    onImport(clean);
     onClose();
   };
 
   const downloadTemplate = () => {
-    if (!xlsxReady || !window.XLSX) return;
+    if (!window.XLSX) return;
     const ws = window.XLSX.utils.aoa_to_sheet([
-      ["DATA","AGENTE","BANCO","OPERAÇÃO","CONVÊNIO","USUÁRIO","CPF","CLIENTE","PROPOSTA","Nº CONTRATO","PRAZO","VR. BRUTO","VR. PARCELA","VR. LÍQUIDO","VR. REPASSE","TAXA","PRODUTO","SITUAÇÃO","SITUAÇÃO BANCO","OBS. SITUAÇÃO BANCO"],
-      ["2025-01-31","NEWS NEGOCIOS ADMINISTRATIVOS","QUALIBANKING","NOVO","INSS","Bruno Bortoli","015.566.609-60","ELIZABETH RODRIGUES","QUA0000556121","QUA0000556121",84,9205.32,217.79,7978.97,7978.97,1.80,"TOP PLUS - TX 1,80%","ESTORNADO","FINALIZADO",""],
-      ["2025-02-10","CENTRAL BANCARIA","PAN","REFINANCIAMENTO","INSS","Ana Lima","260.535.018-59","ANDREA CARDOSO","PAN0001234","PAN0001234",72,15000.00,280.50,13200.00,13200.00,1.75,"INSS REFIN","CONCRETIZADO","PAGO",""],
+      ["ID", "BANCO", "CPF", "CLIENTE", "PROPOSTA", "Nº CONTRATO", "DATA", "PRAZO", "VR. BRUTO", "VR. PARCELA", "VR. LÍQUIDO", "VR. REPASSE", "VR. SEGURO", "TAXA", "OPERAÇÃO", "SITUAÇÃO", "PRODUTO", "CONVÊNIO", "AGENTE", "SITUAÇÃO BANCO", "OBS. SITUAÇÃO BANCO", "USUÁRIO"],
+      ["18011", "QUALIBANKING", "015.566.609-60", "ELIZABETH APARECIDA", "QUA0000556121", "QUA0000556121", "31/01/2025", "84", "9205.32", "217.79", "7978.97", "7978.97", "0", "1.80", "NOVO", "ESTORNADO", "TOP PLUS TX 1,80%", "INSS", "NEWS NEGOCIOS", "FINALIZADO", "", "Bruno Moraes"],
     ]);
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "Digitações");
@@ -736,28 +629,22 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
 
   if (!open) return null;
 
+  const validCount = preview.filter(p => p._valid).length;
+  const invalidCount = preview.length - validCount;
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000000CC", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div className="fade-in" onClick={e => e.stopPropagation()} style={{
-        background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
-        width: 700, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto",
-        display: "flex", flexDirection: "column",
-      }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, width: 740, maxWidth: "96vw", maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
         {/* Header */}
-        <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 16 }}>Importar Propostas em Lote</h3>
-            <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
-              {["Upload", "Mapear Colunas", "Revisar e Importar"].map((s, i) => (
-                <div key={s} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{
-                    width: 20, height: 20, borderRadius: "50%", fontSize: 10, fontWeight: 700,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    background: step > i + 1 ? C.accent2 : step === i + 1 ? C.accent : C.border,
-                    color: step >= i + 1 ? C.bg : C.muted,
-                  }}>{step > i + 1 ? "✓" : i + 1}</div>
-                  <span style={{ fontSize: 12, color: step === i + 1 ? C.text : C.muted, fontWeight: step === i + 1 ? 600 : 400 }}>{s}</span>
-                  {i < 2 && <span style={{ color: C.border, fontSize: 12 }}>›</span>}
+            <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 15, margin: 0 }}>Importar Digitações em Lote</h3>
+            <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+              {["Upload", "Mapear Colunas", "Revisar"].map((s, i) => (
+                <div key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: step > i + 1 ? C.accent2 : step === i + 1 ? C.accent : C.border, color: step >= i + 1 ? "#fff" : C.muted }}>{step > i + 1 ? "✓" : i + 1}</div>
+                  <span style={{ fontSize: 11, color: step === i + 1 ? C.text : C.muted, fontWeight: step === i + 1 ? 600 : 400 }}>{s}</span>
+                  {i < 2 && <span style={{ color: C.border, fontSize: 11, marginLeft: 6 }}>›</span>}
                 </div>
               ))}
             </div>
@@ -766,1393 +653,645 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
         </div>
 
         <div style={{ padding: "20px 24px", flex: 1 }}>
-          {/* STEP 1 — Upload */}
+          {/* Step 1: Upload */}
           {step === 1 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div
                 onDragOver={e => { e.preventDefault(); setDragActive(true); }}
                 onDragLeave={() => setDragActive(false)}
                 onDrop={handleDrop}
                 onClick={() => fileRef.current?.click()}
-                style={{
-                  border: `2px dashed ${dragActive ? C.accent : C.border}`,
-                  borderRadius: 14, padding: "40px 24px", textAlign: "center",
-                  background: dragActive ? C.accent + "08" : C.surface,
-                  cursor: "pointer", transition: "all .2s",
-                }}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>📂</div>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
-                  {xlsxReady ? "Arraste ou clique para selecionar" : "Carregando leitor de planilhas..."}
-                </div>
-                <div style={{ fontSize: 12, color: C.muted }}>Suporta .xlsx, .xls e .csv</div>
+                style={{ border: `2px dashed ${dragActive ? C.accent : C.border}`, borderRadius: 14, padding: "40px 24px", textAlign: "center", background: dragActive ? C.accent + "08" : C.surface, cursor: "pointer", transition: "all .2s" }}
+              >
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📂</div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{xlsxReady ? "Arraste ou clique para selecionar" : "Carregando biblioteca..."}</div>
+                <div style={{ fontSize: 11, color: C.muted }}>Suporta .xlsx, .xls e .csv</div>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ display: "none" }} />
               </div>
-              {errors.length > 0 && errors.map((e, i) => (
-                <div key={i} style={{ background: C.danger + "18", border: `1px solid ${C.danger}44`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.danger }}>{e}</div>
-              ))}
+              {errors.map((e, i) => <div key={i} style={{ background: C.danger + "18", border: `1px solid ${C.danger}44`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.danger }}>{e}</div>)}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.surface, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}` }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>📥 Baixar modelo de planilha</div>
-                  <div style={{ fontSize: 11, color: C.muted }}>Use o modelo para garantir a importação correta</div>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>📥 Baixar modelo de planilha</div>
+                  <div style={{ fontSize: 11, color: C.muted }}>Formato compatível com PROPOSTAS_DIGITADAS</div>
                 </div>
-                <Btn variant="ghost" onClick={downloadTemplate} style={{ fontSize: 12 }}>Baixar .xlsx</Btn>
+                <Btn variant="ghost" onClick={downloadTemplate} style={{ fontSize: 11 }}>Baixar .xlsx</Btn>
               </div>
-              <div style={{ background: C.surface, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-                <strong style={{ color: C.text }}>Colunas reconhecidas automaticamente:</strong>
-                <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {IMPORT_FIELDS.map(f => (
-                    <span key={f.key} style={{ background: C.border + "88", borderRadius: 4, padding: "2px 8px", fontSize: 11 }}>
-                      {f.label}{f.required ? " *" : ""}
-                    </span>
-                  ))}
-                </div>
+              <div style={{ background: C.surface, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}`, fontSize: 11, color: C.muted }}>
+                <strong style={{ color: C.accent }}>Colunas detectadas automaticamente:</strong> ID, BANCO, CPF, CLIENTE, PROPOSTA, Nº CONTRATO, DATA, PRAZO, VR. BRUTO, VR. PARCELA, VR. LÍQUIDO, VR. REPASSE, TAXA, OPERAÇÃO, SITUAÇÃO, PRODUTO, CONVÊNIO, AGENTE, SITUAÇÃO BANCO, OBS. SITUAÇÃO BANCO, USUÁRIO
               </div>
             </div>
           )}
 
-          {/* STEP 2 — Map columns */}
+          {/* Step 2: Map Columns */}
           {step === 2 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ background: C.surface, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-                Arquivo: <strong style={{ color: C.text }}>{fileName}</strong> · {rawRows.length} linha(s) encontrada(s)
+              <div style={{ background: C.surface, borderRadius: 10, padding: "9px 14px", border: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+                Arquivo: <strong style={{ color: C.text }}>{fileName}</strong> · {rawRows.length} linha(s) · {headers.length} coluna(s)
               </div>
-              <p style={{ fontSize: 13, color: C.muted }}>Mapeie as colunas da sua planilha para os campos do sistema. Campos detectados automaticamente estão pré-preenchidos.</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {IMPORT_FIELDS.map(f => (
-                  <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <label style={{ fontSize: 11, color: f.required ? C.accent : C.muted, fontWeight: 600 }}>
-                      {f.label}{f.required ? " *" : ""}
-                    </label>
-                    <select value={mapping[f.key] ?? ""} onChange={e => setMapping(m => ({ ...m, [f.key]: e.target.value }))}
-                      style={{ background: C.surface, border: `1px solid ${mapping[f.key] ? C.accent + "66" : C.border}`, borderRadius: 8, color: mapping[f.key] ? C.text : C.muted, padding: "8px 10px", fontSize: 12, outline: "none", cursor: "pointer" }}>
+              <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>Campos detectados automaticamente ({Object.keys(mapping).length} de {Object.keys(IMPORT_MAP).length}). Ajuste se necessário:</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                {Object.entries(IMPORT_MAP).map(([field, def]) => (
+                  <div key={field} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ fontSize: 10, color: mapping[field] ? C.accent : C.muted, fontWeight: 600 }}>{def.label}</label>
+                    <select
+                      value={mapping[field] ?? ""}
+                      onChange={e => setMapping(m => ({ ...m, [field]: e.target.value || undefined }))}
+                      style={{ background: C.surface, border: `1px solid ${mapping[field] ? C.accent + "66" : C.border}`, borderRadius: 7, color: mapping[field] ? C.text : C.muted, padding: "6px 8px", fontSize: 11, outline: "none", cursor: "pointer" }}
+                    >
                       <option value="">— Ignorar —</option>
                       {headers.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
                 ))}
               </div>
-              <div style={{ background: C.surface, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, marginBottom: 6 }}>PRÉ-VISUALIZAÇÃO (2 primeiras linhas)</div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                    <thead><tr>{Object.keys(rawRows[0] || {}).map(h => (
-                      <th key={h} style={{ padding: "4px 8px", textAlign: "left", color: C.muted, whiteSpace: "nowrap", borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                    ))}</tr></thead>
-                    <tbody>{rawRows.slice(0, 2).map((r, i) => (
-                      <tr key={i}>{Object.values(r).map((v, j) => (
-                        <td key={j} style={{ padding: "4px 8px", color: C.text, whiteSpace: "nowrap", borderBottom: `1px solid ${C.border}` }}>{String(v)}</td>
-                      ))}</tr>
-                    ))}</tbody>
-                  </table>
-                </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <Btn variant="ghost" onClick={() => { reset(); }}>← Voltar</Btn>
+                <Btn onClick={buildPreview} style={{ flex: 1 }}>Revisar Importação →</Btn>
               </div>
             </div>
           )}
 
-          {/* STEP 3 — Preview */}
+          {/* Step 3: Preview & Import */}
           {step === 3 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {errors.length > 0 && (
                 <div style={{ background: C.warn + "18", border: `1px solid ${C.warn}44`, borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.warn, marginBottom: 4 }}>⚠ {errors.length} aviso(s)</div>
-                  {errors.slice(0, 4).map((e, i) => <div key={i} style={{ fontSize: 11, color: C.warn }}>{e}</div>)}
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.warn, marginBottom: 3 }}>⚠ {errors.length} aviso(s)</div>
+                  {errors.slice(0, 5).map((e, i) => <div key={i} style={{ fontSize: 11, color: C.warn }}>{e}</div>)}
+                  {errors.length > 5 && <div style={{ fontSize: 11, color: C.warn }}>... e mais {errors.length - 5}</div>}
                 </div>
               )}
-              <div style={{ fontSize: 13, color: C.muted }}>
-                <strong style={{ color: C.accent2 }}>{preview.filter(p => p.date && p.partner).length}</strong> registro(s) prontos para importar
-                {preview.filter(p => !p.date || !p.partner).length > 0 && (
-                  <span style={{ color: C.danger }}> · {preview.filter(p => !p.date || !p.partner).length} serão ignorados (sem data ou agente)</span>
-                )}
+              <div style={{ fontSize: 12, color: C.muted }}>
+                <strong style={{ color: C.accent2 }}>{validCount}</strong> digitações prontas para importar
+                {invalidCount > 0 && <span style={{ color: C.danger }}> · {invalidCount} ignoradas</span>}
               </div>
-              <div style={{ overflowX: "auto", maxHeight: 320 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead style={{ position: "sticky", top: 0 }}>
-                    <tr style={{ background: C.surface }}>
-                      {["", "Data", "Agente", "Banco", "Operação", "Cliente", "VR. Bruto", "Situação", "Sit. Banco"].map(h => (
-                        <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, color: C.muted, fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+              <div style={{ overflowX: "auto", maxHeight: 300, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ background: C.surface, position: "sticky", top: 0 }}>
+                      {["", "Cliente", "Proposta", "Banco", "Operação", "Convênio", "Agente", "Vr. Bruto", "Sit. Banco"].map(h => (
+                        <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: C.muted, fontSize: 10, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {preview.map((p, i) => {
-                      const ok = p.date && p.partner;
-                      return (
-                        <tr key={i} style={{ borderTop: `1px solid ${C.border}`, background: ok ? "transparent" : C.danger + "08" }}>
-                          <td style={{ padding: "8px 12px" }}>
-                            {ok ? <span style={{ color: C.accent2, fontSize: 14 }}>✓</span> : <span style={{ color: C.danger, fontSize: 14 }}>✕</span>}
-                          </td>
-                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.date||"—"}</td>
-                          <td style={{ padding: "8px 12px", fontWeight: 500, color: ok ? C.text : C.danger }}>
-                            {p._partnerMatched ? p._partnerMatched.name : <span style={{ color: C.danger }}>"{p._partnerRaw}" não encontrado</span>}
-                          </td>
-                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.banco||"—"}</td>
-                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.operacao||"—"}</td>
-                          <td style={{ padding: "8px 12px" }}>{p.cliente||"—"}</td>
-                          <td style={{ padding: "8px 12px", color: C.accent2, fontWeight: 600 }}>{fmtBRL(p.value)}</td>
-                          <td style={{ padding: "8px 12px" }}><Pill label={p.situacao||"—"} color={SITUACAO_COLOR[p.situacao]??C.muted} /></td>
-                          <td style={{ padding: "8px 12px" }}><Pill label={p.situacaoBanco||"—"} color={SIT_BANCO_COLOR[p.situacaoBanco]??C.muted} /></td>
-                        </tr>
-                      );
-                    })}
+                    {preview.slice(0, 50).map(p => (
+                      <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: p._valid ? 1 : 0.4 }}>
+                        <td style={{ padding: "6px 10px", color: p._valid ? C.accent2 : C.danger, fontWeight: 700 }}>{p._valid ? "✓" : "✕"}</td>
+                        <td style={{ padding: "6px 10px" }}>{p._cliente}</td>
+                        <td style={{ padding: "6px 10px" }}>{p._proposta}</td>
+                        <td style={{ padding: "6px 10px" }}>{p.banco}</td>
+                        <td style={{ padding: "6px 10px" }}>{p.operacao}</td>
+                        <td style={{ padding: "6px 10px" }}>{p.convenio}</td>
+                        <td style={{ padding: "6px 10px" }}>{p.agente}</td>
+                        <td style={{ padding: "6px 10px" }}>{p._vrBruto}</td>
+                        <td style={{ padding: "6px 10px" }}>{p.situacaoBanco}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
+                {preview.length > 50 && <div style={{ padding: 10, textAlign: "center", fontSize: 11, color: C.muted }}>Mostrando 50 de {preview.length} linhas</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn variant="ghost" onClick={() => setStep(2)}>← Voltar</Btn>
+                <Btn onClick={handleImport} variant="success" style={{ flex: 1 }} disabled={validCount === 0}>
+                  ✓ Importar {validCount} digitações
+                </Btn>
               </div>
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
 
-        {/* Footer */}
-        <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: 10 }}>
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROPOSALS (KANBAN)
+   ═══════════════════════════════════════════════════════════════════════════ */
+const PROPOSAL_STAGES = ["Prospecção", "Proposta Enviada", "Negociação", "Fechado", "Perdido"];
+const VALID_PRIORITY = ["Baixa", "Média", "Alta"];
+const VALID_TYPES = ["Venda", "Contrato", "Renovação", "Outro"];
+
+function Proposals({ proposals, setProposals, partners, currentUser }) {
+  const [modal, setModal] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [form, setForm] = useState({ title: "", partner: "", value: "", type: "Venda", priority: "Média", dueDate: "", responsible: "", notes: "", status: "Prospecção" });
+
+  const openNew = () => { setForm({ title: "", partner: "", value: "", type: "Venda", priority: "Média", dueDate: "", responsible: "", notes: "", status: "Prospecção" }); setEdit(null); setModal(true); };
+  const openEdit = p => { setForm({ ...p, value: String(p.value || "") }); setEdit(p.id); setModal(true); };
+
+  const doSave = () => {
+    if (!form.title.trim()) return;
+    const data = { ...form, value: parseNumber(form.value) };
+    if (edit) {
+      setProposals(ps => ps.map(p => {
+        if (p.id !== edit) return p;
+        const changed = p.status !== data.status;
+        const hist = changed ? [...(p.history || []), { status: data.status, date: TODAY, note: "", user: currentUser }] : p.history;
+        return { ...p, ...data, history: hist };
+      }));
+    } else {
+      setProposals(ps => [...ps, { ...data, id: uid(), history: [{ status: data.status, date: TODAY, note: "Criado", user: currentUser }] }]);
+    }
+    setModal(false);
+  };
+
+  const moveStage = (id, newStatus) => {
+    setProposals(ps => ps.map(p => {
+      if (p.id !== id) return p;
+      return { ...p, status: newStatus, history: [...(p.history || []), { status: newStatus, date: TODAY, note: "", user: currentUser }] };
+    }));
+  };
+
+  const handleProposalImport = (imported) => {
+    setProposals(prev => [...prev, ...imported]);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 20 }}>Propostas</h2>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="ghost" onClick={() => setImportOpen(true)}>📥 Importar</Btn>
+          <Btn onClick={openNew}>+ Nova Proposta</Btn>
+        </div>
+      </div>
+      {/* Kanban */}
+      <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 10 }}>
+        {PROPOSAL_STAGES.map(stage => {
+          const items = proposals.filter(p => p.status === stage);
+          const stageColor = stage === "Fechado" ? C.accent2 : stage === "Perdido" ? C.danger : stage === "Negociação" ? C.warn : C.accent;
+          return (
+            <div key={stage} style={{ minWidth: 220, flex: 1, background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: stageColor }}>{stage}</span>
+                <span style={{ fontSize: 10, background: stageColor + "22", color: stageColor, padding: "2px 8px", borderRadius: 8 }}>{items.length}</span>
+              </div>
+              <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                {items.map(p => {
+                  const partner = partners.find(x => x.id === p.partner);
+                  return (
+                    <div key={p.id} onClick={() => openEdit(p)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", transition: "border-color .15s" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{p.title}</div>
+                      <div style={{ fontSize: 10, color: C.muted }}>{partner?.name || "—"} · {fmtCur(p.value)}</div>
+                      {p.dueDate && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Prazo: {fmtDate(p.dueDate)}</div>}
+                      {/* Move buttons */}
+                      <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                        {PROPOSAL_STAGES.filter(s => s !== stage).map(s => (
+                          <button key={s} onClick={e => { e.stopPropagation(); moveStage(p.id, s); }} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, cursor: "pointer" }}>→ {s.slice(0, 4)}</button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {items.length === 0 && <div style={{ fontSize: 11, color: C.muted, textAlign: "center", padding: 16 }}>Vazio</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal */}
+      <Modal open={modal} onClose={() => setModal(false)} title={edit ? "Editar Proposta" : "Nova Proposta"} width={560}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <InputField label="Título" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} style={{ gridColumn: "1 / -1" }} />
+          <InputField label="Parceiro" value={form.partner} onChange={v => setForm(f => ({ ...f, partner: v }))} options={partners.map(p => p.id)} />
+          <InputField label="Valor (R$)" value={form.value} onChange={v => setForm(f => ({ ...f, value: v }))} />
+          <InputField label="Tipo" value={form.type} onChange={v => setForm(f => ({ ...f, type: v }))} options={VALID_TYPES} />
+          <InputField label="Prioridade" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))} options={VALID_PRIORITY} />
+          <InputField label="Prazo" value={form.dueDate} onChange={v => setForm(f => ({ ...f, dueDate: v }))} type="date" />
+          <InputField label="Responsável" value={form.responsible} onChange={v => setForm(f => ({ ...f, responsible: v }))} />
+          <InputField label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={PROPOSAL_STAGES} style={{ gridColumn: "1 / -1" }} />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <InputField label="Observações" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} type="textarea" />
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <Btn onClick={doSave} style={{ flex: 1 }}>Salvar</Btn>
+          {edit && <Btn variant="danger" onClick={() => { setProposals(ps => ps.filter(p => p.id !== edit)); setModal(false); }}>Excluir</Btn>}
+        </div>
+      </Modal>
+
+      {/* Import Proposals */}
+      <ImportProposalModal open={importOpen} onClose={() => setImportOpen(false)} partners={partners} onImport={handleProposalImport} currentUser={currentUser} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPORT PROPOSALS MODAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+const PROP_IMPORT_FIELDS = [
+  { key: "title", label: "Título", aliases: ["título", "titulo", "proposta", "nome"] },
+  { key: "partner", label: "Parceiro", aliases: ["parceiro", "cliente", "partner"] },
+  { key: "value", label: "Valor", aliases: ["valor", "value", "montante", "vr. bruto"] },
+  { key: "type", label: "Tipo", aliases: ["tipo", "type", "operação"] },
+  { key: "priority", label: "Prioridade", aliases: ["prioridade", "priority"] },
+  { key: "status", label: "Status", aliases: ["status", "etapa", "fase", "situação"] },
+  { key: "dueDate", label: "Prazo", aliases: ["prazo", "data", "vencimento", "date"] },
+  { key: "responsible", label: "Responsável", aliases: ["responsável", "responsavel", "vendedor", "agente"] },
+  { key: "notes", label: "Observações", aliases: ["obs", "nota", "observações", "comment"] },
+];
+
+function normalizePropStatus(v) {
+  if (!v) return "Prospecção";
+  const s = String(v).toLowerCase().trim();
+  const map = { "prospecção": "Prospecção", "prospeccao": "Prospecção", "enviada": "Proposta Enviada", "proposta enviada": "Proposta Enviada", "negociação": "Negociação", "negociacao": "Negociação", "fechado": "Fechado", "won": "Fechado", "ganho": "Fechado", "perdido": "Perdido", "lost": "Perdido" };
+  return map[s] || PROPOSAL_STAGES.find(st => st.toLowerCase().includes(s)) || "Prospecção";
+}
+
+function ImportProposalModal({ open, onClose, partners, onImport, currentUser }) {
+  const xlsxReady = useSheetJS();
+  const fileRef = useRef(null);
+  const [step, setStep] = useState(1);
+  const [rawRows, setRawRows] = useState([]);
+  const [headers, setHeaders] = useState([]);
+  const [mapping, setMapping] = useState({});
+  const [preview, setPreview] = useState([]);
+  const [errors, setErrors] = useState([]);
+  const [dragActive, setDragActive] = useState(false);
+  const [fileName, setFileName] = useState("");
+
+  const reset = () => { setStep(1); setRawRows([]); setHeaders([]); setMapping({}); setPreview([]); setErrors([]); setFileName(""); };
+  useEffect(() => { if (!open) reset(); }, [open]);
+
+  const parseFile = (file) => {
+    if (!xlsxReady || !window.XLSX) { setErrors(["Aguarde o carregamento da biblioteca."]); return; }
+    setFileName(file.name); setErrors([]);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = window.XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+        const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+        if (!rows.length) { setErrors(["Planilha vazia"]); return; }
+        setRawRows(rows);
+        const cols = Object.keys(rows[0]);
+        setHeaders(cols);
+        const m = {};
+        PROP_IMPORT_FIELDS.forEach(f => {
+          const found = cols.find(c => f.aliases.some(a => c.toLowerCase().trim().includes(a)));
+          if (found) m[f.key] = found;
+        });
+        setMapping(m);
+        setStep(2);
+      } catch (err) { setErrors(["Erro: " + err.message]); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const buildPreview = () => {
+    const errs = [];
+    const built = rawRows.map((row, i) => {
+      const title = mapping.title ? String(row[mapping.title] || "").trim() : "";
+      const partnerRaw = mapping.partner ? String(row[mapping.partner] || "").trim() : "";
+      if (!title) errs.push(`Linha ${i + 2}: título vazio`);
+      const matched = partners.find(p => p.name.toLowerCase().trim() === partnerRaw.toLowerCase() || p.name.toLowerCase().includes(partnerRaw.toLowerCase().split(" ")[0] || "___"));
+      if (partnerRaw && !matched) errs.push(`Linha ${i + 2}: parceiro "${partnerRaw}" não encontrado`);
+      return {
+        _row: i + 2, _valid: !!title, _partnerRaw: partnerRaw,
+        id: uid(), title, partner: matched?.id || "",
+        value: parseNumber(mapping.value ? row[mapping.value] : ""),
+        type: mapping.type ? String(row[mapping.type] || "Venda").trim() : "Venda",
+        priority: mapping.priority ? (VALID_PRIORITY.includes(String(row[mapping.priority]).trim()) ? String(row[mapping.priority]).trim() : "Média") : "Média",
+        status: normalizePropStatus(mapping.status ? row[mapping.status] : ""),
+        dueDate: normalizeImportDate(mapping.dueDate ? row[mapping.dueDate] : ""),
+        responsible: mapping.responsible ? String(row[mapping.responsible] || "").trim() : "",
+        notes: mapping.notes ? String(row[mapping.notes] || "").trim() : "",
+        history: [{ status: "Prospecção", date: TODAY, note: "Importado via planilha", user: currentUser }],
+      };
+    });
+    setErrors(errs); setPreview(built); setStep(3);
+  };
+
+  const handleImport = () => {
+    const valid = preview.filter(p => p._valid).map(({ _row, _valid, _partnerRaw, ...rest }) => rest);
+    onImport(valid);
+    onClose();
+  };
+
+  const downloadTemplate = () => {
+    if (!window.XLSX) return;
+    const ws = window.XLSX.utils.aoa_to_sheet([
+      ["Título", "Parceiro", "Valor (R$)", "Tipo", "Prioridade", "Status", "Prazo (dd/mm/aaaa)", "Responsável", "Observações"],
+      ["Renovação Contrato 2026", "TechVentures SP", 95000, "Renovação", "Alta", "Negociação", "15/05/2026", "Ana Lima", ""],
+    ]);
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Propostas");
+    window.XLSX.writeFile(wb, "modelo_propostas.xlsx");
+  };
+
+  if (!open) return null;
+  const validCount = preview.filter(p => p._valid).length;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000CC", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, width: 700, maxWidth: "96vw", maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            {step > 1 && <Btn variant="muted" onClick={() => setStep(s => s - 1)}>← Voltar</Btn>}
+            <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 15, margin: 0 }}>Importar Propostas</h3>
+            <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+              {["Upload", "Mapear", "Revisar"].map((s, i) => (
+                <div key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: step > i + 1 ? C.accent2 : step === i + 1 ? C.accent : C.border, color: step >= i + 1 ? "#fff" : C.muted }}>{step > i + 1 ? "✓" : i + 1}</div>
+                  <span style={{ fontSize: 11, color: step === i + 1 ? C.text : C.muted }}>{s}</span>
+                  {i < 2 && <span style={{ color: C.border, marginLeft: 4 }}>›</span>}
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Btn variant="ghost" onClick={() => { reset(); onClose(); }}>Cancelar</Btn>
-            {step === 1 && <Btn variant="muted" onClick={() => fileRef.current?.click()}>Selecionar arquivo</Btn>}
-            {step === 2 && <Btn onClick={buildPreview} variant={mapping.title && mapping.partner ? "primary" : "muted"}>Revisar →</Btn>}
-            {step === 3 && (
-              <Btn onClick={handleImport} variant="success" style={{ padding: "8px 24px" }}>
-                ✓ Importar {preview.filter(p => p.date && p.partner).length} registro(s)
-              </Btn>
-            )}
-          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer" }}>×</button>
+        </div>
+        <div style={{ padding: "20px 24px" }}>
+          {step === 1 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div onDragOver={e => { e.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={e => { e.preventDefault(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) parseFile(f); }} onClick={() => fileRef.current?.click()} style={{ border: `2px dashed ${dragActive ? C.accent : C.border}`, borderRadius: 14, padding: "40px 24px", textAlign: "center", background: dragActive ? C.accent + "08" : C.surface, cursor: "pointer" }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📂</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{xlsxReady ? "Arraste ou clique" : "Carregando..."}</div>
+                <div style={{ fontSize: 11, color: C.muted }}>.xlsx, .xls ou .csv</div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) parseFile(f); }} style={{ display: "none" }} />
+              </div>
+              {errors.map((e, i) => <div key={i} style={{ background: C.danger + "18", padding: "8px 12px", borderRadius: 8, fontSize: 12, color: C.danger }}>{e}</div>)}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.surface, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>📥 Baixar modelo</span>
+                <Btn variant="ghost" onClick={downloadTemplate} style={{ fontSize: 11 }}>Baixar .xlsx</Btn>
+              </div>
+            </div>
+          )}
+          {step === 2 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 12, color: C.muted }}>Arquivo: <strong style={{ color: C.text }}>{fileName}</strong> · {rawRows.length} linhas</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                {PROP_IMPORT_FIELDS.map(f => (
+                  <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <label style={{ fontSize: 10, color: mapping[f.key] ? C.accent : C.muted, fontWeight: 600 }}>{f.label}</label>
+                    <select value={mapping[f.key] ?? ""} onChange={e => setMapping(m => ({ ...m, [f.key]: e.target.value || undefined }))} style={{ background: C.surface, border: `1px solid ${mapping[f.key] ? C.accent + "66" : C.border}`, borderRadius: 7, color: mapping[f.key] ? C.text : C.muted, padding: "6px 8px", fontSize: 11, outline: "none", cursor: "pointer" }}>
+                      <option value="">— Ignorar —</option>
+                      {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <Btn variant="ghost" onClick={reset}>← Voltar</Btn>
+                <Btn onClick={buildPreview} style={{ flex: 1 }}>Revisar →</Btn>
+              </div>
+            </div>
+          )}
+          {step === 3 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {errors.length > 0 && <div style={{ background: C.warn + "18", borderRadius: 8, padding: "10px 14px" }}>{errors.slice(0, 5).map((e, i) => <div key={i} style={{ fontSize: 11, color: C.warn }}>{e}</div>)}</div>}
+              <div style={{ fontSize: 12 }}><strong style={{ color: C.accent2 }}>{validCount}</strong> propostas prontas</div>
+              <div style={{ overflowX: "auto", maxHeight: 260, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead><tr style={{ background: C.surface }}>{["", "Título", "Parceiro", "Valor", "Status"].map(h => <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: C.muted, fontSize: 10 }}>{h}</th>)}</tr></thead>
+                  <tbody>{preview.slice(0, 50).map(p => <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: p._valid ? 1 : 0.4 }}><td style={{ padding: "6px 10px", color: p._valid ? C.accent2 : C.danger, fontWeight: 700 }}>{p._valid ? "✓" : "✕"}</td><td style={{ padding: "6px 10px" }}>{p.title}</td><td style={{ padding: "6px 10px" }}>{p._partnerRaw}</td><td style={{ padding: "6px 10px" }}>{fmtCur(p.value)}</td><td style={{ padding: "6px 10px" }}>{p.status}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn variant="ghost" onClick={() => setStep(2)}>← Voltar</Btn>
+                <Btn onClick={handleImport} variant="success" style={{ flex: 1 }} disabled={validCount === 0}>✓ Importar {validCount} propostas</Btn>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-const BLANK_PROPOSAL = {
-  id: "", title: "", partner: "", value: "", type: "Venda",
-  priority: "Média", dueDate: "", responsible: "", notes: "",
-  status: "Prospecção", history: [],
-};
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANALYSIS
+   ═══════════════════════════════════════════════════════════════════════════ */
+function Analise({ ops, partners }) {
+  const now = new Date();
+  const curMonth = now.toISOString().slice(0, 7);
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonth = prevDate.toISOString().slice(0, 7);
 
-function Proposals({ proposals, setProposals, partners, currentUser }) {
-  const [viewMode, setViewMode] = useState("kanban");
-  const [selected, setSelected] = useState(null);
-  const [newModal, setNewModal] = useState(false);
-  const [form, setForm] = useState(BLANK_PROPOSAL);
-  const [search, setSearch] = useState("");
-  const [filterPriority, setFilterPriority] = useState("Todas");
-  const [dragOver, setDragOver] = useState(null);
-  const [importModal, setImportModal] = useState(false);
-  const dragId = useRef(null);
+  const curOps = ops.filter(o => o.date?.startsWith(curMonth));
+  const prevOps = ops.filter(o => o.date?.startsWith(prevMonth));
 
-  const filtered = proposals.filter(p => {
-    const partner = partners.find(x => x.id === p.partner);
-    const q = search.toLowerCase();
-    return (!q || p.title.toLowerCase().includes(q) || partner?.name.toLowerCase().includes(q))
-      && (filterPriority === "Todas" || p.priority === filterPriority);
+  const activePartners = partners.filter(p => p.status === "Ativo");
+
+  const partnerStats = activePartners.map(p => {
+    const cur = curOps.filter(o => o.partner === p.id);
+    const prev = prevOps.filter(o => o.partner === p.id);
+    const curVal = cur.reduce((s, o) => s + (o.value || 0), 0);
+    const prevVal = prev.reduce((s, o) => s + (o.value || 0), 0);
+    const lastOp = ops.filter(o => o.partner === p.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0];
+    const daysSince = lastOp ? Math.floor((now - new Date(lastOp.date)) / 86400000) : 999;
+    const variation = prevVal > 0 ? ((curVal - prevVal) / prevVal * 100) : (curVal > 0 ? 100 : 0);
+
+    let alert = "ok";
+    if (cur.length === 0 && prev.length > 0) alert = "inactive";
+    else if (variation <= -30) alert = "drop_heavy";
+    else if (variation < 0) alert = "drop_light";
+    else if (prev.length === 0 && cur.length === 0) alert = "never";
+
+    return { ...p, curCount: cur.length, prevCount: prev.length, curVal, prevVal, variation, daysSince, lastDate: lastOp?.date, alert };
+  }).sort((a, b) => {
+    const order = { inactive: 0, drop_heavy: 1, drop_light: 2, never: 3, ok: 4 };
+    return (order[a.alert] ?? 5) - (order[b.alert] ?? 5);
   });
 
-  const handleNew = () => {
-    if (!form.title || !form.partner) return;
-    const entry = { status: form.status, date: TODAY, note: "Proposta criada", user: currentUser };
-    const np = { ...form, id: uid(), value: Number(form.value) || 0, history: [entry] };
-    setProposals(prev => [...prev, np]);
-    setForm(BLANK_PROPOSAL);
-    setNewModal(false);
-  };
+  const alertCount = partnerStats.filter(p => ["inactive", "drop_heavy"].includes(p.alert)).length;
 
-  const handleSave = (updated) => {
-    setProposals(prev => prev.map(p => p.id === updated.id ? updated : p));
-    setSelected(updated);
-  };
-
-  const handleDelete = (id) => { setProposals(prev => prev.filter(p => p.id !== id)); };
-
-  const handleImportBatch = (newProps) => {
-    setProposals(prev => [...prev, ...newProps]);
-  };
-
-  const onDrop = (stageId) => {
-    if (!dragId.current) return;
-    const prop = proposals.find(p => p.id === dragId.current);
-    if (!prop || prop.status === stageId) { dragId.current = null; setDragOver(null); return; }
-    const entry = { status: stageId, date: TODAY, note: `Movido para "${stageId}"`, user: currentUser };
-    const updated = { ...prop, status: stageId, history: [...(prop.history || []), entry] };
-    setProposals(prev => prev.map(p => p.id === updated.id ? updated : p));
-    if (selected?.id === updated.id) setSelected(updated);
-    setDragOver(null); dragId.current = null;
-  };
-
-  const openPipeline = proposals.filter(p => !["Fechado", "Perdido"].includes(p.status)).reduce((a, p) => a + (p.value || 0), 0);
+  // Daily chart last 30 days
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now); d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split("T")[0];
+    const dayOps = ops.filter(o => o.date === ds);
+    days.push({ date: ds, count: dayOps.length, value: dayOps.reduce((s, o) => s + (o.value || 0), 0) });
+  }
+  const maxCount = Math.max(...days.map(d => d.count), 1);
 
   return (
-    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10 }}>
-        <div>
-          <h2 style={{ fontFamily: "Syne", fontSize: 20, fontWeight: 700 }}>Propostas</h2>
-          <p style={{ color: C.muted, fontSize: 13 }}>
-            {proposals.length} proposta(s) · Pipeline aberto: <strong style={{ color: C.accent2 }}>{fmtBRL(openPipeline)}</strong>
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <div style={{ display: "flex", background: C.surface, borderRadius: 8, border: `1px solid ${C.border}`, overflow: "hidden" }}>
-            {[["kanban", "⬡ Kanban"], ["list", "☰ Lista"]].map(([m, lbl]) => (
-              <button key={m} onClick={() => setViewMode(m)} style={{
-                padding: "7px 14px", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                background: viewMode === m ? C.accent + "22" : "transparent",
-                color: viewMode === m ? C.accent : C.muted, transition: "all .15s",
-              }}>{lbl}</button>
-            ))}
-          </div>
-          <Btn variant="ghost" onClick={() => setImportModal(true)}>⬆ Importar Planilha</Btn>
-          <Btn onClick={() => { setForm(BLANK_PROPOSAL); setNewModal(true); }}>+ Nova Proposta</Btn>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 20 }}>Análise de Digitações</h2>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Digitações no Mês" value={curOps.length} sub={`${prevOps.length} no mês anterior`} />
+        <StatCard label="Parceiros em Queda" value={partnerStats.filter(p => ["drop_heavy", "drop_light"].includes(p.alert)).length} color={C.warn} />
+        <StatCard label="Sem Digitar no Mês" value={partnerStats.filter(p => p.alert === "inactive").length} color={C.danger} />
+        <StatCard label="Total com Alerta" value={alertCount} color={alertCount > 0 ? C.danger : C.accent2} />
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Buscar proposta ou parceiro..."
-          style={{ flex: 1, minWidth: 200, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "8px 12px", fontSize: 13, outline: "none" }} />
-        {["Todas", "Alta", "Média", "Baixa"].map(p => (
-          <button key={p} onClick={() => setFilterPriority(p)} style={{
-            padding: "7px 13px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
-            border: `1px solid ${filterPriority === p ? (PRIORITY_COLOR[p] ?? C.accent) : C.border}`,
-            background: filterPriority === p ? (PRIORITY_COLOR[p] ?? C.accent) + "22" : "transparent",
-            color: filterPriority === p ? (PRIORITY_COLOR[p] ?? C.accent) : C.muted,
-          }}>{p}</button>
-        ))}
-      </div>
+      {/* Alerts */}
+      {alertCount > 0 && (
+        <div style={{ background: C.danger + "12", border: `1px solid ${C.danger}33`, borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.danger, marginBottom: 8 }}>⚠ Parceiros que precisam de atenção</div>
+          {partnerStats.filter(p => ["inactive", "drop_heavy"].includes(p.alert)).map(p => (
+            <div key={p.id} style={{ fontSize: 12, padding: "4px 0", display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ color: p.alert === "inactive" ? C.danger : C.warn }}>{p.alert === "inactive" ? "🔴" : "🟡"}</span>
+              <strong>{p.name}</strong>
+              <span style={{ color: C.muted }}>— {p.alert === "inactive" ? `Sem digitação no mês (última: ${p.lastDate ? fmtDate(p.lastDate) : "nunca"})` : `Queda de ${Math.abs(p.variation).toFixed(0)}%`}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* KANBAN */}
-      {viewMode === "kanban" && (
-        <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 10, minHeight: 440 }}>
-          {STAGES.map(stage => {
-            const cols = filtered.filter(p => p.status === stage.id);
-            const colVal = cols.reduce((a, p) => a + (p.value || 0), 0);
-            const isOver = dragOver === stage.id;
+      {/* Daily chart */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Digitações Diárias (últimos 30 dias)</div>
+        <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 100 }}>
+          {days.map(d => {
+            const isToday = d.date === TODAY;
             return (
-              <div key={stage.id}
-                onDragOver={e => { e.preventDefault(); setDragOver(stage.id); }}
-                onDragLeave={() => setDragOver(null)}
-                onDrop={() => onDrop(stage.id)}
-                style={{
-                  minWidth: 218, maxWidth: 232, flexShrink: 0,
-                  background: isOver ? stage.color + "12" : C.surface,
-                  border: `1px solid ${isOver ? stage.color + "66" : C.border}`,
-                  borderRadius: 14, display: "flex", flexDirection: "column",
-                  transition: "all .15s",
-                }}>
-                <div style={{ padding: "11px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: stage.color }}>{stage.icon}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: stage.color }}>{stage.id}</span>
-                  </div>
-                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{cols.length}</span>
-                </div>
-                {colVal > 0 && (
-                  <div style={{ padding: "4px 14px", background: stage.color + "10", borderBottom: `1px solid ${C.border}` }}>
-                    <span style={{ fontSize: 11, color: stage.color, fontWeight: 600 }}>{fmtBRL(colVal)}</span>
-                  </div>
-                )}
-                <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                  {cols.map(p => {
-                    const partner = partners.find(x => x.id === p.partner);
-                    const overdue = p.dueDate && p.dueDate < TODAY && !["Fechado", "Perdido"].includes(p.status);
-                    return (
-                      <div key={p.id}
-                        draggable
-                        onDragStart={() => { dragId.current = p.id; }}
-                        onClick={() => setSelected(p)}
-                        style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", cursor: "grab", userSelect: "none", transition: "border .15s" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = stage.color + "66"}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>{p.title}</div>
-                        <div style={{ fontSize: 11, color: C.muted, marginBottom: 7 }}>{partner?.name}</div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 12, color: C.accent2, fontWeight: 700 }}>{fmtBRL(p.value)}</span>
-                          <Pill label={p.priority} color={PRIORITY_COLOR[p.priority]} />
-                        </div>
-                        {p.dueDate && (
-                          <div style={{ fontSize: 10, color: overdue ? C.danger : C.muted, marginTop: 5 }}>
-                            {overdue ? "⚠ " : ""}Prazo: {fmtDate(p.dueDate)}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {cols.length === 0 && (
-                    <div style={{ flex: 1, minHeight: 60, display: "flex", alignItems: "center", justifyContent: "center", color: C.border, fontSize: 11, border: `1px dashed ${C.border}`, borderRadius: 8, margin: 4 }}>
-                      Arraste aqui
-                    </div>
-                  )}
-                </div>
+              <div key={d.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }} title={`${fmtDate(d.date)}: ${d.count} ops`}>
+                <div style={{ width: "100%", background: isToday ? C.accent : C.accent + "66", borderRadius: 3, height: Math.max(3, (d.count / maxCount) * 90), transition: "height .3s" }} />
               </div>
             );
           })}
         </div>
-      )}
-
-      {/* LIST */}
-      {viewMode === "list" && (
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: C.surface }}>
-                {["Proposta", "Parceiro", "Valor", "Status", "Prioridade", "Prazo", "Responsável"].map(h => (
-                  <th key={h} style={{ textAlign: "left", padding: "11px 16px", fontSize: 11, color: C.muted, fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: C.muted }}>Nenhuma proposta encontrada</td></tr>}
-              {filtered.map(p => {
-                const partner = partners.find(x => x.id === p.partner);
-                const overdue = p.dueDate && p.dueDate < TODAY && !["Fechado", "Perdido"].includes(p.status);
-                return (
-                  <tr key={p.id} onClick={() => setSelected(p)}
-                    style={{ borderTop: `1px solid ${C.border}`, cursor: "pointer" }}
-                    onMouseEnter={e => e.currentTarget.style.background = C.surface}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <td style={{ padding: "11px 16px", fontWeight: 600 }}>{p.title}</td>
-                    <td style={{ color: C.muted }}>{partner?.name ?? "—"}</td>
-                    <td style={{ color: C.accent2, fontWeight: 700 }}>{fmtBRL(p.value)}</td>
-                    <td><Pill label={p.status} color={stageColor(p.status)} /></td>
-                    <td><Pill label={p.priority} color={PRIORITY_COLOR[p.priority]} /></td>
-                    <td style={{ color: overdue ? C.danger : C.muted, fontSize: 12 }}>{overdue ? "⚠ " : ""}{fmtDate(p.dueDate)}</td>
-                    <td style={{ color: C.muted }}>{p.responsible || "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Card>
-      )}
-
-      {/* New modal */}
-      <Modal open={newModal} onClose={() => setNewModal(false)} title="Nova Proposta">
-        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <label style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>Estágio Inicial</label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {STAGES.slice(0, 4).map(s => (
-              <button key={s.id} onClick={() => setForm(f => ({ ...f, status: s.id }))} style={{
-                padding: "5px 11px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                border: `1px solid ${form.status === s.id ? s.color : C.border}`,
-                background: form.status === s.id ? s.color + "25" : "transparent",
-                color: form.status === s.id ? s.color : C.muted,
-              }}>{s.icon} {s.id}</button>
-            ))}
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+          <span style={{ fontSize: 10, color: C.muted }}>{fmtDate(days[0]?.date)}</span>
+          <span style={{ fontSize: 10, color: C.muted }}>Hoje</span>
         </div>
-        <ProposalForm form={form} setForm={setForm} partners={partners} />
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setNewModal(false)}>Cancelar</Btn>
-          <Btn onClick={handleNew}>Criar Proposta</Btn>
-        </div>
-      </Modal>
-
-      {/* Import modal */}
-      <ImportModal
-        open={importModal}
-        onClose={() => setImportModal(false)}
-        partners={partners}
-        onImport={handleImportBatch}
-        currentUser={currentUser}
-      />
-
-      {/* Detail panel */}
-      {selected && (
-        <>
-          <div style={{ position: "fixed", inset: 0, background: "#00000050", zIndex: 140 }} onClick={() => setSelected(null)} />
-          <ProposalDetail
-            proposal={selected} partners={partners}
-            onClose={() => setSelected(null)} onSave={handleSave}
-            onDelete={(id) => { handleDelete(id); setSelected(null); }}
-            currentUser={currentUser}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Dashboard ─────────────────────────────────────────────────────────────────
-function Dashboard({ ops, partners, proposals }) {
-  const concluded = ops.filter(o => o.status === "Concluída");
-  const totalRev = concluded.reduce((a, o) => a + o.value, 0);
-  const pipeline = proposals.filter(p => !["Fechado", "Perdido"].includes(p.status)).reduce((a, p) => a + (p.value || 0), 0);
-  const activePartners = partners.filter(p => p.status === "Ativo").length;
-  const convRate = ops.length > 0 ? ((concluded.length / ops.length) * 100).toFixed(1) : 0;
-
-  const nowDate = new Date();
-  const months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(nowDate.getFullYear(), nowDate.getMonth() - (5 - i), 1);
-    return { month: d.getMonth(), year: d.getFullYear(), label: d.toLocaleString("pt-BR", { month: "short" }) };
-  });
-  const monthlyData = months.map(m => ({
-    label: m.label,
-    value: concluded.filter(o => { const d = new Date(o.date); return d.getMonth() === m.month && d.getFullYear() === m.year; })
-      .reduce((a, o) => a + o.value, 0),
-  }));
-
-  const partnerRev = partners.map(p => ({
-    ...p,
-    revenue: concluded.filter(o => o.partner === p.id).reduce((a, o) => a + o.value, 0),
-    ops: ops.filter(o => o.partner === p.id).length,
-  })).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-
-  const recentOps = [...ops].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
-
-  return (
-    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div>
-        <h2 style={{ fontFamily: "Syne", fontSize: 20, fontWeight: 700 }}>Dashboard</h2>
-        <p style={{ color: C.muted, fontSize: 13 }}>Visão geral de operações e performance</p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 14 }}>
-        <StatCard label="Receita Total" value={fmtBRL(totalRev)} sub="Operações concluídas" color={C.accent2} icon="💰" />
-        <StatCard label="Pipeline" value={fmtBRL(pipeline)} sub="Propostas em aberto" color={C.accent} icon="📊" />
-        <StatCard label="Parceiros Ativos" value={activePartners} sub={`de ${partners.length} total`} icon="🤝" />
-        <StatCard label="Taxa de Conversão" value={`${convRate}%`} sub="das operações" color={C.warn} icon="📈" />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
-        <Card>
-          <h3 style={{ fontFamily: "Syne", fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Receita Mensal</h3>
-          <BarChart data={monthlyData} />
-        </Card>
-        <Card>
-          <h3 style={{ fontFamily: "Syne", fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Top Parceiros</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {partnerRev.map((p, i) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, color: C.muted, width: 14 }}>#{i + 1}</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: C.muted }}>{p.ops} ops</div>
-                  </div>
-                </div>
-                <span style={{ fontSize: 13, color: C.accent2, fontWeight: 600 }}>{fmtBRL(p.revenue)}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-      <Card>
-        <h3 style={{ fontFamily: "Syne", fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Operações Recentes</h3>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead><tr style={{ color: C.muted, fontSize: 11 }}>
-            {["Data", "Parceiro", "Tipo", "Valor", "Status"].map(h => (
-              <th key={h} style={{ textAlign: "left", paddingBottom: 8, fontWeight: 600 }}>{h}</th>
-            ))}
-          </tr></thead>
+
+      {/* Partner table */}
+      <div style={{ overflowX: "auto", borderRadius: 12, border: `1px solid ${C.border}` }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: C.surface }}>
+              {["Sinal", "Parceiro", "Mês Atual", "Mês Anterior", "Variação", "Última Digitação", "Dias"].map(h => (
+                <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: C.muted, fontSize: 10, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
-            {recentOps.map(o => {
-              const p = partners.find(x => x.id === o.partner);
+            {partnerStats.map(p => {
+              const alertIcon = p.alert === "inactive" ? "🔴" : p.alert === "drop_heavy" ? "🔴" : p.alert === "drop_light" ? "🟡" : p.alert === "never" ? "○" : "↗";
+              const varColor = p.variation > 0 ? C.accent2 : p.variation < -30 ? C.danger : p.variation < 0 ? C.warn : C.text;
               return (
-                <tr key={o.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                  <td style={{ padding: "8px 0" }}>{fmtDate(o.date)}</td>
-                  <td>{p?.name ?? "—"}</td>
-                  <td>{o.type}</td>
-                  <td style={{ color: C.accent2, fontWeight: 600 }}>{fmtBRL(o.value)}</td>
-                  <td><Pill label={o.status} color={STATUS_COLOR[o.status] ?? C.muted} /></td>
+                <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: "10px 12px", fontSize: 14 }}>{alertIcon}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 600 }}>{p.name}</td>
+                  <td style={{ padding: "10px 12px" }}>{p.curCount} ops · {fmtCur(p.curVal)}</td>
+                  <td style={{ padding: "10px 12px" }}>{p.prevCount} ops · {fmtCur(p.prevVal)}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 600, color: varColor }}>{p.variation > 0 ? "+" : ""}{p.variation.toFixed(0)}%</td>
+                  <td style={{ padding: "10px 12px" }}>{p.lastDate ? fmtDate(p.lastDate) : "—"}</td>
+                  <td style={{ padding: "10px 12px", color: p.daysSince > 30 ? C.danger : p.daysSince > 14 ? C.warn : C.text }}>{p.daysSince < 999 ? `${p.daysSince}d` : "—"}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-      </Card>
-    </div>
-  );
-}
-
-// ── Export Modal ──────────────────────────────────────────────────────────────
-function ExportModal({ open, onClose, ops, partners }) {
-  const [filters, setFilters] = useState({ banco:"", operacao:"", convenio:"", agente:"", situacaoBanco:"", parceiro:"", dateFrom:"", dateTo:"" });
-  const setF = (k,v) => setFilters(f=>({...f,[k]:v}));
-
-  useEffect(() => {
-    if (open && !window.XLSX) {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      document.head.appendChild(s);
-    }
-  }, [open]);
-
-  const allBancos    = [...new Set(ops.map(o=>o.banco).filter(Boolean))].sort();
-  const allOps       = [...new Set(ops.map(o=>o.type).filter(Boolean))].sort();
-  const allConvenios = [...new Set(ops.map(o=>o.convenio).filter(Boolean))].sort();
-  const allAgentes   = [...new Set(ops.map(o=>o.agente).filter(Boolean))].sort();
-  const allSituacoes = [...new Set(ops.map(o=>o.situacaoBanco).filter(Boolean))].sort();
-
-  const filtered = ops.filter(o =>
-    (!filters.banco        || o.banco===filters.banco) &&
-    (!filters.operacao     || o.operacao===filters.operacao) &&
-    (!filters.convenio     || o.convenio===filters.convenio) &&
-    (!filters.situacao     || o.situacao===filters.situacao) &&
-    (!filters.situacaoBanco|| o.situacaoBanco===filters.situacaoBanco) &&
-    (!filters.parceiro     || o.partner===filters.parceiro) &&
-    (!filters.dateFrom     || o.date>=filters.dateFrom) &&
-    (!filters.dateTo       || o.date<=filters.dateTo)
-  );
-
-  const doExport = () => {
-    if (!window.XLSX) { alert("Aguarde, carregando exportador..."); return; }
-    const rows = filtered.map(o => {
-      const p = partners.find(x=>x.id===o.partner);
-      return {
-        "DATA":              o.date,
-        "AGENTE":            p?.name??"",
-        "BANCO":             o.banco??"",
-        "OPERAÇÃO":          o.operacao??"",
-        "CONVÊNIO":          o.convenio??"",
-        "USUÁRIO":           o.usuario??"",
-        "CPF":               o.cpf??"",
-        "CLIENTE":           o.cliente??"",
-        "PROPOSTA":          o.proposta??"",
-        "Nº CONTRATO":       o.contrato??"",
-        "PRAZO":             o.prazo??"",
-        "VR. BRUTO":         o.value,
-        "VR. PARCELA":       o.vrParcela??"",
-        "VR. LÍQUIDO":       o.vrLiquido??"",
-        "VR. REPASSE":       o.vrRepasse??"",
-        "TAXA":              o.taxa??"",
-        "PRODUTO":           o.produto??"",
-        "SITUAÇÃO":          o.situacao??"",
-        "SITUAÇÃO BANCO":    o.situacaoBanco??"",
-        "OBSERVAÇÕES":       o.notes??"",
-      };
-    });
-    const ws = window.XLSX.utils.json_to_sheet(rows);
-    const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, "Digitações");
-    window.XLSX.writeFile(wb, `digitacoes_${TODAY}.xlsx`);
-  };
-
-  const clearAll = () => setFilters({ banco:"", operacao:"", convenio:"", situacao:"", situacaoBanco:"", parceiro:"", dateFrom:"", dateTo:"" });
-
-  if (!open) return null;
-  const selStyle = { background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:12, outline:"none", cursor:"pointer", width:"100%" };
-
-  return (
-    <div style={{ position:"fixed", inset:0, background:"#000000CC", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={onClose}>
-      <div className="fade-in" onClick={e=>e.stopPropagation()} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:18, width:660, maxWidth:"100%", maxHeight:"90vh", overflowY:"auto", display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"20px 24px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div>
-            <h3 style={{ fontFamily:"Syne", fontWeight:700, fontSize:16 }}>Exportar Digitações</h3>
-            <p style={{ fontSize:12, color:C.muted, marginTop:3 }}>Filtre e exporte no mesmo formato da planilha</p>
-          </div>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, fontSize:22, cursor:"pointer" }}>×</button>
-        </div>
-
-        <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:16 }}>
-          <div>
-            <div style={{ fontSize:11, color:C.accent, fontWeight:700, marginBottom:8, letterSpacing:1 }}>PERÍODO</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <Input label="De"  type="date" value={filters.dateFrom} onChange={e=>setF("dateFrom",e.target.value)} />
-              <Input label="Até" type="date" value={filters.dateTo}   onChange={e=>setF("dateTo",  e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize:11, color:C.accent, fontWeight:700, marginBottom:8, letterSpacing:1 }}>FILTROS</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {[
-                ["Agente (Parceiro)", "parceiro",      [{value:"",label:"Todos"}, ...partners.map(p=>({value:p.id,label:p.name}))]],
-                ["Banco",            "banco",          ["Todos",...BANCOS_LIST]],
-                ["Operação",         "operacao",       ["Todas",...OPERACOES_LIST]],
-                ["Convênio",         "convenio",       ["Todos",...CONVENIOS_LIST]],
-                ["Situação",         "situacao",       ["Todas",...SITUACOES_LIST]],
-                ["Situação Banco",   "situacaoBanco",  ["Todas",...SIT_BANCO_LIST]],
-              ].map(([lbl,key,opts])=>(
-                <div key={key} style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                  <label style={{ fontSize:11, color:C.muted, fontWeight:500 }}>{lbl}</label>
-                  <select value={filters[key]} style={selStyle}
-                    onChange={e=>setF(key,["Todos","Todas"].includes(e.target.value)?"":e.target.value)}>
-                    {opts.map(o=>typeof o==="object"
-                      ?<option key={o.value} value={o.value}>{o.label}</option>
-                      :<option key={o} value={["Todos","Todas"].includes(o)?"":o}>{o}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ background:C.surface, borderRadius:10, padding:"12px 16px", border:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
-            <div>
-              <span style={{ fontSize:13, fontWeight:600 }}>{filtered.length} registro(s)</span>
-              <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>VR. Bruto total: {fmtBRL(filtered.reduce((a,o)=>a+o.value,0))}</div>
-            </div>
-            <div style={{ display:"flex", gap:8 }}>
-              <Btn variant="ghost" onClick={clearAll}>Limpar</Btn>
-              <Btn variant="success" onClick={doExport}>⬇ Exportar .xlsx</Btn>
-            </div>
-          </div>
-
-          {filtered.length>0 && (
-            <div style={{ overflowX:"auto", maxHeight:220, borderRadius:8, border:`1px solid ${C.border}` }}>
-              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
-                <thead>
-                  <tr style={{ background:C.surface, position:"sticky", top:0 }}>
-                    {["DATA","AGENTE","BANCO","OPERAÇÃO","CONVÊNIO","CLIENTE","PROPOSTA","VR. BRUTO","SITUAÇÃO","SIT. BANCO"].map(h=>(
-                      <th key={h} style={{ padding:"7px 10px", textAlign:"left", color:C.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.slice(0,60).map(o=>{
-                    const p=partners.find(x=>x.id===o.partner);
-                    return (
-                      <tr key={o.id} style={{ borderTop:`1px solid ${C.border}` }}>
-                        <td style={{ padding:"6px 10px", whiteSpace:"nowrap" }}>{fmtDate(o.date)}</td>
-                        <td style={{ padding:"6px 10px", whiteSpace:"nowrap" }}>{p?.name??"—"}</td>
-                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.banco}</td>
-                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.operacao}</td>
-                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.convenio}</td>
-                        <td style={{ padding:"6px 10px" }}>{o.cliente??"—"}</td>
-                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.proposta??"—"}</td>
-                        <td style={{ padding:"6px 10px", color:C.accent2, fontWeight:600 }}>{fmtBRL(o.value)}</td>
-                        <td style={{ padding:"6px 10px" }}><Pill label={o.situacao||"—"} color={SITUACAO_COLOR[o.situacao]??C.muted}/></td>
-                        <td style={{ padding:"6px 10px" }}><Pill label={o.situacaoBanco||"—"} color={SIT_BANCO_COLOR[o.situacaoBanco]??C.muted}/></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
 }
 
-// ── Operations ────────────────────────────────────────────────────────────────
-function Operations({ ops, setOps, partners }) {
-  const blank = {
-    id:"", date:"", partner:"", banco:"", operacao:"NOVO", convenio:"INSS",
-    usuario:"", cpf:"", cliente:"", proposta:"", contrato:"",
-    prazo:"", value:"", vrParcela:"", vrLiquido:"", vrRepasse:"", taxa:"",
-    produto:"", situacao:"PROPOSTA CADASTRADA", situacaoBanco:"EM ANALISE", notes:""
-  };
-  const [modal, setModal]       = useState(null);
-  const [form, setForm]         = useState(blank);
-  const [search, setSearch]     = useState("");
-  const [filterSit, setFilterSit]   = useState("");
-  const [filterBanco, setFilterBanco] = useState("");
-  const [filterOp, setFilterOp]     = useState("");
-  const [exportOpen, setExportOpen] = useState(false);
-  const [sortField, setSortField]   = useState("date");
-  const [sortDir, setSortDir]       = useState(-1);
-
-  const [importOpen, setImportOpen] = useState(false);
-
-  const openNew  = () => { setForm({...blank, id:uid()}); setModal("new"); };
-  const openEdit = (o) => { setForm({...o}); setModal(o.id); };
-  const handleSort = (f) => { if(sortField===f) setSortDir(d=>-d); else{setSortField(f);setSortDir(-1);} };
-
-  const handleSave = () => {
-    if(!form.date||!form.partner||!form.value) return;
-    const entry = {...form, value:Number(form.value), prazo:Number(form.prazo)||0,
-      vrParcela:Number(form.vrParcela)||0, vrLiquido:Number(form.vrLiquido)||0,
-      vrRepasse:Number(form.vrRepasse)||0, taxa:Number(form.taxa)||0 };
-    setOps(modal==="new" ? [...ops, entry] : ops.map(o=>o.id===modal?entry:o));
-    setModal(null);
-  };
-
-  let filtered = ops.filter(o=>{
-    const p=partners.find(x=>x.id===o.partner);
-    const q=search.toLowerCase();
-    return (!q || p?.name.toLowerCase().includes(q) || (o.banco||"").toLowerCase().includes(q)
-      || (o.cliente||"").toLowerCase().includes(q) || (o.proposta||"").toLowerCase().includes(q)
-      || (o.cpf||"").includes(q) || (o.usuario||"").toLowerCase().includes(q))
-      && (!filterSit   || o.situacao===filterSit)
-      && (!filterBanco || o.banco===filterBanco)
-      && (!filterOp    || o.operacao===filterOp);
-  });
-  filtered=[...filtered].sort((a,b)=>sortField==="value"?sortDir*(a.value-b.value):sortDir*a.date.localeCompare(b.date));
-
-  const allBancosUsed = [...new Set(ops.map(o=>o.banco).filter(Boolean))].sort();
-
-  return (
-    <div className="fade-in" style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:10 }}>
-        <div>
-          <h2 style={{ fontFamily:"Syne", fontSize:20, fontWeight:700 }}>Digitações</h2>
-          <p style={{ color:C.muted, fontSize:13 }}>{ops.length} registros · VR. Bruto: <strong style={{color:C.accent2}}>{fmtBRL(ops.reduce((a,o)=>a+o.value,0))}</strong></p>
-        </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <Btn variant="ghost" onClick={()=>setImportOpen(true)}>⬆ Importar</Btn>
-          <Btn variant="ghost" onClick={()=>setExportOpen(true)}>⬇ Exportar</Btn>
-          <Btn onClick={openNew}>+ Nova Digitação</Btn>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)}
-          placeholder="🔍 Parceiro, cliente, CPF, proposta, usuário..."
-          style={{ flex:1, minWidth:240, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none" }}/>
-        {[
-          [allBancosUsed, filterBanco, setFilterBanco, "Banco"],
-          [OPERACOES_LIST, filterOp, setFilterOp, "Operação"],
-        ].map(([opts, val, setter, placeholder])=>(
-          <select key={placeholder} value={val} onChange={e=>setter(e.target.value)}
-            style={{ background:C.surface, border:`1px solid ${val?C.accent:C.border}`, borderRadius:8, color:val?C.text:C.muted, padding:"8px 12px", fontSize:12, outline:"none", cursor:"pointer" }}>
-            <option value="">{placeholder}: Todos</option>
-            {opts.map(o=><option key={o} value={o}>{o}</option>)}
-          </select>
-        ))}
-        <select value={filterSit} onChange={e=>setFilterSit(e.target.value)}
-          style={{ background:C.surface, border:`1px solid ${filterSit?C.accent:C.border}`, borderRadius:8, color:filterSit?C.text:C.muted, padding:"8px 12px", fontSize:12, outline:"none", cursor:"pointer" }}>
-          <option value="">Situação: Todas</option>
-          {SITUACOES_LIST.map(s=><option key={s} value={s}>{s}</option>)}
-        </select>
-        {(filterBanco||filterOp||filterSit||search) &&
-          <Btn variant="ghost" onClick={()=>{setSearch("");setFilterBanco("");setFilterOp("");setFilterSit("");}}>✕ Limpar</Btn>}
-      </div>
-
-      <Card style={{ padding:0, overflow:"hidden" }}>
-        <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:1000 }}>
-            <thead>
-              <tr style={{ background:C.surface }}>
-                {[["date","DATA"],["","AGENTE"],["","BANCO"],["","OPERAÇÃO"],["","CONVÊNIO"],["","CLIENTE"],["","PROPOSTA"],["value","VR. BRUTO"],["","PRAZO"],["","SITUAÇÃO"],["","SIT. BANCO"],["",""]].map(([f,h])=>(
-                  <th key={h} onClick={()=>f&&handleSort(f)} style={{ textAlign:"left", padding:"11px 12px", fontSize:11, color:C.muted, fontWeight:600, cursor:f?"pointer":"default", whiteSpace:"nowrap" }}>
-                    {h}{f&&sortField===f?(sortDir===-1?" ↓":" ↑"):""}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length===0 && <tr><td colSpan={12} style={{ padding:32, textAlign:"center", color:C.muted }}>Nenhuma digitação encontrada</td></tr>}
-              {filtered.map(o=>{
-                const p=partners.find(x=>x.id===o.partner);
-                return (
-                  <tr key={o.id} style={{ borderTop:`1px solid ${C.border}`, cursor:"pointer" }}
-                    onMouseEnter={e=>e.currentTarget.style.background=C.surface}
-                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                    onClick={()=>openEdit(o)}>
-                    <td style={{ padding:"10px 12px", whiteSpace:"nowrap" }}>{fmtDate(o.date)}</td>
-                    <td style={{ padding:"0 12px" }}><div style={{ fontWeight:500 }}>{p?.name??"—"}</div><div style={{ fontSize:10, color:C.muted }}>{o.usuario}</div></td>
-                    <td style={{ padding:"0 12px", color:C.muted, whiteSpace:"nowrap" }}>{o.banco||"—"}</td>
-                    <td style={{ padding:"0 12px", color:C.muted, whiteSpace:"nowrap" }}>{o.operacao||"—"}</td>
-                    <td style={{ padding:"0 12px", color:C.muted }}>{o.convenio||"—"}</td>
-                    <td style={{ padding:"0 12px" }}><div style={{ fontSize:12 }}>{o.cliente||"—"}</div><div style={{ fontSize:10, color:C.muted }}>{o.cpf}</div></td>
-                    <td style={{ padding:"0 12px", color:C.muted, whiteSpace:"nowrap" }}>{o.proposta||"—"}</td>
-                    <td style={{ padding:"0 12px", color:C.accent2, fontWeight:600, whiteSpace:"nowrap" }}>{fmtBRL(o.value)}</td>
-                    <td style={{ padding:"0 12px", color:C.muted }}>{o.prazo?`${o.prazo}x`:"—"}</td>
-                    <td style={{ padding:"0 12px", whiteSpace:"nowrap" }}><Pill label={o.situacao||"—"} color={SITUACAO_COLOR[o.situacao]??C.muted}/></td>
-                    <td style={{ padding:"0 12px", whiteSpace:"nowrap" }}><Pill label={o.situacaoBanco||"—"} color={SIT_BANCO_COLOR[o.situacaoBanco]??C.muted}/></td>
-                    <td style={{ padding:"0 12px", color:C.muted, fontSize:16 }}>›</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      {/* Form Modal */}
-      <Modal open={!!modal} onClose={()=>setModal(null)} title={modal==="new"?"Nova Digitação":"Editar Digitação"} width={620}>
-        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>IDENTIFICAÇÃO</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
-          <Input label="Data *"    type="date"   value={form.date}      onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
-          <Sel   label="Agente (Parceiro) *"     value={form.partner}   onChange={e=>setForm(f=>({...f,partner:e.target.value, usuario:""}))}
-            options={[{value:"",label:"Selecione..."},...partners.map(p=>({value:p.id,label:p.name}))]} />
-          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-            <label style={{ fontSize:12, color:C.muted, fontWeight:500 }}>Usuário (Digitador)</label>
-            {(() => {
-              const digs = partners.find(p=>p.id===form.partner)?.digitadores||[];
-              return digs.length>0
-                ? <select value={form.usuario||""} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))}
-                    style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:13, outline:"none", cursor:"pointer" }}>
-                    <option value="">Selecione...</option>
-                    {digs.map(d=><option key={d} value={d}>{d}</option>)}
-                  </select>
-                : <input value={form.usuario||""} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))}
-                    placeholder="Nome do digitador"
-                    style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:13, outline:"none" }}/>;
-            })()}
-          </div>
-        </div>
-        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>CLIENTE</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-          <Input label="CPF"      value={form.cpf||""}     onChange={e=>setForm(f=>({...f,cpf:e.target.value}))}     placeholder="000.000.000-00" />
-          <Input label="Cliente"  value={form.cliente||""} onChange={e=>setForm(f=>({...f,cliente:e.target.value}))} placeholder="Nome completo" />
-          <Input label="Proposta" value={form.proposta||""}onChange={e=>setForm(f=>({...f,proposta:e.target.value}))}placeholder="Nº da proposta" />
-          <Input label="Nº Contrato" value={form.contrato||""}onChange={e=>setForm(f=>({...f,contrato:e.target.value}))}placeholder="Nº do contrato" />
-        </div>
-        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>PRODUTO</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
-          <Sel label="Banco *"    value={form.banco||""}   onChange={e=>setForm(f=>({...f,banco:e.target.value}))}   options={["Selecione...",...BANCOS_LIST]} />
-          <Sel label="Operação"   value={form.operacao||""}onChange={e=>setForm(f=>({...f,operacao:e.target.value}))}options={OPERACOES_LIST} />
-          <Sel label="Convênio"   value={form.convenio||""}onChange={e=>setForm(f=>({...f,convenio:e.target.value}))}options={CONVENIOS_LIST} />
-          <Input label="Produto"  value={form.produto||""} onChange={e=>setForm(f=>({...f,produto:e.target.value}))} placeholder="Descrição do produto" style={{gridColumn:"1 / -1"}} />
-        </div>
-        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>VALORES</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
-          <Input label="VR. Bruto *" type="number" value={form.value}         onChange={e=>setForm(f=>({...f,value:e.target.value}))}      placeholder="0.00" />
-          <Input label="VR. Parcela" type="number" value={form.vrParcela||""} onChange={e=>setForm(f=>({...f,vrParcela:e.target.value}))}  placeholder="0.00" />
-          <Input label="Prazo (meses)"type="number"value={form.prazo||""}     onChange={e=>setForm(f=>({...f,prazo:e.target.value}))}      placeholder="84" />
-          <Input label="VR. Líquido" type="number" value={form.vrLiquido||""} onChange={e=>setForm(f=>({...f,vrLiquido:e.target.value}))}  placeholder="0.00" />
-          <Input label="VR. Repasse" type="number" value={form.vrRepasse||""} onChange={e=>setForm(f=>({...f,vrRepasse:e.target.value}))}  placeholder="0.00" />
-          <Input label="Taxa (%)"    type="number" value={form.taxa||""}      onChange={e=>setForm(f=>({...f,taxa:e.target.value}))}       placeholder="1.80" />
-        </div>
-        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>SITUAÇÃO</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-          <Sel label="Situação"       value={form.situacao||"PROPOSTA CADASTRADA"} onChange={e=>setForm(f=>({...f,situacao:e.target.value}))}       options={SITUACOES_LIST} />
-          <Sel label="Situação Banco" value={form.situacaoBanco||"EM ANALISE"}     onChange={e=>setForm(f=>({...f,situacaoBanco:e.target.value}))}   options={SIT_BANCO_LIST} />
-        </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-          <label style={{ fontSize:12, color:C.muted, fontWeight:500 }}>Observações</label>
-          <textarea value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2}
-            style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"9px 12px", fontSize:13, outline:"none", resize:"vertical", fontFamily:"DM Sans" }}/>
-        </div>
-        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:4 }}>
-          {modal!=="new"&&<Btn variant="danger" onClick={()=>{setOps(ops.filter(o=>o.id!==modal));setModal(null);}}>Excluir</Btn>}
-          <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={handleSave}>Salvar</Btn>
-        </div>
-      </Modal>
-
-      <ImportModal open={importOpen} onClose={()=>setImportOpen(false)} partners={partners} onImport={(rows)=>setOps(prev=>[...prev,...rows])} currentUser="admin" />
-      <ExportModal open={exportOpen} onClose={()=>setExportOpen(false)} ops={ops} partners={partners}/>
-    </div>
-  );
-}
-
-// ── Partners ──────────────────────────────────────────────────────────────────
-function Partners({ partners, setPartners, ops }) {
-  const blank = { id:"", name:"", segment:"Correspondente Bancário", region:"", status:"Ativo", digitadores:[] };
-  const [modal, setModal]   = useState(null);
-  const [form, setForm]     = useState(blank);
-  const [search, setSearch] = useState("");
-  const [newDig, setNewDig] = useState("");
-
-  const filtered = partners.filter(p =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.segment?.toLowerCase().includes(search.toLowerCase()) ||
-    (p.digitadores||[]).some(d=>d.toLowerCase().includes(search.toLowerCase()))
-  );
-
-  const handleSave = () => {
-    if (!form.name) return;
-    setPartners(modal==="new" ? [...partners, form] : partners.map(p=>p.id===modal?form:p));
-    setModal(null);
-  };
-
-  const addDig = () => {
-    const t = newDig.trim();
-    if (!t || (form.digitadores||[]).includes(t)) return;
-    setForm(f=>({...f, digitadores:[...(f.digitadores||[]), t]}));
-    setNewDig("");
-  };
-
-  const removeDig = (d) => setForm(f=>({...f, digitadores:(f.digitadores||[]).filter(x=>x!==d)}));
-
-  const SEGMENTS = ["Correspondente Bancário","Agente Autônomo","Promotora de Crédito","Corretora","Outro"];
-
-  return (
-    <div className="fade-in" style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
-        <div>
-          <h2 style={{ fontFamily:"Syne", fontSize:20, fontWeight:700 }}>Parceiros (Agentes)</h2>
-          <p style={{ color:C.muted, fontSize:13 }}>{partners.length} agentes cadastrados · {partners.filter(p=>p.status==="Ativo").length} ativos</p>
-        </div>
-        <Btn onClick={()=>{ setForm({...blank, id:uid()}); setNewDig(""); setModal("new"); }}>+ Novo Agente</Btn>
-      </div>
-
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar agente ou digitador..."
-        style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none", width:320 }} />
-
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12 }}>
-        {filtered.map(p => {
-          const pOps = ops.filter(o=>o.partner===p.id);
-          const vrBruto = pOps.reduce((a,o)=>a+o.value,0);
-          const concret = pOps.filter(o=>["CONCRETIZADO","PAGO","PAGO AO CLIENTE","FINALIZADO","PAGAMENTO REALIZADO"].includes(o.situacaoBanco)).length;
-          return (
-            <Card key={p.id} hover onClick={()=>{ setForm({...p, digitadores:p.digitadores||[]}); setNewDig(""); setModal(p.id); }}>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
-                <div style={{ width:42, height:42, borderRadius:10, background:C.accent+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, color:C.accent, fontFamily:"Syne", fontWeight:800 }}>
-                  {p.name.charAt(0)}
-                </div>
-                <Pill label={p.status} color={STATUS_COLOR[p.status]??C.muted}/>
-              </div>
-              <div style={{ fontFamily:"Syne", fontWeight:700, fontSize:13, marginBottom:3, lineHeight:1.3 }}>{p.name}</div>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:10 }}>{p.segment} · {p.region}</div>
-
-              {/* Digitadores */}
-              {(p.digitadores||[]).length>0 && (
-                <div style={{ marginBottom:10 }}>
-                  <div style={{ fontSize:10, color:C.muted, fontWeight:600, marginBottom:5 }}>DIGITADORES</div>
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-                    {(p.digitadores||[]).map(d=>(
-                      <span key={d} style={{ fontSize:10, background:C.accent+"18", color:C.accent, borderRadius:4, padding:"2px 7px" }}>{d}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display:"flex", justifyContent:"space-between", borderTop:`1px solid ${C.border}`, paddingTop:10 }}>
-                <div><div style={{ fontSize:10, color:C.muted }}>DIGITAÇÕES</div><div style={{ fontSize:14, fontWeight:600 }}>{pOps.length}</div></div>
-                <div><div style={{ fontSize:10, color:C.muted }}>CONCRETIZADOS</div><div style={{ fontSize:14, fontWeight:600, color:C.accent2 }}>{concret}</div></div>
-                <div style={{ textAlign:"right" }}><div style={{ fontSize:10, color:C.muted }}>VR. BRUTO</div><div style={{ fontSize:13, fontWeight:600, color:C.accent2 }}>{fmtBRL(vrBruto)}</div></div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      <Modal open={!!modal} onClose={()=>setModal(null)} title={modal==="new"?"Novo Agente":"Editar Agente"} width={520}>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-          <div style={{ gridColumn:"1/-1" }}>
-            <Input label="Nome do Agente *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Razão social ou nome completo" />
-          </div>
-          <Sel label="Segmento" value={form.segment||""} onChange={e=>setForm(f=>({...f,segment:e.target.value}))} options={SEGMENTS} />
-          <Input label="Região / UF" value={form.region||""} onChange={e=>setForm(f=>({...f,region:e.target.value}))} placeholder="Ex: São Paulo, Nordeste..." />
-          <Sel label="Status" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} options={["Ativo","Inativo"]} />
-        </div>
-
-        {/* Digitadores vinculados */}
-        <div style={{ marginTop:4 }}>
-          <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>DIGITADORES VINCULADOS</div>
-          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-            <input value={newDig} onChange={e=>setNewDig(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&addDig()}
-              placeholder="Nome do digitador..."
-              style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none" }}/>
-            <Btn onClick={addDig} variant="ghost">+ Adicionar</Btn>
-          </div>
-          {(form.digitadores||[]).length===0
-            ? <p style={{ fontSize:12, color:C.muted }}>Nenhum digitador vinculado ainda.</p>
-            : <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {(form.digitadores||[]).map(d=>(
-                  <div key={d} style={{ display:"flex", alignItems:"center", gap:5, background:C.accent+"18", border:`1px solid ${C.accent}44`, borderRadius:6, padding:"4px 10px" }}>
-                    <span style={{ fontSize:12, color:C.accent }}>{d}</span>
-                    <button onClick={()=>removeDig(d)} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, lineHeight:1, padding:0 }}>×</button>
-                  </div>
-                ))}
-              </div>
-          }
-        </div>
-
-        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
-          {modal!=="new" && <Btn variant="danger" onClick={()=>{ setPartners(partners.filter(p=>p.id!==modal)); setModal(null); }}>Excluir</Btn>}
-          <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={handleSave}>Salvar</Btn>
-        </div>
-      </Modal>
-    </div>
-  );
-}
-
-// ── Performance ───────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════════════════
+   PERFORMANCE
+   ═══════════════════════════════════════════════════════════════════════════ */
 function Performance({ ops, partners }) {
-  const CONCRET = ["CONCRETIZADO","PAGO","PAGO AO CLIENTE","PAGAMENTO REALIZADO","FINALIZADO","INT - FINALIZADO","INT - TED EMITIDA"];
-  const concluidas = ops.filter(o => CONCRET.includes(o.situacaoBanco));
-  const bySegment = {};
-  partners.forEach(p => {
-    const pOps = concluidas.filter(o => o.partner === p.id);
-    const seg = p.segment || "Outros";
-    if (!bySegment[seg]) bySegment[seg] = { revenue: 0, count: 0 };
-    bySegment[seg].revenue += pOps.reduce((a, o) => a + o.value, 0);
-    bySegment[seg].count += pOps.length;
-  });
-  const segData = Object.entries(bySegment).map(([name, d]) => ({ name, ...d })).sort((a, b) => b.revenue - a.revenue);
-  const totalRev = concluidas.reduce((a, o) => a + o.value, 0);
-  const partnerPerf = partners.map(p => {
-    const pOps   = ops.filter(o => o.partner === p.id);
-    const pConcr = pOps.filter(o => CONCRET.includes(o.situacaoBanco));
-    return { ...p, totalOps: pOps.length, doneOps: pConcr.length,
-      revenue: pConcr.reduce((a, o) => a + o.value, 0),
-      rate: pOps.length > 0 ? (pConcr.length / pOps.length * 100).toFixed(0) : 0,
-      lastOp: [...pOps].sort((a, b) => b.date.localeCompare(a.date))[0]?.date };
-  }).sort((a, b) => b.revenue - a.revenue);
+  const ranked = partners.filter(p => p.status === "Ativo").map(p => {
+    const pOps = ops.filter(o => o.partner === p.id);
+    const total = pOps.reduce((s, o) => s + (o.value || 0), 0);
+    const concluded = pOps.filter(o => o.status === "Concluída");
+    return { ...p, opsCount: pOps.length, total, concludedCount: concluded.length, concludedVal: concluded.reduce((s, o) => s + (o.value || 0), 0) };
+  }).sort((a, b) => b.total - a.total);
+
+  const maxVal = Math.max(...ranked.map(r => r.total), 1);
+
   return (
-    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div>
-        <h2 style={{ fontFamily: "Syne", fontSize: 20, fontWeight: 700 }}>Performance</h2>
-        <p style={{ color: C.muted, fontSize: 13 }}>Análise de desempenho por parceiro e segmento</p>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Card>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Por Segmento</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {segData.map(s => {
-              const pct = totalRev > 0 ? (s.revenue / totalRev * 100) : 0;
-              return (
-                <div key={s.name}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{s.name}</span>
-                    <span style={{ fontSize: 13, color: C.accent2, fontWeight: 600 }}>{fmtBRL(s.revenue)}</span>
-                  </div>
-                  <div style={{ background: C.border, borderRadius: 4, height: 6 }}>
-                    <div style={{ width: `${pct}%`, height: "100%", borderRadius: 4, background: `linear-gradient(90deg,${C.accent},${C.accent2})`, transition: "width .6s ease" }} />
-                  </div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{pct.toFixed(1)}% · {s.count} ops</div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-        <Card>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Tipos de Operação</h3>
-          {OPERACOES_LIST.filter(t=>t!=="Outro").map(t => {
-            const tOps = ops.filter(o => o.operacao === t);
-            const tRev = tOps.filter(o => o.status === "Concluída").reduce((a, o) => a + o.value, 0);
-            return (
-              <div key={t} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ fontSize: 13 }}>{t}</span>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 13, color: C.accent2, fontWeight: 600 }}>{fmtBRL(tRev)}</div>
-                  <div style={{ fontSize: 11, color: C.muted }}>{tOps.length} ops</div>
-                </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 20 }}>Performance</h2>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {ranked.map((p, i) => (
+          <div key={p.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: i < 3 ? C.accent : C.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: i < 3 ? "#fff" : C.muted }}>{i + 1}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.accent2 }}>{fmtCur(p.total)}</span>
               </div>
-            );
-          })}
-        </Card>
-      </div>
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 14 }}>Ranking de Parceiros</h3>
-        </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead><tr style={{ background: C.surface }}>
-            {["#", "Parceiro", "Segmento", "Receita", "Ops", "Taxa Conv.", "Última Op."].map(h => (
-              <th key={h} style={{ textAlign: "left", padding: "10px 16px", fontSize: 11, color: C.muted, fontWeight: 600 }}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {partnerPerf.map((p, i) => (
-              <tr key={p.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                <td style={{ padding: "10px 16px", color: C.muted, fontWeight: 700 }}>#{i + 1}</td>
-                <td><div style={{ fontWeight: 600 }}>{p.name}</div><Pill label={p.status} color={STATUS_COLOR[p.status] ?? C.muted} /></td>
-                <td style={{ color: C.muted }}>{p.segment}</td>
-                <td style={{ color: C.accent2, fontWeight: 700 }}>{fmtBRL(p.revenue)}</td>
-                <td>{p.totalOps}</td>
-                <td><span style={{ color: Number(p.rate) >= 70 ? C.accent2 : Number(p.rate) >= 40 ? C.warn : C.danger, fontWeight: 600 }}>{p.rate}%</span></td>
-                <td style={{ color: C.muted }}>{p.lastOp ? fmtDate(p.lastOp) : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  );
-}
-
-// ── Login ─────────────────────────────────────────────────────────────────────
-const USERS = [{ id: "u1", username: "admin", password: "admin123", name: "Administrador", role: "admin" }];
-
-function Login({ onLogin }) {
-  const [form, setForm] = useState({ username: "", password: "" });
-  const [err, setErr] = useState("");
-  const handle = () => {
-    const u = USERS.find(u => u.username === form.username && u.password === form.password);
-    if (u) onLogin(u); else setErr("Usuário ou senha incorretos.");
-  };
-  return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `radial-gradient(ellipse at 30% 40%, #0A1E3D, ${C.bg} 70%)` }}>
-      <div className="fade-in" style={{ width: 380, display: "flex", flexDirection: "column", gap: 28 }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>◈</div>
-          <h1 style={{ fontFamily: "Syne", fontSize: 26, fontWeight: 800, letterSpacing: -1 }}><span style={{ color: C.accent }}>Ops</span>Manager</h1>
-          <p style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>Sistema de Acompanhamento de Parceiros</p>
-        </div>
-        <Card style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Input label="Usuário" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder="Digite seu usuário" />
-          <Input label="Senha" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} onKeyDown={e => e.key === "Enter" && handle()} placeholder="••••••••" />
-          {err && <span style={{ color: C.danger, fontSize: 12 }}>{err}</span>}
-          <Btn onClick={handle} style={{ padding: "11px 0", width: "100%" }}>Entrar</Btn>
-        </Card>
-        <p style={{ textAlign: "center", fontSize: 12, color: C.muted }}>Demo: <strong style={{ color: C.accent }}>admin</strong> / <strong style={{ color: C.accent }}>admin123</strong></p>
+              <div style={{ height: 6, background: C.surface, borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", background: i < 3 ? C.accent : C.accent + "66", borderRadius: 3, width: (p.total / maxVal * 100) + "%", transition: "width .5s" }} />
+              </div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>{p.opsCount} operações · {p.concludedCount} concluídas · {p.segment}</div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── Análise de Digitações ─────────────────────────────────────────────────────
-function Analise({ ops, partners }) {
-  const now = new Date();
-  const curYear  = now.getFullYear();
-  const curMonth = now.getMonth();
-  const prevMonth = curMonth === 0 ? 11 : curMonth - 1;
-  const prevYear  = curMonth === 0 ? curYear - 1 : curYear;
-
-  const CONCRETIZADOS = ["CONCRETIZADO","PAGO","PAGO AO CLIENTE","PAGAMENTO REALIZADO","FINALIZADO","INT - FINALIZADO","INT - TED EMITIDA"];
-  const partnerStats = partners.map(p => {
-    const pOps    = ops.filter(o => o.partner === p.id);
-    const thisMo  = pOps.filter(o => { const d=new Date(o.date); return d.getFullYear()===curYear  && d.getMonth()===curMonth; });
-    const prevMo  = pOps.filter(o => { const d=new Date(o.date); return d.getFullYear()===prevYear && d.getMonth()===prevMonth; });
-    const thisVal = thisMo.reduce((a,o)=>a+o.value,0);
-    const prevVal = prevMo.reduce((a,o)=>a+o.value,0);
-    const delta   = prevVal>0 ? ((thisVal-prevVal)/prevVal*100) : (thisVal>0?100:-100);
-    const lastDate= pOps.length>0?[...pOps].sort((a,b)=>b.date.localeCompare(a.date))[0].date:null;
-    const daysSinceLast = lastDate ? Math.floor((now - new Date(lastDate+"T12:00:00"))/(1000*60*60*24)) : 999;
-    const concret = thisMo.filter(o=>CONCRETIZADOS.includes(o.situacaoBanco)).length;
-
-    let alert="ok";
-    if(thisMo.length===0 && prevMo.length>0)       alert="zero";
-    else if(thisMo.length===0 && prevMo.length===0) alert="never";
-    else if(delta<=-30)                             alert="queda";
-    else if(delta<0)                                alert="baixo";
-
-    return { ...p, thisMo, prevMo, thisVal, prevVal, delta, lastDate, daysSinceLast, alert, totalOps:pOps.length, concret };
-  });
-
-  const alerts       = partnerStats.filter(p=>["zero","never","queda"].includes(p.alert));
-  const inQueda      = partnerStats.filter(p=>p.alert==="queda").length;
-  const semDigitar   = partnerStats.filter(p=>p.alert==="zero"||p.alert==="never").length;
-  const totalThisMo  = partnerStats.reduce((a,p)=>a+p.thisVal,0);
-
-  // Daily breakdown — last 30 days
-  const days = Array.from({length:30},(_,i)=>{
-    const d = new Date(now); d.setDate(d.getDate()-(29-i));
-    return d.toISOString().split("T")[0];
-  });
-  const dailyMap = {};
-  ops.forEach(o=>{ if(days.includes(o.date)) dailyMap[o.date]=(dailyMap[o.date]||0)+o.value; });
-  const dailyData = days.map(d=>({ label:d.slice(8), value:dailyMap[d]||0, full:d }));
-  const maxDaily = Math.max(...dailyData.map(d=>d.value),1);
-
-  const ALERT_CFG = {
-    "zero":  { color:C.danger,  icon:"⛔", label:"Sem digitação este mês" },
-    "never": { color:C.muted,   icon:"○",  label:"Nunca digitou" },
-    "queda": { color:C.danger,  icon:"↓",  label:"Queda ≥30%" },
-    "baixo": { color:C.warn,    icon:"↘",  label:"Queda <30%" },
-    "ok":    { color:C.accent2, icon:"↗",  label:"Normal / crescimento" },
-  };
-
-  return (
-    <div className="fade-in" style={{ display:"flex", flexDirection:"column", gap:20 }}>
-      <div>
-        <h2 style={{ fontFamily:"Syne", fontSize:20, fontWeight:700 }}>Análise de Digitações</h2>
-        <p style={{ color:C.muted, fontSize:13 }}>Acompanhamento diário por parceiro · {now.toLocaleString("pt-BR",{month:"long",year:"numeric"})}</p>
-      </div>
-
-      {/* Summary cards */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:14 }}>
-        <StatCard label="Digitado no Mês"   value={fmtBRL(totalThisMo)} sub={`${partnerStats.filter(p=>p.thisMo.length>0).length} parceiros ativos`} color={C.accent2} icon="📋"/>
-        <StatCard label="Em Queda"          value={inQueda}     sub="≥ 30% vs mês anterior"  color={C.danger}  icon="↓"/>
-        <StatCard label="Sem Digitar"        value={semDigitar}  sub="nenhuma op. este mês"   color={C.warn}    icon="⛔"/>
-        <StatCard label="Total de Parceiros" value={partners.length} sub={`${partners.filter(p=>p.status==="Ativo").length} ativos`} icon="🤝"/>
-      </div>
-
-      {/* Alert banner */}
-      {alerts.length>0 && (
-        <div style={{ background:C.danger+"14", border:`1px solid ${C.danger}44`, borderRadius:12, padding:"14px 18px" }}>
-          <div style={{ fontSize:12, fontWeight:700, color:C.danger, marginBottom:10, letterSpacing:1 }}>⚠ ATENÇÃO — {alerts.length} parceiro(s) precisam de acompanhamento</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-            {alerts.map(p=>{
-              const cfg=ALERT_CFG[p.alert];
-              return (
-                <div key={p.id} style={{ background:cfg.color+"18", border:`1px solid ${cfg.color}44`, borderRadius:8, padding:"6px 12px", display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ fontSize:14 }}>{cfg.icon}</span>
-                  <div>
-                    <div style={{ fontSize:12, fontWeight:700, color:cfg.color }}>{p.name}</div>
-                    <div style={{ fontSize:10, color:C.muted }}>{cfg.label} · último: {p.lastDate?fmtDate(p.lastDate):"nunca"}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Daily sparkline */}
-      <Card>
-        <h3 style={{ fontFamily:"Syne", fontWeight:700, fontSize:14, marginBottom:16 }}>Volume Diário — últimos 30 dias</h3>
-        <div style={{ display:"flex", alignItems:"flex-end", gap:3, height:100 }}>
-          {dailyData.map((d,i)=>{
-            const h=Math.max((d.value/maxDaily)*86,2);
-            const isToday=d.full===TODAY;
-            return (
-              <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }} title={`${d.full}: ${fmtBRL(d.value)}`}>
-                <div style={{ width:"100%", height:h, borderRadius:"3px 3px 0 0", background:isToday?C.accent2:d.value>0?C.accent:C.border, opacity:d.value>0?1:.4, transition:"height .3s", minHeight:2 }}/>
-                {(i%5===0||isToday)&&<span style={{ fontSize:9, color:isToday?C.accent2:C.muted, whiteSpace:"nowrap", fontWeight:isToday?700:400 }}>{d.label}</span>}
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* Per-partner table */}
-      <Card style={{ padding:0, overflow:"hidden" }}>
-        <div style={{ padding:"14px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <h3 style={{ fontFamily:"Syne", fontWeight:700, fontSize:14 }}>Detalhamento por Parceiro</h3>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            {Object.entries(ALERT_CFG).map(([k,v])=>(
-              <div key={k} style={{ display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ color:v.color, fontSize:12 }}>{v.icon}</span>
-                <span style={{ fontSize:10, color:C.muted }}>{v.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-            <thead>
-              <tr style={{ background:C.surface }}>
-                {["Parceiro","Digitações (mês)","VR. Bruto (mês)","Mês anterior","Variação","Concretizados","Última digitação","Tendência"].map(h=>(
-                  <th key={h} style={{ textAlign:"left", padding:"10px 16px", fontSize:11, color:C.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[...partnerStats].sort((a,b)=>b.thisVal-a.thisVal).map(p=>{
-                const cfg=ALERT_CFG[p.alert];
-                const dSign=p.delta>0?"+":"";
-                return (
-                  <tr key={p.id} style={{ borderTop:`1px solid ${C.border}`, background:p.alert==="queda"||p.alert==="zero"?C.danger+"06":"transparent" }}>
-                    <td style={{ padding:"11px 16px" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <span style={{ fontSize:16 }}>{cfg.icon}</span>
-                        <div>
-                          <div style={{ fontWeight:600 }}>{p.name}</div>
-                          <div style={{ fontSize:11, color:C.muted }}>{p.segment}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding:"0 16px" }}>
-                      <span style={{ fontWeight:600, color:p.thisMo.length>0?C.text:C.muted }}>{p.thisMo.length} op{p.thisMo.length!==1?"s":""}</span>
-                    </td>
-                    <td style={{ padding:"0 16px", color:C.accent2, fontWeight:600 }}>{fmtBRL(p.thisVal)}</td>
-                    <td style={{ padding:"0 16px", color:C.muted }}>{fmtBRL(p.prevVal)}</td>
-                    <td style={{ padding:"0 16px" }}>
-                      {p.prevVal>0||p.thisVal>0 ? (
-                        <span style={{ fontWeight:700, color:p.delta>0?C.accent2:p.delta<-30?C.danger:C.warn }}>
-                          {p.delta>0?"+":""}{p.delta.toFixed(0)}%
-                        </span>
-                      ) : <span style={{ color:C.muted }}>—</span>}
-                    </td>
-                    <td style={{ padding:"0 16px" }}>
-                      <span style={{ fontWeight:600, color:p.concret>0?C.accent2:C.muted }}>
-                        {p.concret} / {p.thisMo.length}
-                      </span>
-                    </td>
-                    <td style={{ padding:"0 16px", color:p.daysSinceLast>14?C.danger:C.muted, fontSize:12 }}>
-                      {p.lastDate?`${fmtDate(p.lastDate)} (${p.daysSinceLast}d atrás)`:"Nunca"}
-                    </td>
-                    <td style={{ padding:"0 16px" }}>
-                      {/* Mini sparkline last 4 weeks */}
-                      <div style={{ display:"flex", alignItems:"flex-end", gap:2, height:24 }}>
-                        {Array.from({length:4},(_,wi)=>{
-                          const wStart=new Date(now); wStart.setDate(wStart.getDate()-(3-wi)*7-6);
-                          const wEnd  =new Date(now); wEnd.setDate(wEnd.getDate()-(3-wi)*7);
-                          const wVal=ops.filter(o=>{
-                            if(o.partner!==p.id) return false;
-                            const d=new Date(o.date+"T12:00:00");
-                            return d>=wStart&&d<=wEnd;
-                          }).reduce((a,o)=>a+o.value,0);
-                          const maxW=Math.max(...Array.from({length:4},(_2,wi2)=>{
-                            const ws2=new Date(now); ws2.setDate(ws2.getDate()-(3-wi2)*7-6);
-                            const we2=new Date(now); we2.setDate(we2.getDate()-(3-wi2)*7);
-                            return ops.filter(o=>{if(o.partner!==p.id)return false;const d=new Date(o.date+"T12:00:00");return d>=ws2&&d<=we2;}).reduce((a,o)=>a+o.value,0);
-                          }),1);
-                          const barH=Math.max(wVal/maxW*20,1);
-                          return <div key={wi} style={{ width:8, height:barH, borderRadius:2, background:wi===3?C.accent2:C.accent+"66" }}/>;
-                        })}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// APP SHELL
-// ══════════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN APP
+   ═══════════════════════════════════════════════════════════════════════════ */
 const NAV = [
-  { id: "dashboard", label: "Dashboard",  icon: "⬡" },
-  { id: "analise",   label: "Análise",    icon: "◉" },
-  { id: "proposals", label: "Propostas",  icon: "◇" },
-  { id: "ops",       label: "Operações",  icon: "◈" },
-  { id: "partners",  label: "Parceiros",  icon: "◎" },
-  { id: "performance",label:"Performance",icon: "◬" },
+  { id: "dashboard", label: "Dashboard", icon: "📊" },
+  { id: "analise", label: "Análise", icon: "📈" },
+  { id: "proposals", label: "Propostas", icon: "📋" },
+  { id: "ops", label: "Operações", icon: "💼" },
+  { id: "partners", label: "Parceiros", icon: "🤝" },
+  { id: "performance", label: "Performance", icon: "🏆" },
 ];
 
 export default function App() {
-  const [ready, setReady] = useState(false);
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [ops, setOpsState] = useState([]);
-  const [partners, setPartnersState] = useState([]);
-  const [proposals, setProposalsState] = useState([]);
+  const [ops, setOpsRaw] = useState([]);
+  const [partners, setPartnersRaw] = useState([]);
+  const [proposals, setProposalsRaw] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const setOps = useCallback(fn => { setOpsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; save(KEYS.ops, next); return next; }); }, []);
+  const setPartners = useCallback(fn => { setPartnersRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; save(KEYS.partners, next); return next; }); }, []);
+  const setProposals = useCallback(fn => { setProposalsRaw(prev => { const next = typeof fn === "function" ? fn(prev) : fn; save(KEYS.proposals, next); return next; }); }, []);
 
   useEffect(() => {
     (async () => {
-      // Se a versão do storage mudou, limpa tudo e recarrega com seed novo
-      const storedVersion = await load("__version__");
-      if (!storedVersion || storedVersion !== STORAGE_VERSION) {
-        await save("__version__", STORAGE_VERSION);
-        await save(KEYS.partners, SEED_PARTNERS);
-        await save(KEYS.ops, SEED_OPS);
-        await save(KEYS.proposals, SEED_PROPOSALS);
-        setOpsState(SEED_OPS);
-        setPartnersState(SEED_PARTNERS);
-        setProposalsState(SEED_PROPOSALS);
-      } else {
-        const [savedOps, savedPartners, savedProposals] = await Promise.all([
-          load(KEYS.ops), load(KEYS.partners), load(KEYS.proposals),
-        ]);
-        setOpsState(savedOps ?? SEED_OPS);
-        setPartnersState(savedPartners ?? SEED_PARTNERS);
-        setProposalsState(savedProposals ?? SEED_PROPOSALS);
-      }
-      setReady(true);
+      const [o, p, pr] = await Promise.all([load(KEYS.ops), load(KEYS.partners), load(KEYS.proposals)]);
+      setOpsRaw(o || SEED_OPS);
+      setPartnersRaw(p || SEED_PARTNERS);
+      setProposalsRaw(pr || SEED_PROPOSALS);
+      setLoaded(true);
     })();
   }, []);
 
-  const setOps = useCallback(async (v) => { setOpsState(v); await save(KEYS.ops, v); }, []);
-  const setPartners = useCallback(async (v) => { setPartnersState(v); await save(KEYS.partners, v); }, []);
+  if (!user) return <Login onLogin={setUser} />;
+  if (!loaded) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.text, fontFamily: "DM Sans" }}>Carregando...</div>;
 
-  const setProposals = useCallback(async (v) => {
-    setProposalsState(prev => {
-      const next = typeof v === "function" ? v(prev) : v;
-      save(KEYS.proposals, next);
-      return next;
-    });
-  }, []);
-
-  if (!ready) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg }}>
-      <div style={{ color: C.accent, fontFamily: "Syne", fontSize: 18, animation: "pulse 1.5s infinite" }}>◈ Carregando...</div>
-    </div>
-  );
-
-  if (!user) return <><style>{GLOBAL_CSS}</style><Login onLogin={setUser} /></>;
-
-  const openProposals = proposals.filter(p => !["Fechado", "Perdido"].includes(p.status)).length;
-  const alertPartners = partners.filter(p => {
-    const curY=new Date().getFullYear(), curM=new Date().getMonth();
-    const thisMo=ops.filter(o=>{const d=new Date(o.date);return o.partner===p.id&&d.getFullYear()===curY&&d.getMonth()===curM;});
-    const prevMo=ops.filter(o=>{const d=new Date(o.date);const py=curM===0?curY-1:curY,pm=curM===0?11:curM-1;return o.partner===p.id&&d.getFullYear()===py&&d.getMonth()===pm;});
-    const tv=thisMo.reduce((a,o)=>a+o.value,0), pv=prevMo.reduce((a,o)=>a+o.value,0);
-    return (thisMo.length===0&&prevMo.length>0)||(pv>0&&(tv-pv)/pv<=-0.3);
+  const alertPartners = partners.filter(p => p.status === "Ativo").filter(p => {
+    const curMonth = new Date().toISOString().slice(0, 7);
+    const curOps = ops.filter(o => o.partner === p.id && o.date?.startsWith(curMonth));
+    return curOps.length === 0;
   }).length;
 
   return (
     <>
-      <style>{GLOBAL_CSS}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: ${C.bg}; color: ${C.text}; font-family: "DM Sans", sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: ${C.bg}; }
+        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+        select option { background: ${C.surface}; color: ${C.text}; }
+      `}</style>
       <div style={{ display: "flex", minHeight: "100vh" }}>
-        <div style={{ width: 220, flexShrink: 0, background: C.surface, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", padding: "24px 0" }}>
-          <div style={{ padding: "0 20px 24px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ fontFamily: "Syne", fontSize: 18, fontWeight: 800 }}><span style={{ color: C.accent }}>Ops</span>Manager</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>v2.0 · Gestão de Parceiros</div>
+        {/* Sidebar */}
+        <div style={{ width: 220, background: C.card, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+          <div style={{ padding: "24px 20px 16px" }}>
+            <h1 style={{ fontFamily: "Syne", fontSize: 18, fontWeight: 800 }}>OpsManager</h1>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Gestão de Operações</div>
           </div>
-          <nav style={{ flex: 1, padding: "16px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
+          <nav style={{ flex: 1, padding: "0 12px" }}>
             {NAV.map(n => {
               const active = view === n.id;
-              const badge = n.id === "proposals" ? openProposals : n.id === "analise" ? alertPartners : 0;
+              const badge = n.id === "analise" ? alertPartners : n.id === "proposals" ? (proposals || []).filter(p => !["Fechado", "Perdido"].includes(p.status)).length : 0;
               return (
-                <button key={n.id} onClick={() => setView(n.id)} style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
-                  borderRadius: 8, border: "none", background: active ? C.accent + "22" : "transparent",
-                  color: active ? C.accent : C.muted, fontFamily: "DM Sans", fontSize: 13,
-                  fontWeight: active ? 600 : 400, cursor: "pointer", textAlign: "left", transition: "all .15s",
-                }}>
-                  <span>{n.icon}</span>
-                  <span style={{ flex: 1 }}>{n.label}</span>
-                  {badge > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: C.warn, color: C.bg, borderRadius: 10, padding: "1px 6px" }}>{badge}</span>}
-                  {active && <div style={{ width: 4, height: 4, borderRadius: 2, background: C.accent }} />}
+                <button key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", marginBottom: 2, borderRadius: 10, border: "none", background: active ? C.accent + "22" : "transparent", color: active ? C.accent : C.muted, fontFamily: "DM Sans", fontSize: 13, fontWeight: active ? 600 : 400, cursor: "pointer", textAlign: "left", transition: "all .15s", position: "relative" }}>
+                  <span style={{ fontSize: 16 }}>{n.icon}</span>
+                  {n.label}
+                  {badge > 0 && <span style={{ marginLeft: "auto", background: n.id === "analise" ? C.danger : C.accent, color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 8 }}>{badge}</span>}
                 </button>
               );
             })}
@@ -2163,12 +1302,14 @@ export default function App() {
             <button onClick={() => setUser(null)} style={{ fontSize: 11, color: C.danger, background: "none", border: "none", cursor: "pointer", padding: 0 }}>Sair →</button>
           </div>
         </div>
+
+        {/* Main */}
         <div style={{ flex: 1, padding: "28px 32px", overflowY: "auto", maxWidth: "calc(100vw - 220px)" }}>
-          {view === "dashboard"   && <Dashboard ops={ops} partners={partners} proposals={proposals} />}
-          {view === "analise"     && <Analise ops={ops} partners={partners} />}
-          {view === "proposals"   && <Proposals proposals={proposals} setProposals={setProposals} partners={partners} currentUser={user.username} />}
-          {view === "ops"         && <Operations ops={ops} setOps={setOps} partners={partners} />}
-          {view === "partners"    && <Partners partners={partners} setPartners={setPartners} ops={ops} />}
+          {view === "dashboard" && <Dashboard ops={ops} partners={partners} proposals={proposals} />}
+          {view === "analise" && <Analise ops={ops} partners={partners} />}
+          {view === "proposals" && <Proposals proposals={proposals} setProposals={setProposals} partners={partners} currentUser={user.username} />}
+          {view === "ops" && <Operations ops={ops} setOps={setOps} partners={partners} />}
+          {view === "partners" && <Partners partners={partners} setPartners={setPartners} ops={ops} />}
           {view === "performance" && <Performance ops={ops} partners={partners} />}
         </div>
       </div>
