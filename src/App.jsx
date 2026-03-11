@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Storage helpers ──────────────────────────────────────────────────────────
 const KEYS = { ops: "ops-data", partners: "partners-data", proposals: "proposals-data" };
+const STORAGE_VERSION = "v4"; // bump to force reset when seed data changes
 
 async function load(key) {
   try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
@@ -11,73 +12,91 @@ async function save(key, val) {
   try { await window.storage.set(key, JSON.stringify(val)); } catch {}
 }
 
+// normaliza string para comparação: minúsculo, sem acentos, sem pontuação extra
+function normStr(s) {
+  return String(s||"").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[.\-\/\\]/g," ").replace(/\s+/g," ").trim();
+}
+
+// match flexível de parceiro: tenta exact → contém → palavras-chave
+function matchPartner(raw, partners) {
+  const r = normStr(raw);
+  if (!r) return null;
+  // 1. exact
+  let m = partners.find(p => normStr(p.name) === r);
+  if (m) return m;
+  // 2. remove sufixos jurídicos e compara
+  const strip = s => normStr(s)
+    .replace(/\b(ltda|me|eireli|sa|s\.a|epp|mei|intermediacao de negocios|intermediação de negocios|servicos financeiros|negocios administrativos|consultoria empresarial|promotora de credito)\b/g,"")
+    .trim();
+  const rs = strip(r);
+  m = partners.find(p => strip(normStr(p.name)) === rs && rs.length > 3);
+  if (m) return m;
+  // 3. contém mútuo
+  m = partners.find(p => {
+    const pn = normStr(p.name);
+    return pn.includes(r) || r.includes(pn);
+  });
+  if (m) return m;
+  // 4. primeiras 3 palavras significativas
+  const words = rs.split(" ").filter(w => w.length > 3);
+  if (words.length >= 2) {
+    m = partners.find(p => {
+      const pw = strip(normStr(p.name)).split(" ").filter(w=>w.length>3);
+      const common = words.filter(w => pw.includes(w));
+      return common.length >= Math.min(2, words.length, pw.length);
+    });
+  }
+  return m || null;
+}
+
 // ── Seed ─────────────────────────────────────────────────────────────────────
+// Agentes e digitadores extraídos automaticamente da planilha PROPOSTAS_DIGITADAS.xlsx
 const SEED_PARTNERS = [
-  { id: "p1", name: "TechVentures SP", segment: "Tecnologia", region: "Sudeste", status: "Ativo" },
-  { id: "p2", name: "AgriNorte Ltda", segment: "Agronegócio", region: "Norte", status: "Ativo" },
-  { id: "p3", name: "FinGroup Brasil", segment: "Financeiro", region: "Sul", status: "Ativo" },
-  { id: "p4", name: "RetailMax", segment: "Varejo", region: "Nordeste", status: "Ativo" },
-  { id: "p5", name: "Construtech CE", segment: "Construção", region: "Nordeste", status: "Inativo" },
+  { id:"p1",  name:"NEWS NEGOCIOS ADMINISTRATIVOS LTDA",                    segment:"Correspondente Bancário", region:"Centro-Oeste", status:"Ativo",
+    digitadores:["Bruno Bortoli De Moraes","Dafini Machado Dos Santos","Daniela Cristina Sartori","Aline Bicalho Da Silva De Almeida","Alex Osvaldo Da Silva","Annedartian Alves","DANIELLE PREZOTO"] },
+  { id:"p2",  name:"CENTRAL BANCARIA INTERMEDIAÇÃO DE NEGOCIOS LTDA",       segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
+    digitadores:["Rubineia Ferreira Dos Santos","Alex Souza Da Silva","Carlos Aurelio Saralegui Lhamas Junior","Eduardo Jardim Freire Costa","Henrique Longo Da Silva","Isabelly Ramalho De Oliveira","Laura Rodrigues Da Silva Alves","Taina Lucio Da Luz","Victoria Carolina Rodrigues Mlaker","Priscila Keli Carvalho Lazini Leao","Nathalia Fromme Ferreira"] },
+  { id:"p3",  name:"MONAY INTERMEDIACOES DE NEGOCIOS LTDA",                 segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
+    digitadores:["Amanda Soares","Amanda Suelis Gonçalves Papaseit","Gedaias Moura","Moisés Lopes Gomes","Pamela Aparecida Alexandre"] },
+  { id:"p4",  name:"JVR SERVICOS FINANCEIROS LTDA",                         segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
+    digitadores:["Janaina Viana Teixeira","Francine Da Silva","Ricardo Luis Gomes","Priscila Keli Carvalho Lazini Leao"] },
+  { id:"p5",  name:"JACKELINE DESANTE ZIOTI",                               segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Jackeline Desante Zioti"] },
+  { id:"p6",  name:"DANUSA FRAGA DE SOUZA",                                 segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Danusa Fraga De Souza","Felipe Coimbra Da Silva","Gloria Maria Gomes Dos Santos","Laura Rodrigues Alves","Silvana Valentina De Jesus","Thiago Alves Barbosa"] },
+  { id:"p7",  name:"OSMAR FERNANDO DA SILVA JUNIOR",                        segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Osmar Fernando Da Silva Junior"] },
+  { id:"p8",  name:"MARINA FERNANDA CALDEIRA ZEFERINO",                     segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Marina Fernanda Caldeira Zeferino"] },
+  { id:"p9",  name:"ERISOM DIAS DE ALMEIDA INTERMEDIACAO DE NEGOCIOS",      segment:"Correspondente Bancário", region:"Sudeste",      status:"Ativo",
+    digitadores:["Erisom Dias De Almeida","Erika Neves Da Silva","Jaqueline Tieko Arakawa De Almeida"] },
+  { id:"p10", name:"ANA CLAUDIA KALTENEGGER",                               segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Ana Claudia Kaltenegger"] },
+  { id:"p11", name:"TATIANE CAMARGO GUERRA",                                segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Tatiane Camargo Guerra","Rafael De Gasperi Boassi","Rubineia Ferreira Dos Santos","Laura Rodrigues Da Silva"] },
+  { id:"p12", name:"LHAMASCRED PROMOTORA DE CREDITO",                       segment:"Promotora de Crédito",    region:"Centro-Oeste", status:"Ativo",
+    digitadores:["Carlos Aurelio Saralegui Lhamas Junior","Dafini Machado Dos Santos","Alex Osvaldo Da Silva","Alex Souza Da Silva"] },
+  { id:"p13", name:"CRISTIANO CAZELATO",                                    segment:"Agente Autônomo",         region:"Sudeste",      status:"Ativo",
+    digitadores:["Cristiano Cazelato"] },
+  { id:"p14", name:"INVEST CONSIG CONSULTORIA EMPRESARIAL LTDA",            segment:"Correspondente Bancário", region:"Sul",          status:"Ativo",
+    digitadores:["Priscila Keli Carvalho Lazini Leao","Angélica Cassiano"] },
+  { id:"p15", name:"IMOB CONSIGNADOS",                                      segment:"Correspondente Bancário", region:"Nordeste",     status:"Ativo",
+    digitadores:["Elania Raquel Maciel Alves"] },
+  { id:"p16", name:"RODRIGO PAES DE MELO",                                  segment:"Agente Autônomo",         region:"Sudeste",      status:"Inativo",
+    digitadores:["Rodrigo Paes De Melo"] },
+  { id:"p17", name:"LUANA PAULINO SILVA",                                   segment:"Agente Autônomo",         region:"Sudeste",      status:"Inativo",
+    digitadores:["Luana Paulino Silva"] },
 ];
 
-// Campos baseados na planilha real PROPOSTAS_DIGITADAS.xlsx
-// AGENTE=parceiro, USUÁRIO=digitador, OPERAÇÃO=tipo, SITUAÇÃO=status interno, SITUAÇÃO BANCO=sit. banco
-const SEED_OPS = [
-  { id:"o1",  date:"2025-01-31", partner:"p1", banco:"QUALIBANKING",   operacao:"NOVO",          convenio:"INSS",       usuario:"Bruno Bortoli",        cpf:"015.566.609-60", cliente:"ELIZABETH RODRIGUES",    proposta:"QUA0000556121", contrato:"QUA0000556121", prazo:84, value:9205.32,  vrParcela:217.79,  vrLiquido:7978.97,  vrRepasse:7978.97, taxa:1.80, produto:"TOP PLUS - TX 1,80%",           situacao:"ESTORNADO",          situacaoBanco:"FINALIZADO",    notes:"" },
-  { id:"o2",  date:"2025-01-31", partner:"p2", banco:"QUALIBANKING",   operacao:"PORTAB/REFIN",  convenio:"INSS",       usuario:"Rubineia Ferreira",     cpf:"260.535.018-59", cliente:"ANDREA ALVES CARDOSO",   proposta:"QUA0000558782", contrato:"QUA0000558782", prazo:70, value:19667.83, vrParcela:477.22,  vrLiquido:19667.83, vrRepasse:19667.83,taxa:1.59, produto:"INSS - PORT + REFIN",            situacao:"CANCELADA",          situacaoBanco:"CANCELADO",     notes:"" },
-  { id:"o3",  date:"2025-01-31", partner:"p1", banco:"QUALIBANKING",   operacao:"NOVO",          convenio:"INSS",       usuario:"Dafini Machado",        cpf:"154.375.948-36", cliente:"ANICE DE OLIVEIRA",       proposta:"QUA0000559852", contrato:"QUA0000559852", prazo:84, value:2248.81,  vrParcela:53.30,   vrLiquido:1949.11,  vrRepasse:1949.11, taxa:1.80, produto:"INSS - NOVO - TOP PLUS",         situacao:"ESTORNADO",          situacaoBanco:"FINALIZADO",    notes:"" },
-  { id:"o4",  date:"2025-01-31", partner:"p3", banco:"BRB - INCONTA",  operacao:"PORTABILIDADE", convenio:"INSS",       usuario:"LHAMASCRED PROMOTORA",  cpf:"789.196.575-72", cliente:"ROSEMARY MOREIRA",        proposta:"1151915",       contrato:"1151915",       prazo:84, value:19259.97, vrParcela:431.00,  vrLiquido:0,        vrRepasse:19259.97,taxa:1.66, produto:"BRB - INSS - NOVO - 1,85%",      situacao:"CANCELADA",          situacaoBanco:"Cancelada",     notes:"" },
-  { id:"o5",  date:"2025-02-10", partner:"p2", banco:"PAN",            operacao:"REFINANCIAMENTO",convenio:"INSS",      usuario:"Ana Lima",              cpf:"046.411.458-65", cliente:"IRACI ANANIAS SANTOS",    proposta:"1152005",       contrato:"1152005",       prazo:84, value:11217.70, vrParcela:251.03,  vrLiquido:0,        vrRepasse:11217.70,taxa:1.66, produto:"INSS PORTABILIDADE",              situacao:"CANCELADA",          situacaoBanco:"Cancelada",     notes:"" },
-  { id:"o6",  date:"2025-02-15", partner:"p4", banco:"FACTA FINANCEIRA",operacao:"NOVO",          convenio:"FGTS",      usuario:"Carlos Rocha",          cpf:"035.372.718-08", cliente:"RICARDO MONTEIRO",        proposta:"FAC0001234",    contrato:"FAC0001234",    prazo:60, value:5073.54,  vrParcela:120.25,  vrLiquido:4397.39,  vrRepasse:4397.39, taxa:1.80, produto:"FGTS - NOVO",                    situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
-  { id:"o7",  date:"2025-02-20", partner:"p1", banco:"C6 BANK",        operacao:"CARTÃO",         convenio:"INSS",      usuario:"Mariana Costa",         cpf:"123.456.789-00", cliente:"JOSE CARLOS SILVA",       proposta:"C6B0004567",    contrato:"C6B0004567",    prazo:96, value:15000.00, vrParcela:200.00,  vrLiquido:13500.00, vrRepasse:13500.00,taxa:1.55, produto:"CARTÃO CONSIGNADO INSS",          situacao:"ANDAMENTO",          situacaoBanco:"EM ANALISE",    notes:"" },
-  { id:"o8",  date:"2025-03-01", partner:"p3", banco:"CAPITAL CONSIG", operacao:"NOVO",           convenio:"FEDERAL",   usuario:"João Melo",             cpf:"987.654.321-00", cliente:"MARIA APARECIDA SOUZA",   proposta:"CAP0007890",    contrato:"CAP0007890",    prazo:72, value:32000.00, vrParcela:520.00,  vrLiquido:29000.00, vrRepasse:29000.00,taxa:1.70, produto:"FEDERAL - NOVO",                  situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
-  { id:"o9",  date:"2025-03-10", partner:"p2", banco:"PAGBANK",        operacao:"PORTAB/REFIN",   convenio:"PREFEITURAS",usuario:"Ana Lima",             cpf:"111.222.333-44", cliente:"PEDRO HENRIQUE COSTA",    proposta:"PAG0002345",    contrato:"PAG0002345",    prazo:84, value:25000.00, vrParcela:380.00,  vrLiquido:22000.00, vrRepasse:22000.00,taxa:1.65, produto:"PREFEITURAS - PORT+REFIN",        situacao:"ANALISE BANCO",      situacaoBanco:"ANALISE BANCO", notes:"Aguardando retorno" },
-  { id:"o10", date:"2025-03-15", partner:"p4", banco:"PAN",            operacao:"NOVO",           convenio:"INSS",      usuario:"Carlos Rocha",          cpf:"555.666.777-88", cliente:"LUIZA FERNANDES",         proposta:"PAN0008901",    contrato:"PAN0008901",    prazo:84, value:8500.00,  vrParcela:185.00,  vrLiquido:7200.00,  vrRepasse:7200.00, taxa:1.80, produto:"INSS - NOVO TOP PLUS",            situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
-  { id:"o11", date:"2025-03-20", partner:"p1", banco:"QUALIBANKING",   operacao:"RECOMPRA",       convenio:"INSS",      usuario:"Bruno Bortoli",         cpf:"222.333.444-55", cliente:"ANTONIO CARLOS LIMA",     proposta:"QUA0001112",    contrato:"QUA0001112",    prazo:60, value:12000.00, vrParcela:240.00,  vrLiquido:10500.00, vrRepasse:10500.00,taxa:1.75, produto:"INSS - RECOMPRA",                 situacao:"PROPOSTA CADASTRADA",situacaoBanco:"INTEGRADA",     notes:"" },
-  { id:"o12", date:"2025-04-01", partner:"p3", banco:"TOTALCASH",      operacao:"CARTÃO BENEFÍCIO",convenio:"INSS",     usuario:"Mariana Costa",         cpf:"333.444.555-66", cliente:"FRANCISCA OLIVEIRA",      proposta:"TOT0003456",    contrato:"TOT0003456",    prazo:0,  value:3200.00,  vrParcela:0,        vrLiquido:3200.00,  vrRepasse:3200.00, taxa:0,    produto:"CARTÃO BENEFÍCIO INSS",           situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
-];
+// Base limpa — dados reais serão importados via planilha
+const SEED_OPS = [];
 
 const TODAY = new Date().toISOString().split("T")[0];
 
-const SEED_PROPOSALS = [
-  {
-    id: "pr1", title: "Expansão de Contrato 2025", partner: "p1", value: 95000, type: "Renovação",
-    priority: "Alta", dueDate: "2025-05-15", responsible: "Ana Lima", notes: "Cliente sinalizou interesse em ampliar escopo.",
-    status: "Negociação",
-    history: [
-      { status: "Prospecção", date: "2025-03-01", note: "Primeiro contato realizado", user: "admin" },
-      { status: "Proposta Enviada", date: "2025-03-10", note: "Proposta formal enviada por email", user: "admin" },
-      { status: "Negociação", date: "2025-03-22", note: "Reunião de alinhamento de valores", user: "admin" },
-    ],
-  },
-  {
-    id: "pr2", title: "Novo Contrato Safra 2025/26", partner: "p2", value: 140000, type: "Contrato",
-    priority: "Alta", dueDate: "2025-06-01", responsible: "Carlos Rocha", notes: "",
-    status: "Proposta Enviada",
-    history: [
-      { status: "Prospecção", date: "2025-02-15", note: "Lead qualificado pela equipe comercial", user: "admin" },
-      { status: "Proposta Enviada", date: "2025-03-05", note: "Proposta enviada aguardando retorno", user: "admin" },
-    ],
-  },
-  {
-    id: "pr3", title: "Parceria Financeira Q2", partner: "p3", value: 60000, type: "Parceria",
-    priority: "Média", dueDate: "2025-04-30", responsible: "Mariana Costa", notes: "Decisor ainda em férias.",
-    status: "Prospecção",
-    history: [
-      { status: "Prospecção", date: "2025-03-18", note: "Indicação de um cliente atual", user: "admin" },
-    ],
-  },
-  {
-    id: "pr4", title: "Venda Plano Retail Plus", partner: "p4", value: 28000, type: "Venda",
-    priority: "Baixa", dueDate: "2025-05-10", responsible: "João Melo", notes: "",
-    status: "Aprovação Interna",
-    history: [
-      { status: "Prospecção", date: "2025-02-20", note: "", user: "admin" },
-      { status: "Proposta Enviada", date: "2025-02-28", note: "Proposta simplificada enviada", user: "admin" },
-      { status: "Negociação", date: "2025-03-08", note: "Contraproposta do cliente recebida", user: "admin" },
-      { status: "Aprovação Interna", date: "2025-03-20", note: "Aguardando aprovação da diretoria", user: "admin" },
-    ],
-  },
+// Base limpa — propostas serão cadastradas manualmente
+const SEED_PROPOSALS = [];
 ];
 
 const STAGES = [
@@ -659,11 +678,7 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
 
       if (!dateStr) errs.push(`Linha ${i + 2}: "DATA" inválida ou vazia`);
 
-      const matchedPartner = partners.find(p =>
-        p.name.toLowerCase().trim() === partnerRaw.toLowerCase() ||
-        p.name.toLowerCase().includes(partnerRaw.toLowerCase()) ||
-        partnerRaw.toLowerCase().includes(p.name.toLowerCase().split(" ")[0].toLowerCase())
-      );
+      const matchedPartner = matchPartner(partnerRaw, partners);
 
       const getVal = (key) => mapping[key] ? row[mapping[key]] : "";
       const numVal = (key) => parseFloat(String(getVal(key)).replace(/[R$\s.]/g,"").replace(",",".")) || 0;
@@ -1534,9 +1549,23 @@ function Operations({ ops, setOps, partners }) {
         <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>IDENTIFICAÇÃO</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
           <Input label="Data *"    type="date"   value={form.date}      onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
-          <Sel   label="Agente (Parceiro) *"     value={form.partner}   onChange={e=>setForm(f=>({...f,partner:e.target.value}))}
+          <Sel   label="Agente (Parceiro) *"     value={form.partner}   onChange={e=>setForm(f=>({...f,partner:e.target.value, usuario:""}))}
             options={[{value:"",label:"Selecione..."},...partners.map(p=>({value:p.id,label:p.name}))]} />
-          <Input label="Usuário"                 value={form.usuario||""} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))} placeholder="Digitador" />
+          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+            <label style={{ fontSize:12, color:C.muted, fontWeight:500 }}>Usuário (Digitador)</label>
+            {(() => {
+              const digs = partners.find(p=>p.id===form.partner)?.digitadores||[];
+              return digs.length>0
+                ? <select value={form.usuario||""} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))}
+                    style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:13, outline:"none", cursor:"pointer" }}>
+                    <option value="">Selecione...</option>
+                    {digs.map(d=><option key={d} value={d}>{d}</option>)}
+                  </select>
+                : <input value={form.usuario||""} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))}
+                    placeholder="Nome do digitador"
+                    style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:13, outline:"none" }}/>;
+            })()}
+          </div>
         </div>
         <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>CLIENTE</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
@@ -1586,59 +1615,122 @@ function Operations({ ops, setOps, partners }) {
 
 // ── Partners ──────────────────────────────────────────────────────────────────
 function Partners({ partners, setPartners, ops }) {
-  const blank = { id: "", name: "", segment: "", region: "", status: "Ativo" };
-  const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(blank);
+  const blank = { id:"", name:"", segment:"Correspondente Bancário", region:"", status:"Ativo", digitadores:[] };
+  const [modal, setModal]   = useState(null);
+  const [form, setForm]     = useState(blank);
   const [search, setSearch] = useState("");
-  const filtered = partners.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.segment.toLowerCase().includes(search.toLowerCase()));
+  const [newDig, setNewDig] = useState("");
+
+  const filtered = partners.filter(p =>
+    !search || p.name.toLowerCase().includes(search.toLowerCase()) ||
+    p.segment?.toLowerCase().includes(search.toLowerCase()) ||
+    (p.digitadores||[]).some(d=>d.toLowerCase().includes(search.toLowerCase()))
+  );
+
   const handleSave = () => {
     if (!form.name) return;
-    setPartners(modal === "new" ? [...partners, form] : partners.map(p => p.id === modal ? form : p));
+    setPartners(modal==="new" ? [...partners, form] : partners.map(p=>p.id===modal?form:p));
     setModal(null);
   };
+
+  const addDig = () => {
+    const t = newDig.trim();
+    if (!t || (form.digitadores||[]).includes(t)) return;
+    setForm(f=>({...f, digitadores:[...(f.digitadores||[]), t]}));
+    setNewDig("");
+  };
+
+  const removeDig = (d) => setForm(f=>({...f, digitadores:(f.digitadores||[]).filter(x=>x!==d)}));
+
+  const SEGMENTS = ["Correspondente Bancário","Agente Autônomo","Promotora de Crédito","Corretora","Outro"];
+
   return (
-    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+    <div className="fade-in" style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
         <div>
-          <h2 style={{ fontFamily: "Syne", fontSize: 20, fontWeight: 700 }}>Parceiros</h2>
-          <p style={{ color: C.muted, fontSize: 13 }}>{partners.length} parceiros cadastrados</p>
+          <h2 style={{ fontFamily:"Syne", fontSize:20, fontWeight:700 }}>Parceiros (Agentes)</h2>
+          <p style={{ color:C.muted, fontSize:13 }}>{partners.length} agentes cadastrados · {partners.filter(p=>p.status==="Ativo").length} ativos</p>
         </div>
-        <Btn onClick={() => { setForm({ ...blank, id: uid() }); setModal("new"); }}>+ Novo Parceiro</Btn>
+        <Btn onClick={()=>{ setForm({...blank, id:uid()}); setNewDig(""); setModal("new"); }}>+ Novo Agente</Btn>
       </div>
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Buscar parceiro..."
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "8px 12px", fontSize: 13, outline: "none", width: 280 }} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 12 }}>
+
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar agente ou digitador..."
+        style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none", width:320 }} />
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12 }}>
         {filtered.map(p => {
-          const pOps = ops.filter(o => o.partner === p.id);
-          const rev = pOps.filter(o => o.status === "Concluída").reduce((a, o) => a + o.value, 0);
+          const pOps = ops.filter(o=>o.partner===p.id);
+          const vrBruto = pOps.reduce((a,o)=>a+o.value,0);
+          const concret = pOps.filter(o=>["CONCRETIZADO","PAGO","PAGO AO CLIENTE","FINALIZADO","PAGAMENTO REALIZADO"].includes(o.situacaoBanco)).length;
           return (
-            <Card key={p.id} hover onClick={() => { setForm({ ...p }); setModal(p.id); }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: C.accent + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: C.accent, fontFamily: "Syne", fontWeight: 700 }}>
+            <Card key={p.id} hover onClick={()=>{ setForm({...p, digitadores:p.digitadores||[]}); setNewDig(""); setModal(p.id); }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:12 }}>
+                <div style={{ width:42, height:42, borderRadius:10, background:C.accent+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, color:C.accent, fontFamily:"Syne", fontWeight:800 }}>
                   {p.name.charAt(0)}
                 </div>
-                <Pill label={p.status} color={STATUS_COLOR[p.status] ?? C.muted} />
+                <Pill label={p.status} color={STATUS_COLOR[p.status]??C.muted}/>
               </div>
-              <div style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{p.segment} · {p.region}</div>
-              <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                <div><div style={{ fontSize: 10, color: C.muted }}>OPERAÇÕES</div><div style={{ fontSize: 14, fontWeight: 600 }}>{pOps.length}</div></div>
-                <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: C.muted }}>RECEITA</div><div style={{ fontSize: 14, fontWeight: 600, color: C.accent2 }}>{fmtBRL(rev)}</div></div>
+              <div style={{ fontFamily:"Syne", fontWeight:700, fontSize:13, marginBottom:3, lineHeight:1.3 }}>{p.name}</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10 }}>{p.segment} · {p.region}</div>
+
+              {/* Digitadores */}
+              {(p.digitadores||[]).length>0 && (
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ fontSize:10, color:C.muted, fontWeight:600, marginBottom:5 }}>DIGITADORES</div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                    {(p.digitadores||[]).map(d=>(
+                      <span key={d} style={{ fontSize:10, background:C.accent+"18", color:C.accent, borderRadius:4, padding:"2px 7px" }}>{d}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display:"flex", justifyContent:"space-between", borderTop:`1px solid ${C.border}`, paddingTop:10 }}>
+                <div><div style={{ fontSize:10, color:C.muted }}>DIGITAÇÕES</div><div style={{ fontSize:14, fontWeight:600 }}>{pOps.length}</div></div>
+                <div><div style={{ fontSize:10, color:C.muted }}>CONCRETIZADOS</div><div style={{ fontSize:14, fontWeight:600, color:C.accent2 }}>{concret}</div></div>
+                <div style={{ textAlign:"right" }}><div style={{ fontSize:10, color:C.muted }}>VR. BRUTO</div><div style={{ fontSize:13, fontWeight:600, color:C.accent2 }}>{fmtBRL(vrBruto)}</div></div>
               </div>
             </Card>
           );
         })}
       </div>
-      <Modal open={!!modal} onClose={() => setModal(null)} title={modal === "new" ? "Novo Parceiro" : "Editar Parceiro"} width={420}>
-        <Input label="Nome" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Segmento" value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value }))} />
-          <Input label="Região" value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))} />
+
+      <Modal open={!!modal} onClose={()=>setModal(null)} title={modal==="new"?"Novo Agente":"Editar Agente"} width={520}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div style={{ gridColumn:"1/-1" }}>
+            <Input label="Nome do Agente *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Razão social ou nome completo" />
+          </div>
+          <Sel label="Segmento" value={form.segment||""} onChange={e=>setForm(f=>({...f,segment:e.target.value}))} options={SEGMENTS} />
+          <Input label="Região / UF" value={form.region||""} onChange={e=>setForm(f=>({...f,region:e.target.value}))} placeholder="Ex: São Paulo, Nordeste..." />
+          <Sel label="Status" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} options={["Ativo","Inativo"]} />
         </div>
-        <Sel label="Status" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} options={["Ativo", "Inativo"]} />
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          {modal !== "new" && <Btn variant="danger" onClick={() => { setPartners(partners.filter(p => p.id !== modal)); setModal(null); }}>Excluir</Btn>}
-          <Btn variant="ghost" onClick={() => setModal(null)}>Cancelar</Btn>
+
+        {/* Digitadores vinculados */}
+        <div style={{ marginTop:4 }}>
+          <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>DIGITADORES VINCULADOS</div>
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <input value={newDig} onChange={e=>setNewDig(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&addDig()}
+              placeholder="Nome do digitador..."
+              style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none" }}/>
+            <Btn onClick={addDig} variant="ghost">+ Adicionar</Btn>
+          </div>
+          {(form.digitadores||[]).length===0
+            ? <p style={{ fontSize:12, color:C.muted }}>Nenhum digitador vinculado ainda.</p>
+            : <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {(form.digitadores||[]).map(d=>(
+                  <div key={d} style={{ display:"flex", alignItems:"center", gap:5, background:C.accent+"18", border:`1px solid ${C.accent}44`, borderRadius:6, padding:"4px 10px" }}>
+                    <span style={{ fontSize:12, color:C.accent }}>{d}</span>
+                    <button onClick={()=>removeDig(d)} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, lineHeight:1, padding:0 }}>×</button>
+                  </div>
+                ))}
+              </div>
+          }
+        </div>
+
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
+          {modal!=="new" && <Btn variant="danger" onClick={()=>{ setPartners(partners.filter(p=>p.id!==modal)); setModal(null); }}>Excluir</Btn>}
+          <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
           <Btn onClick={handleSave}>Salvar</Btn>
         </div>
       </Modal>
@@ -1648,21 +1740,25 @@ function Partners({ partners, setPartners, ops }) {
 
 // ── Performance ───────────────────────────────────────────────────────────────
 function Performance({ ops, partners }) {
-  const concluded = ops.filter(o => o.status === "Concluída");
+  const CONCRET = ["CONCRETIZADO","PAGO","PAGO AO CLIENTE","PAGAMENTO REALIZADO","FINALIZADO","INT - FINALIZADO","INT - TED EMITIDA"];
+  const concluidas = ops.filter(o => CONCRET.includes(o.situacaoBanco));
   const bySegment = {};
   partners.forEach(p => {
-    const pOps = concluded.filter(o => o.partner === p.id);
+    const pOps = concluidas.filter(o => o.partner === p.id);
     const seg = p.segment || "Outros";
     if (!bySegment[seg]) bySegment[seg] = { revenue: 0, count: 0 };
     bySegment[seg].revenue += pOps.reduce((a, o) => a + o.value, 0);
     bySegment[seg].count += pOps.length;
   });
   const segData = Object.entries(bySegment).map(([name, d]) => ({ name, ...d })).sort((a, b) => b.revenue - a.revenue);
-  const totalRev = concluded.reduce((a, o) => a + o.value, 0);
+  const totalRev = concluidas.reduce((a, o) => a + o.value, 0);
   const partnerPerf = partners.map(p => {
-    const pOps = ops.filter(o => o.partner === p.id);
-    const pDone = pOps.filter(o => o.status === "Concluída");
-    return { ...p, totalOps: pOps.length, doneOps: pDone.length, revenue: pDone.reduce((a, o) => a + o.value, 0), rate: pOps.length > 0 ? (pDone.length / pOps.length * 100).toFixed(0) : 0, lastOp: pOps.sort((a, b) => b.date.localeCompare(a.date))[0]?.date };
+    const pOps   = ops.filter(o => o.partner === p.id);
+    const pConcr = pOps.filter(o => CONCRET.includes(o.situacaoBanco));
+    return { ...p, totalOps: pOps.length, doneOps: pConcr.length,
+      revenue: pConcr.reduce((a, o) => a + o.value, 0),
+      rate: pOps.length > 0 ? (pConcr.length / pOps.length * 100).toFixed(0) : 0,
+      lastOp: [...pOps].sort((a, b) => b.date.localeCompare(a.date))[0]?.date };
   }).sort((a, b) => b.revenue - a.revenue);
   return (
     <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1693,8 +1789,8 @@ function Performance({ ops, partners }) {
         </Card>
         <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Tipos de Operação</h3>
-          {["Venda", "Contrato", "Renovação", "Parceria", "Outro"].map(t => {
-            const tOps = ops.filter(o => o.type === t);
+          {OPERACOES_LIST.filter(t=>t!=="Outro").map(t => {
+            const tOps = ops.filter(o => o.operacao === t);
             const tRev = tOps.filter(o => o.status === "Concluída").reduce((a, o) => a + o.value, 0);
             return (
               <div key={t} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -1983,12 +2079,24 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [savedOps, savedPartners, savedProposals] = await Promise.all([
-        load(KEYS.ops), load(KEYS.partners), load(KEYS.proposals),
-      ]);
-      setOpsState(savedOps ?? SEED_OPS);
-      setPartnersState(savedPartners ?? SEED_PARTNERS);
-      setProposalsState(savedProposals ?? SEED_PROPOSALS);
+      // Se a versão do storage mudou, limpa tudo e recarrega com seed novo
+      const storedVersion = await load("__version__");
+      if (!storedVersion || storedVersion !== STORAGE_VERSION) {
+        await save("__version__", STORAGE_VERSION);
+        await save(KEYS.partners, SEED_PARTNERS);
+        await save(KEYS.ops, SEED_OPS);
+        await save(KEYS.proposals, SEED_PROPOSALS);
+        setOpsState(SEED_OPS);
+        setPartnersState(SEED_PARTNERS);
+        setProposalsState(SEED_PROPOSALS);
+      } else {
+        const [savedOps, savedPartners, savedProposals] = await Promise.all([
+          load(KEYS.ops), load(KEYS.partners), load(KEYS.proposals),
+        ]);
+        setOpsState(savedOps ?? SEED_OPS);
+        setPartnersState(savedPartners ?? SEED_PARTNERS);
+        setProposalsState(savedProposals ?? SEED_PROPOSALS);
+      }
       setReady(true);
     })();
   }, []);
