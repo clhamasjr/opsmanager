@@ -20,7 +20,7 @@ const C = {
 
 function sitColor(sit) {
   const s = (sit || "").toUpperCase();
-  if (["FINALIZADO","PAGO","AVERBADO","APROVADO"].includes(s)) return C.accent2;
+  if (["FINALIZADO","PAGO","AVERBADO","APROVADO","CONCRETIZADO","PAGO C/ PENDENCIA","PAGO C/ PENDÊNCIA"].includes(s)) return C.accent2;
   if (["ESTORNADO","CANCELADO","RECUSADO"].includes(s)) return C.danger;
   if (["EM ANÁLISE","PENDENTE"].includes(s)) return C.warn;
   return C.info;
@@ -175,13 +175,111 @@ function ExportModal({open,onClose,ops}){
 
 /* DASHBOARD */
 function Dashboard({ops}){
-  const totalRepasse=ops.reduce((s,o)=>s+(o.vrRepasse||0),0);const finalizados=ops.filter(o=>["FINALIZADO","PAGO","AVERBADO"].includes((o.situacaoBanco||"").toUpperCase()));const repasseFin=finalizados.reduce((s,o)=>s+(o.vrRepasse||0),0);const agentes=[...new Set(ops.map(o=>o.agente).filter(Boolean))];
-  const months={};ops.forEach(o=>{const m=o.data?.slice(0,7);if(m){if(!months[m])months[m]={repasse:0,count:0};months[m].repasse+=(o.vrRepasse||0);months[m].count++;}});const sorted=Object.entries(months).sort((a,b)=>a[0].localeCompare(b[0])).slice(-6);const maxR=Math.max(...sorted.map(s=>s[1].repasse),1);
-  return (<div style={{display:"flex",flexDirection:"column",gap:18}}>
-    <h2 style={{fontFamily:"Outfit",fontWeight:800,fontSize:20}}>Dashboard</h2>
+  const now=new Date();const curM=now.toISOString().slice(0,7);
+  const [periodo,setPeriodo]=useState("mes");
+  const [dateFrom,setDateFrom]=useState(curM+"-01");
+  const [dateTo,setDateTo]=useState(TODAY);
+
+  const presets=useMemo(()=>{
+    const y=now.getFullYear();const m=now.getMonth();
+    const fmt=d=>d.toISOString().split("T")[0];
+    const firstDay=(yr,mo)=>fmt(new Date(yr,mo,1));
+    const lastDay=(yr,mo)=>fmt(new Date(yr,mo+1,0));
+    return {
+      mes:{from:firstDay(y,m),to:lastDay(y,m),label:"Mês Atual"},
+      anterior:{from:firstDay(y,m-1),to:lastDay(y,m-1),label:"Mês Anterior"},
+      trimestre:{from:firstDay(y,m-2),to:lastDay(y,m),label:"Último Trimestre"},
+      semestre:{from:firstDay(y,m-5),to:lastDay(y,m),label:"Último Semestre"},
+      ano:{from:y+"-01-01",to:y+"-12-31",label:String(y)},
+      tudo:{from:"2000-01-01",to:"2099-12-31",label:"Todo Período"},
+    };
+  },[]);
+
+  useEffect(()=>{if(periodo!=="custom"){const p=presets[periodo];if(p){setDateFrom(p.from);setDateTo(p.to);}}},[periodo,presets]);
+
+  const filtered=ops.filter(o=>o.data&&o.data>=dateFrom&&o.data<=dateTo);
+  const totalRepasse=filtered.reduce((s,o)=>s+(o.vrRepasse||0),0);
+  const totalBruto=filtered.reduce((s,o)=>s+(o.vrBruto||0),0);
+  const finalizados=filtered.filter(o=>["FINALIZADO","PAGO","AVERBADO","CONCRETIZADO","PAGO C/ PENDENCIA","PAGO C/ PENDÊNCIA"].includes((o.situacaoBanco||"").toUpperCase()));
+  const repasseFin=finalizados.reduce((s,o)=>s+(o.vrRepasse||0),0);
+  const agentes=[...new Set(filtered.map(o=>o.agente).filter(Boolean))];
+
+  // Top parceiros
+  const topParceiros=useMemo(()=>{const map={};filtered.forEach(o=>{const a=o.agente||"Sem Agente";if(!map[a])map[a]={repasse:0,count:0,finCount:0,finRepasse:0};map[a].repasse+=(o.vrRepasse||0);map[a].count++;if(["FINALIZADO","PAGO","AVERBADO","CONCRETIZADO","PAGO C/ PENDENCIA","PAGO C/ PENDÊNCIA"].includes((o.situacaoBanco||"").toUpperCase())){map[a].finCount++;map[a].finRepasse+=(o.vrRepasse||0);}});return Object.entries(map).sort((a,b)=>b[1].repasse-a[1].repasse).slice(0,8);},[filtered]);
+
+  // By operação
+  const byOp=useMemo(()=>{const map={};filtered.forEach(o=>{const op=o.operacao||"OUTROS";if(!map[op])map[op]={repasse:0,count:0};map[op].repasse+=(o.vrRepasse||0);map[op].count++;});return Object.entries(map).sort((a,b)=>b[1].repasse-a[1].repasse);},[filtered]);
+
+  // Monthly chart
+  const months={};filtered.forEach(o=>{const m=o.data?.slice(0,7);if(m){if(!months[m])months[m]={repasse:0,count:0};months[m].repasse+=(o.vrRepasse||0);months[m].count++;}});
+  const sorted=Object.entries(months).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12);const maxR=Math.max(...sorted.map(s=>s[1].repasse),1);
+
+  // By situação
+  const bySit=useMemo(()=>{const map={};filtered.forEach(o=>{const s=o.situacao||"SEM SIT.";if(!map[s])map[s]={count:0,repasse:0};map[s].count++;map[s].repasse+=(o.vrRepasse||0);});return Object.entries(map).sort((a,b)=>b[1].count-a[1].count);},[filtered]);
+
+  const periodLabel=periodo==="custom"?fmtDate(dateFrom)+" a "+fmtDate(dateTo):presets[periodo]?.label||"";
+
+  return (<div style={{display:"flex",flexDirection:"column",gap:16}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+      <h2 style={{fontFamily:"Outfit",fontWeight:800,fontSize:20}}>Dashboard</h2>
+      <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+        {Object.entries(presets).map(([k,v])=>(<button key={k} onClick={()=>setPeriodo(k)} style={{padding:"5px 12px",borderRadius:7,border:"1px solid "+(periodo===k?C.accent:C.border),background:periodo===k?C.accentBg:"transparent",color:periodo===k?C.accent:C.muted,fontSize:11,fontWeight:periodo===k?600:400,cursor:"pointer",fontFamily:"Outfit"}}>{v.label}</button>))}
+        <button onClick={()=>setPeriodo("custom")} style={{padding:"5px 12px",borderRadius:7,border:"1px solid "+(periodo==="custom"?C.accent:C.border),background:periodo==="custom"?C.accentBg:"transparent",color:periodo==="custom"?C.accent:C.muted,fontSize:11,fontWeight:periodo==="custom"?600:400,cursor:"pointer",fontFamily:"Outfit"}}>Personalizado</button>
+      </div>
+    </div>
+    {periodo==="custom"&&(<div style={{display:"flex",gap:8,alignItems:"flex-end"}}><Field label="De" value={dateFrom} onChange={setDateFrom} type="date" style={{minWidth:130}}/><Field label="Até" value={dateTo} onChange={setDateTo} type="date" style={{minWidth:130}}/></div>)}
+    <div style={{fontSize:11,color:C.muted}}>Período: <strong style={{color:C.text}}>{periodLabel}</strong> · {filtered.length} digitações</div>
+
     {ops.length===0?(<div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:"40px 20px",textAlign:"center"}}><div style={{fontSize:36,marginBottom:10}}>📋</div><div style={{fontSize:14,fontWeight:600,marginBottom:4}}>Nenhuma digitação ainda</div><div style={{fontSize:12,color:C.muted}}>Vá em Operações → Importar para começar</div></div>):(<>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Stat label="Produção (Repasse)" value={fmtCur(totalRepasse)} color={C.accent}/><Stat label="Repasse Finalizado" value={fmtCur(repasseFin)} color={C.accent2} sub={finalizados.length+" finalizadas"}/><Stat label="Total Digitações" value={ops.length}/><Stat label="Parceiros" value={agentes.length}/></div>
-      <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:18}}><div style={{fontSize:12,fontWeight:600,marginBottom:12}}>Produção Mensal (Repasse)</div><div style={{display:"flex",gap:6,alignItems:"flex-end",height:110}}>{sorted.map(([m,v])=>(<div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><div style={{fontSize:9,color:C.muted}}>{fmtCur(v.repasse)}</div><div style={{width:"100%",maxWidth:44,background:"linear-gradient(180deg,"+C.accent+","+C.accent2+")",borderRadius:5,height:Math.max(6,(v.repasse/maxR)*90)+"%"}}/><div style={{fontSize:9,color:C.muted}}>{m.slice(5)}/{m.slice(2,4)}</div></div>))}</div></div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        <Stat label="Produção (Repasse)" value={fmtCur(totalRepasse)} color={C.accent}/>
+        <Stat label="Repasse Finalizado" value={fmtCur(repasseFin)} color={C.accent2} sub={finalizados.length+" finalizadas"}/>
+        <Stat label="Total Digitações" value={filtered.length}/>
+        <Stat label="Parceiros" value={agentes.length}/>
+        <Stat label="Vr. Bruto Total" value={fmtCur(totalBruto)} color={C.info}/>
+      </div>
+
+      {/* Chart + Situação side by side */}
+      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:14}}>
+        <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:18}}>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:12}}>Produção Mensal (Repasse)</div>
+          <div style={{display:"flex",gap:4,alignItems:"flex-end",height:110}}>
+            {sorted.map(([m,v])=>(<div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <div style={{fontSize:8,color:C.muted}}>{fmtCur(v.repasse)}</div>
+              <div style={{width:"100%",maxWidth:40,background:"linear-gradient(180deg,"+C.accent+","+C.accent2+")",borderRadius:5,height:Math.max(6,(v.repasse/maxR)*90)+"%"}}/>
+              <div style={{fontSize:8,color:C.muted}}>{m.slice(5)}/{m.slice(2,4)}</div>
+            </div>))}
+          </div>
+        </div>
+        <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:18}}>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:10}}>Por Situação</div>
+          {bySit.slice(0,6).map(([sit,d])=>{const pct=filtered.length>0?(d.count/filtered.length*100):0;return(<div key={sit} style={{marginBottom:7}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{color:sitColor(sit),fontWeight:600}}>{sit}</span><span style={{color:C.muted}}>{d.count}</span></div>
+            <div style={{height:5,background:C.surface,borderRadius:3}}><div style={{height:"100%",background:sitColor(sit),borderRadius:3,width:pct+"%"}}/></div>
+          </div>);})}
+        </div>
+      </div>
+
+      {/* Top parceiros + Por operação */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:18}}>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:10}}>Top Parceiros (Repasse)</div>
+          {topParceiros.map(([ag,d],i)=>(<div key={ag} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:"1px solid "+C.border}}>
+            <div style={{width:22,height:22,borderRadius:6,background:i<3?C.accent:C.surface,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?"#fff":C.muted,flexShrink:0}}>{i+1}</div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ag}</div><div style={{fontSize:9,color:C.muted}}>{d.count} dig · {d.finCount} fin</div></div>
+            <div style={{fontSize:11,fontWeight:700,color:C.accent2,flexShrink:0}}>{fmtCur(d.repasse)}</div>
+          </div>))}
+          {topParceiros.length===0&&<div style={{fontSize:11,color:C.muted,textAlign:"center",padding:14}}>Sem dados</div>}
+        </div>
+        <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:18}}>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:10}}>Por Operação</div>
+          {byOp.map(([op,d])=>{const pct=totalRepasse>0?(d.repasse/totalRepasse*100):0;return(<div key={op} style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{fontWeight:600}}>{op}</span><span style={{color:C.accent}}>{fmtCur(d.repasse)}</span></div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:6,background:C.surface,borderRadius:3}}><div style={{height:"100%",background:C.accent,borderRadius:3,width:pct+"%"}}/></div><span style={{fontSize:9,color:C.muted,minWidth:30}}>{d.count} ops</span></div>
+          </div>);})}
+          {byOp.length===0&&<div style={{fontSize:11,color:C.muted,textAlign:"center",padding:14}}>Sem dados</div>}
+        </div>
+      </div>
     </>)}
   </div>);
 }
@@ -208,7 +306,7 @@ function Kanban({ops,setOps}){
   const [fAgente,setFAgente]=useState("");const [fOp,setFOp]=useState("");const [fBanco,setFBanco]=useState("");const [fDateFrom,setFDateFrom]=useState("");const [fDateTo,setFDateTo]=useState("");const [detail,setDetail]=useState(null);
   const allAgentes=[...new Set(ops.map(o=>o.agente).filter(Boolean))].sort();const allOps=[...new Set(ops.map(o=>o.operacao).filter(Boolean))].sort();const allBancos=[...new Set(ops.map(o=>o.banco).filter(Boolean))].sort();
   const filtered=ops.filter(o=>(!fAgente||o.agente===fAgente)&&(!fOp||o.operacao===fOp)&&(!fBanco||o.banco===fBanco)&&(!fDateFrom||o.data>=fDateFrom)&&(!fDateTo||o.data<=fDateTo));
-  const allSituacoes=useMemo(()=>{const sits=[...new Set(ops.map(o=>o.situacao).filter(Boolean))];const order=["NOVO","PENDENTE","EM ANÁLISE","APROVADO","PAGO","ESTORNADO","CANCELADO","RECUSADO"];return sits.sort((a,b)=>{const ai=order.indexOf(a);const bi=order.indexOf(b);return(ai===-1?99:ai)-(bi===-1?99:bi);});},[ops]);
+  const allSituacoes=useMemo(()=>{const sits=[...new Set(ops.map(o=>o.situacao).filter(Boolean))];const order=["NOVO","PENDENTE","EM ANÁLISE","APROVADO","PAGO","CONCRETIZADO","PAGO C/ PENDENCIA","PAGO C/ PENDÊNCIA","ESTORNADO","CANCELADO","RECUSADO"];return sits.sort((a,b)=>{const ai=order.indexOf(a);const bi=order.indexOf(b);return(ai===-1?99:ai)-(bi===-1?99:bi);});},[ops]);
   const moveSituacao=(opId,newSit)=>{setOps(prev=>prev.map(o=>o.id===opId?{...o,situacao:newSit}:o));};
   return (<div style={{display:"flex",flexDirection:"column",gap:14}}>
     <h2 style={{fontFamily:"Outfit",fontWeight:800,fontSize:20}}>Kanban por Situação</h2>
@@ -245,7 +343,7 @@ function SituacaoView({ops}){
 /* PORTABILIDADE */
 function Portabilidade({ops}){
   const portOps=useMemo(()=>ops.filter(o=>(o.operacao||"").toUpperCase()==="PORTABILIDADE"),[ops]);
-  const isFinal=o=>["FINALIZADO","PAGO","AVERBADO"].includes((o.situacaoBanco||"").toUpperCase());
+  const isFinal=o=>["FINALIZADO","PAGO","AVERBADO","CONCRETIZADO","PAGO C/ PENDENCIA","PAGO C/ PENDÊNCIA"].includes((o.situacaoBanco||"").toUpperCase());
   const byBanco=useMemo(()=>{const map={};portOps.forEach(o=>{const b=o.banco||"SEM BANCO";if(!map[b])map[b]={digitado:0,pago:0,repasseDig:0,repassePago:0};map[b].digitado++;map[b].repasseDig+=(o.vrRepasse||0);if(isFinal(o)){map[b].pago++;map[b].repassePago+=(o.vrRepasse||0);}});return Object.entries(map).sort((a,b)=>b[1].digitado-a[1].digitado);},[portOps]);
   const byAgente=useMemo(()=>{const map={};portOps.forEach(o=>{const a=o.agente||"SEM AGENTE";if(!map[a])map[a]={digitado:0,pago:0,repasseDig:0,repassePago:0};map[a].digitado++;map[a].repasseDig+=(o.vrRepasse||0);if(isFinal(o)){map[a].pago++;map[a].repassePago+=(o.vrRepasse||0);}});return Object.entries(map).sort((a,b)=>b[1].digitado-a[1].digitado);},[portOps]);
   const totalDig=portOps.length;const totalPago=portOps.filter(isFinal).length;const totalRD=portOps.reduce((s,o)=>s+(o.vrRepasse||0),0);const totalRP=portOps.filter(isFinal).reduce((s,o)=>s+(o.vrRepasse||0),0);const conv=totalDig>0?(totalPago/totalDig*100):0;
@@ -264,7 +362,7 @@ function Portabilidade({ops}){
 /* ANÁLISE PARCEIROS */
 function AnaliseParceiros({ops}){
   const now=new Date();const curMonth=now.toISOString().slice(0,7);const prevDate=new Date(now.getFullYear(),now.getMonth()-1,1);const prevMonth=prevDate.toISOString().slice(0,7);
-  const isFinal=o=>["FINALIZADO","PAGO","AVERBADO"].includes((o.situacaoBanco||"").toUpperCase());
+  const isFinal=o=>["FINALIZADO","PAGO","AVERBADO","CONCRETIZADO","PAGO C/ PENDENCIA","PAGO C/ PENDÊNCIA"].includes((o.situacaoBanco||"").toUpperCase());
   const agentes=[...new Set(ops.map(o=>o.agente).filter(Boolean))];
   const stats=agentes.map(a=>{const all=ops.filter(o=>o.agente===a);const cur=all.filter(o=>o.data?.startsWith(curMonth));const prev=all.filter(o=>o.data?.startsWith(prevMonth));const curR=cur.reduce((s,o)=>s+(o.vrRepasse||0),0);const prevR=prev.reduce((s,o)=>s+(o.vrRepasse||0),0);const variation=prevR>0?((curR-prevR)/prevR*100):(curR>0?100:0);const lastOp=[...all].sort((a,b)=>(b.data||"").localeCompare(a.data||""))[0];const daysSince=lastOp?Math.floor((now-new Date(lastOp.data))/86400000):999;const finalized=all.filter(isFinal);const convRate=all.length>0?(finalized.length/all.length*100):0;let alert="ok";if(cur.length===0&&prev.length>0)alert="inactive";else if(variation<=-30)alert="drop_heavy";else if(variation<0)alert="drop_light";return{name:a,curCount:cur.length,prevCount:prev.length,curR,prevR,variation,daysSince,lastDate:lastOp?.data,alert,totalOps:all.length,convRate};}).sort((a,b)=>{const order={inactive:0,drop_heavy:1,drop_light:2,ok:3};return(order[a.alert]??4)-(order[b.alert]??4);});
   const alertCount=stats.filter(p=>["inactive","drop_heavy"].includes(p.alert)).length;
