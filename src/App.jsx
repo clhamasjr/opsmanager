@@ -20,19 +20,21 @@ const SEED_PARTNERS = [
   { id: "p5", name: "Construtech CE", segment: "Construção", region: "Nordeste", status: "Inativo" },
 ];
 
+// Campos baseados na planilha real PROPOSTAS_DIGITADAS.xlsx
+// AGENTE=parceiro, USUÁRIO=digitador, OPERAÇÃO=tipo, SITUAÇÃO=status interno, SITUAÇÃO BANCO=sit. banco
 const SEED_OPS = [
-  { id: "o1",  date: "2025-01-10", partner: "p1", type: "Crédito Pessoal",  value: 48000,  banco: "Itaú",      convenio: "INSS",         agente: "João Melo",    situacaoBanco: "Aprovado",  status: "Concluída",    notes: "Renovação anual" },
-  { id: "o2",  date: "2025-01-22", partner: "p2", type: "Consignado",       value: 120000, banco: "Bradesco",  convenio: "Governo Fed.",  agente: "Ana Lima",     situacaoBanco: "Pendente",  status: "Em andamento", notes: "Novo contrato safra" },
-  { id: "o3",  date: "2025-02-05", partner: "p3", type: "Crédito Pessoal",  value: 75000,  banco: "Caixa",     convenio: "INSS",         agente: "Carlos Rocha", situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
-  { id: "o4",  date: "2025-02-18", partner: "p1", type: "Refinanciamento",  value: 36000,  banco: "Itaú",      convenio: "INSS",         agente: "João Melo",    situacaoBanco: "Aprovado",  status: "Concluída",    notes: "Upgrade de plano" },
-  { id: "o5",  date: "2025-03-01", partner: "p4", type: "FGTS",             value: 22000,  banco: "Santander", convenio: "FGTS",         agente: "Mariana Costa",situacaoBanco: "Recusado",  status: "Cancelada",    notes: "Cancelado pelo cliente" },
-  { id: "o6",  date: "2025-03-10", partner: "p2", type: "Consignado",       value: 55000,  banco: "Bradesco",  convenio: "Prefeitura",   agente: "Ana Lima",     situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
-  { id: "o7",  date: "2025-03-20", partner: "p3", type: "Crédito Pessoal",  value: 98000,  banco: "Nubank",    convenio: "INSS",         agente: "Carlos Rocha", situacaoBanco: "Análise",   status: "Em andamento", notes: "Q1 expansion" },
-  { id: "o8",  date: "2025-04-02", partner: "p1", type: "Consignado",       value: 61000,  banco: "Itaú",      convenio: "Governo Est.", agente: "João Melo",    situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
-  { id: "o9",  date: "2025-02-12", partner: "p2", type: "FGTS",             value: 18000,  banco: "Caixa",     convenio: "FGTS",         agente: "Ana Lima",     situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
-  { id: "o10", date: "2025-02-25", partner: "p4", type: "Crédito Pessoal",  value: 32000,  banco: "Santander", convenio: "INSS",         agente: "Mariana Costa",situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
-  { id: "o11", date: "2025-03-05", partner: "p1", type: "Refinanciamento",  value: 44000,  banco: "Bradesco",  convenio: "Governo Fed.", agente: "João Melo",    situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
-  { id: "o12", date: "2025-01-15", partner: "p3", type: "Consignado",       value: 67000,  banco: "Caixa",     convenio: "Prefeitura",   agente: "Carlos Rocha", situacaoBanco: "Aprovado",  status: "Concluída",    notes: "" },
+  { id:"o1",  date:"2025-01-31", partner:"p1", banco:"QUALIBANKING",   operacao:"NOVO",          convenio:"INSS",       usuario:"Bruno Bortoli",        cpf:"015.566.609-60", cliente:"ELIZABETH RODRIGUES",    proposta:"QUA0000556121", contrato:"QUA0000556121", prazo:84, value:9205.32,  vrParcela:217.79,  vrLiquido:7978.97,  vrRepasse:7978.97, taxa:1.80, produto:"TOP PLUS - TX 1,80%",           situacao:"ESTORNADO",          situacaoBanco:"FINALIZADO",    notes:"" },
+  { id:"o2",  date:"2025-01-31", partner:"p2", banco:"QUALIBANKING",   operacao:"PORTAB/REFIN",  convenio:"INSS",       usuario:"Rubineia Ferreira",     cpf:"260.535.018-59", cliente:"ANDREA ALVES CARDOSO",   proposta:"QUA0000558782", contrato:"QUA0000558782", prazo:70, value:19667.83, vrParcela:477.22,  vrLiquido:19667.83, vrRepasse:19667.83,taxa:1.59, produto:"INSS - PORT + REFIN",            situacao:"CANCELADA",          situacaoBanco:"CANCELADO",     notes:"" },
+  { id:"o3",  date:"2025-01-31", partner:"p1", banco:"QUALIBANKING",   operacao:"NOVO",          convenio:"INSS",       usuario:"Dafini Machado",        cpf:"154.375.948-36", cliente:"ANICE DE OLIVEIRA",       proposta:"QUA0000559852", contrato:"QUA0000559852", prazo:84, value:2248.81,  vrParcela:53.30,   vrLiquido:1949.11,  vrRepasse:1949.11, taxa:1.80, produto:"INSS - NOVO - TOP PLUS",         situacao:"ESTORNADO",          situacaoBanco:"FINALIZADO",    notes:"" },
+  { id:"o4",  date:"2025-01-31", partner:"p3", banco:"BRB - INCONTA",  operacao:"PORTABILIDADE", convenio:"INSS",       usuario:"LHAMASCRED PROMOTORA",  cpf:"789.196.575-72", cliente:"ROSEMARY MOREIRA",        proposta:"1151915",       contrato:"1151915",       prazo:84, value:19259.97, vrParcela:431.00,  vrLiquido:0,        vrRepasse:19259.97,taxa:1.66, produto:"BRB - INSS - NOVO - 1,85%",      situacao:"CANCELADA",          situacaoBanco:"Cancelada",     notes:"" },
+  { id:"o5",  date:"2025-02-10", partner:"p2", banco:"PAN",            operacao:"REFINANCIAMENTO",convenio:"INSS",      usuario:"Ana Lima",              cpf:"046.411.458-65", cliente:"IRACI ANANIAS SANTOS",    proposta:"1152005",       contrato:"1152005",       prazo:84, value:11217.70, vrParcela:251.03,  vrLiquido:0,        vrRepasse:11217.70,taxa:1.66, produto:"INSS PORTABILIDADE",              situacao:"CANCELADA",          situacaoBanco:"Cancelada",     notes:"" },
+  { id:"o6",  date:"2025-02-15", partner:"p4", banco:"FACTA FINANCEIRA",operacao:"NOVO",          convenio:"FGTS",      usuario:"Carlos Rocha",          cpf:"035.372.718-08", cliente:"RICARDO MONTEIRO",        proposta:"FAC0001234",    contrato:"FAC0001234",    prazo:60, value:5073.54,  vrParcela:120.25,  vrLiquido:4397.39,  vrRepasse:4397.39, taxa:1.80, produto:"FGTS - NOVO",                    situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
+  { id:"o7",  date:"2025-02-20", partner:"p1", banco:"C6 BANK",        operacao:"CARTÃO",         convenio:"INSS",      usuario:"Mariana Costa",         cpf:"123.456.789-00", cliente:"JOSE CARLOS SILVA",       proposta:"C6B0004567",    contrato:"C6B0004567",    prazo:96, value:15000.00, vrParcela:200.00,  vrLiquido:13500.00, vrRepasse:13500.00,taxa:1.55, produto:"CARTÃO CONSIGNADO INSS",          situacao:"ANDAMENTO",          situacaoBanco:"EM ANALISE",    notes:"" },
+  { id:"o8",  date:"2025-03-01", partner:"p3", banco:"CAPITAL CONSIG", operacao:"NOVO",           convenio:"FEDERAL",   usuario:"João Melo",             cpf:"987.654.321-00", cliente:"MARIA APARECIDA SOUZA",   proposta:"CAP0007890",    contrato:"CAP0007890",    prazo:72, value:32000.00, vrParcela:520.00,  vrLiquido:29000.00, vrRepasse:29000.00,taxa:1.70, produto:"FEDERAL - NOVO",                  situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
+  { id:"o9",  date:"2025-03-10", partner:"p2", banco:"PAGBANK",        operacao:"PORTAB/REFIN",   convenio:"PREFEITURAS",usuario:"Ana Lima",             cpf:"111.222.333-44", cliente:"PEDRO HENRIQUE COSTA",    proposta:"PAG0002345",    contrato:"PAG0002345",    prazo:84, value:25000.00, vrParcela:380.00,  vrLiquido:22000.00, vrRepasse:22000.00,taxa:1.65, produto:"PREFEITURAS - PORT+REFIN",        situacao:"ANALISE BANCO",      situacaoBanco:"ANALISE BANCO", notes:"Aguardando retorno" },
+  { id:"o10", date:"2025-03-15", partner:"p4", banco:"PAN",            operacao:"NOVO",           convenio:"INSS",      usuario:"Carlos Rocha",          cpf:"555.666.777-88", cliente:"LUIZA FERNANDES",         proposta:"PAN0008901",    contrato:"PAN0008901",    prazo:84, value:8500.00,  vrParcela:185.00,  vrLiquido:7200.00,  vrRepasse:7200.00, taxa:1.80, produto:"INSS - NOVO TOP PLUS",            situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
+  { id:"o11", date:"2025-03-20", partner:"p1", banco:"QUALIBANKING",   operacao:"RECOMPRA",       convenio:"INSS",      usuario:"Bruno Bortoli",         cpf:"222.333.444-55", cliente:"ANTONIO CARLOS LIMA",     proposta:"QUA0001112",    contrato:"QUA0001112",    prazo:60, value:12000.00, vrParcela:240.00,  vrLiquido:10500.00, vrRepasse:10500.00,taxa:1.75, produto:"INSS - RECOMPRA",                 situacao:"PROPOSTA CADASTRADA",situacaoBanco:"INTEGRADA",     notes:"" },
+  { id:"o12", date:"2025-04-01", partner:"p3", banco:"TOTALCASH",      operacao:"CARTÃO BENEFÍCIO",convenio:"INSS",     usuario:"Mariana Costa",         cpf:"333.444.555-66", cliente:"FRANCISCA OLIVEIRA",      proposta:"TOT0003456",    contrato:"TOT0003456",    prazo:0,  value:3200.00,  vrParcela:0,        vrLiquido:3200.00,  vrRepasse:3200.00, taxa:0,    produto:"CARTÃO BENEFÍCIO INSS",           situacao:"CONCRETIZADO",       situacaoBanco:"PAGO",          notes:"" },
 ];
 
 const TODAY = new Date().toISOString().split("T")[0];
@@ -95,10 +97,56 @@ const C = {
   text: "#E8F0FF", muted: "#5A7AA8",
 };
 
+const SITUACAO_COLOR = {
+  "CONCRETIZADO":          "#00FFB2",
+  "PAGO":                  "#00FFB2",
+  "PAGO C/PENDÊNCIA":      "#FFB830",
+  "PORTABILIDADE AVERBADA":"#00C2FF",
+  "ANDAMENTO":             "#00C2FF",
+  "PROPOSTA CADASTRADA":   "#7C83FD",
+  "ANALISE BANCO":         "#FFB830",
+  "EM ANALISE":            "#FFB830",
+  "CRC CLIENTE":           "#FFB830",
+  "CANCELADA":             "#FF4D6A",
+  "ESTORNADO":             "#FF4D6A",
+  "PROPOSTA REPROVADA":    "#FF4D6A",
+};
+const SIT_BANCO_COLOR = {
+  "FINALIZADO":            "#00FFB2",
+  "PAGO":                  "#00FFB2",
+  "PAGO AO CLIENTE":       "#00FFB2",
+  "PAGAMENTO REALIZADO":   "#00FFB2",
+  "CONCRETIZADO":          "#00FFB2",
+  "INTEGRADA":             "#00C2FF",
+  "INTEGRADO":             "#00C2FF",
+  "INT - FINALIZADO":      "#00C2FF",
+  "INT - TED EMITIDA":     "#00C2FF",
+  "Portabilidade Averbada":"#00C2FF",
+  "EM ANALISE":            "#FFB830",
+  "ANALISE BANCO":         "#FFB830",
+  "TRATATIVA COMERCIAL":   "#FFB830",
+  "TRATATIVA PARCEIROS":   "#FFB830",
+  "aberto":                "#FFB830",
+  "CANCELADO":             "#FF4D6A",
+  "CANCELADA":             "#FF4D6A",
+  "Cancelada":             "#FF4D6A",
+  "NEGADA":                "#FF4D6A",
+  "REPROVADO":             "#FF4D6A",
+  "REPROVADA":             "#FF4D6A",
+  "REPROVADO CRÉDITO":     "#FF4D6A",
+  "REP - REPROVADO PELO BANCO":     "#FF4D6A",
+  "REP - SOLICITADO PELO CORRETOR": "#FF4D6A",
+};
 const STATUS_COLOR = {
   "Concluída": "#00FFB2", "Em andamento": "#FFB830", "Cancelada": "#FF4D6A",
   "Ativo": "#00FFB2", "Inativo": "#FF4D6A",
 };
+
+const BANCOS_LIST    = ["QUALIBANKING","BRB","BRB - INCONTA","C6 BANK","CAPITAL CONSIG","CREFISACP","FACTA FINANCEIRA","INBURSA","LOTUS","NEOCREDITO","PAGBANK","PAN","PRATA DIGITAL","TOTALCASH","Outro"];
+const OPERACOES_LIST = ["NOVO","PORTABILIDADE","PORTAB/REFIN","REFINANCIAMENTO","RECOMPRA","CARTÃO","CARTÃO BENEFÍCIO","Outro"];
+const CONVENIOS_LIST = ["INSS","FGTS","FEDERAL","ESTADUAIS","PREFEITURAS","BAIXA RENDA","Outro"];
+const SITUACOES_LIST = ["PROPOSTA CADASTRADA","ANDAMENTO","ANALISE BANCO","EM ANALISE","CRC CLIENTE","PORTABILIDADE AVERBADA","CONCRETIZADO","PAGO","PAGO C/PENDÊNCIA","ESTORNADO","CANCELADA","PROPOSTA REPROVADA"];
+const SIT_BANCO_LIST = ["EM ANALISE","ANALISE BANCO","INTEGRADA","INTEGRADO","INT - FINALIZADO","INT - TED EMITIDA","FINALIZADO","PAGO","PAGO AO CLIENTE","PAGAMENTO REALIZADO","CONCRETIZADO","Portabilidade Averbada","TRATATIVA COMERCIAL","TRATATIVA PARCEIROS","CANCELADO","CANCELADA","NEGADA","REPROVADO","REPROVADA","REPROVADO CRÉDITO","REP - REPROVADO PELO BANCO","REP - SOLICITADO PELO CORRETOR"];
 
 const fmtBRL = (v) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 const fmtDate = (d) => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR") : "—";
@@ -464,15 +512,26 @@ function useSheetJS() {
 }
 
 const IMPORT_FIELDS = [
-  { key: "title",       label: "Título",       required: true  },
-  { key: "partner",     label: "Parceiro",     required: true  },
-  { key: "value",       label: "Valor (R$)",   required: false },
-  { key: "type",        label: "Tipo",         required: false },
-  { key: "priority",    label: "Prioridade",   required: false },
-  { key: "status",      label: "Status",       required: false },
-  { key: "dueDate",     label: "Prazo",        required: false },
-  { key: "responsible", label: "Responsável",  required: false },
-  { key: "notes",       label: "Observações",  required: false },
+  { key: "date",          label: "DATA",             required: true  },
+  { key: "partner",       label: "AGENTE",           required: true  },
+  { key: "banco",         label: "BANCO",            required: false },
+  { key: "operacao",      label: "OPERAÇÃO",         required: false },
+  { key: "convenio",      label: "CONVÊNIO",         required: false },
+  { key: "usuario",       label: "USUÁRIO",          required: false },
+  { key: "cpf",           label: "CPF",              required: false },
+  { key: "cliente",       label: "CLIENTE",          required: false },
+  { key: "proposta",      label: "PROPOSTA",         required: false },
+  { key: "contrato",      label: "Nº CONTRATO",      required: false },
+  { key: "prazo",         label: "PRAZO",            required: false },
+  { key: "value",         label: "VR. BRUTO",        required: false },
+  { key: "vrParcela",     label: "VR. PARCELA",      required: false },
+  { key: "vrLiquido",     label: "VR. LÍQUIDO",      required: false },
+  { key: "vrRepasse",     label: "VR. REPASSE",      required: false },
+  { key: "taxa",          label: "TAXA",             required: false },
+  { key: "produto",       label: "PRODUTO",          required: false },
+  { key: "situacao",      label: "SITUAÇÃO",         required: false },
+  { key: "situacaoBanco", label: "SITUAÇÃO BANCO",   required: false },
+  { key: "notes",         label: "OBS. SITUAÇÃO BANCO", required: false },
 ];
 
 const VALID_STAGES   = STAGES.map(s => s.id);
@@ -542,20 +601,34 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
         setRawRows(rows);
         const cols = Object.keys(rows[0]);
         setHeaders(cols);
-        // Auto-detect mapping by fuzzy match
+        // Auto-detect mapping by matching real spreadsheet column names
         const autoMap = {};
         IMPORT_FIELDS.forEach(f => {
           const found = cols.find(c => {
-            const cl = c.toLowerCase().trim();
-            return cl === f.key || cl === f.label.toLowerCase() ||
-              (f.key === "title" && (cl.includes("título") || cl.includes("titulo") || cl.includes("proposta"))) ||
-              (f.key === "partner" && (cl.includes("parceiro") || cl.includes("cliente") || cl.includes("partner"))) ||
-              (f.key === "value" && (cl.includes("valor") || cl.includes("value") || cl.includes("montante"))) ||
-              (f.key === "dueDate" && (cl.includes("prazo") || cl.includes("data") || cl.includes("vencimento") || cl.includes("date"))) ||
-              (f.key === "responsible" && (cl.includes("responsável") || cl.includes("responsavel") || cl.includes("vendedor"))) ||
-              (f.key === "priority" && (cl.includes("prioridade") || cl.includes("priority"))) ||
-              (f.key === "status" && (cl.includes("status") || cl.includes("etapa") || cl.includes("fase"))) ||
-              (f.key === "notes" && (cl.includes("obs") || cl.includes("nota") || cl.includes("comment")));
+            const cl = c.toLowerCase().trim().replace(/[º°]/g,"");
+            const fl = f.label.toLowerCase().replace(/[º°]/g,"");
+            const fk = f.key.toLowerCase();
+            return cl === fl || cl === fk ||
+              (f.key==="date"         && (cl==="data"||cl==="dat.inclusão"||cl==="dat inclusao")) ||
+              (f.key==="partner"      && (cl==="agente"||cl==="parceiro"||cl==="corretor")) ||
+              (f.key==="banco"        && cl==="banco") ||
+              (f.key==="operacao"     && (cl==="operação"||cl==="operacao"||cl==="tp. operação banco")) ||
+              (f.key==="convenio"     && (cl==="convênio"||cl==="convenio")) ||
+              (f.key==="usuario"      && (cl==="usuário"||cl==="usuario"||cl==="digitador")) ||
+              (f.key==="cpf"          && cl==="cpf") ||
+              (f.key==="cliente"      && cl==="cliente") ||
+              (f.key==="proposta"     && cl==="proposta") ||
+              (f.key==="contrato"     && (cl==="n contrato"||cl==="contrato"||cl==="n° contrato")) ||
+              (f.key==="prazo"        && cl==="prazo") ||
+              (f.key==="value"        && (cl==="vr. bruto"||cl==="valor bruto"||cl==="vr bruto")) ||
+              (f.key==="vrParcela"    && (cl==="vr. parcela"||cl==="parcela")) ||
+              (f.key==="vrLiquido"    && (cl==="vr. líquido"||cl==="vr liquido"||cl==="vlr líquido")) ||
+              (f.key==="vrRepasse"    && (cl==="vr. repasse"||cl==="repasse")) ||
+              (f.key==="taxa"         && cl==="taxa") ||
+              (f.key==="produto"      && (cl==="produto"||cl==="prod. banco")) ||
+              (f.key==="situacao"     && (cl==="situação"||cl==="situacao")) ||
+              (f.key==="situacaoBanco"&& (cl==="situação banco"||cl==="situacao banco")) ||
+              (f.key==="notes"        && (cl==="obs. situação banco"||cl==="observações"||cl==="obs"));
           });
           if (found) autoMap[f.key] = found;
         });
@@ -578,38 +651,48 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
   const buildPreview = () => {
     const errs = [];
     const built = rawRows.map((row, i) => {
-      const titleCol = mapping.title;
+      const dateCol    = mapping.date;
       const partnerCol = mapping.partner;
-      const title = titleCol ? String(row[titleCol] || "").trim() : "";
+      const dateRaw    = dateCol ? row[dateCol] : "";
       const partnerRaw = partnerCol ? String(row[partnerCol] || "").trim() : "";
+      const dateStr    = normalizeDate(dateRaw);
 
-      if (!title) errs.push(`Linha ${i + 2}: "Título" está vazio`);
+      if (!dateStr) errs.push(`Linha ${i + 2}: "DATA" inválida ou vazia`);
 
-      // Match partner by name (fuzzy)
       const matchedPartner = partners.find(p =>
         p.name.toLowerCase().trim() === partnerRaw.toLowerCase() ||
         p.name.toLowerCase().includes(partnerRaw.toLowerCase()) ||
         partnerRaw.toLowerCase().includes(p.name.toLowerCase().split(" ")[0].toLowerCase())
       );
 
-      const valueRaw = mapping.value ? row[mapping.value] : "";
-      const valueNum = parseFloat(String(valueRaw).replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
+      const getVal = (key) => mapping[key] ? row[mapping[key]] : "";
+      const numVal = (key) => parseFloat(String(getVal(key)).replace(/[R$\s.]/g,"").replace(",",".")) || 0;
 
       return {
         _row: i + 2,
         _partnerRaw: partnerRaw,
         _partnerMatched: matchedPartner ?? null,
-        id: uid(),
-        title,
-        partner: matchedPartner?.id ?? "",
-        value: valueNum,
-        type: normalizeType(mapping.type ? row[mapping.type] : ""),
-        priority: normalizePriority(mapping.priority ? row[mapping.priority] : ""),
-        status: normalizeStatus(mapping.status ? row[mapping.status] : ""),
-        dueDate: normalizeDate(mapping.dueDate ? row[mapping.dueDate] : ""),
-        responsible: mapping.responsible ? String(row[mapping.responsible] || "").trim() : "",
-        notes: mapping.notes ? String(row[mapping.notes] || "").trim() : "",
-        history: [{ status: "Prospecção", date: TODAY, note: "Importado via planilha", user: currentUser }],
+        id:           uid(),
+        date:         dateStr,
+        partner:      matchedPartner?.id ?? "",
+        banco:        String(getVal("banco")||"").trim(),
+        operacao:     String(getVal("operacao")||"").trim(),
+        convenio:     String(getVal("convenio")||"").trim(),
+        usuario:      String(getVal("usuario")||"").trim(),
+        cpf:          String(getVal("cpf")||"").trim(),
+        cliente:      String(getVal("cliente")||"").trim(),
+        proposta:     String(getVal("proposta")||"").trim(),
+        contrato:     String(getVal("contrato")||"").trim(),
+        prazo:        numVal("prazo"),
+        value:        numVal("value"),
+        vrParcela:    numVal("vrParcela"),
+        vrLiquido:    numVal("vrLiquido"),
+        vrRepasse:    numVal("vrRepasse"),
+        taxa:         numVal("taxa"),
+        produto:      String(getVal("produto")||"").trim(),
+        situacao:     String(getVal("situacao")||"PROPOSTA CADASTRADA").trim(),
+        situacaoBanco:String(getVal("situacaoBanco")||"EM ANALISE").trim(),
+        notes:        String(getVal("notes")||"").trim(),
       };
     });
     setErrors(errs);
@@ -618,7 +701,7 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
   };
 
   const handleImport = () => {
-    const valid = preview.filter(p => p.title && p.partner);
+    const valid = preview.filter(p => p.date && p.partner);
     onImport(valid);
     reset();
     onClose();
@@ -627,13 +710,13 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
   const downloadTemplate = () => {
     if (!xlsxReady || !window.XLSX) return;
     const ws = window.XLSX.utils.aoa_to_sheet([
-      ["Título", "Parceiro", "Valor (R$)", "Tipo", "Prioridade", "Status", "Prazo (dd/mm/aaaa)", "Responsável", "Observações"],
-      ["Renovação Contrato 2025", "TechVentures SP", 95000, "Renovação", "Alta", "Negociação", "15/05/2025", "Ana Lima", "Renovação anual"],
-      ["Novo Contrato Safra", "AgriNorte Ltda", 140000, "Contrato", "Alta", "Proposta Enviada", "01/06/2025", "Carlos Rocha", ""],
+      ["DATA","AGENTE","BANCO","OPERAÇÃO","CONVÊNIO","USUÁRIO","CPF","CLIENTE","PROPOSTA","Nº CONTRATO","PRAZO","VR. BRUTO","VR. PARCELA","VR. LÍQUIDO","VR. REPASSE","TAXA","PRODUTO","SITUAÇÃO","SITUAÇÃO BANCO","OBS. SITUAÇÃO BANCO"],
+      ["2025-01-31","NEWS NEGOCIOS ADMINISTRATIVOS","QUALIBANKING","NOVO","INSS","Bruno Bortoli","015.566.609-60","ELIZABETH RODRIGUES","QUA0000556121","QUA0000556121",84,9205.32,217.79,7978.97,7978.97,1.80,"TOP PLUS - TX 1,80%","ESTORNADO","FINALIZADO",""],
+      ["2025-02-10","CENTRAL BANCARIA","PAN","REFINANCIAMENTO","INSS","Ana Lima","260.535.018-59","ANDREA CARDOSO","PAN0001234","PAN0001234",72,15000.00,280.50,13200.00,13200.00,1.75,"INSS REFIN","CONCRETIZADO","PAGO",""],
     ]);
     const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, "Propostas");
-    window.XLSX.writeFile(wb, "modelo_propostas.xlsx");
+    window.XLSX.utils.book_append_sheet(wb, ws, "Digitações");
+    window.XLSX.writeFile(wb, "modelo_digitacoes.xlsx");
   };
 
   if (!open) return null;
@@ -761,39 +844,38 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
                 </div>
               )}
               <div style={{ fontSize: 13, color: C.muted }}>
-                <strong style={{ color: C.accent2 }}>{preview.filter(p => p.title && p.partner).length}</strong> proposta(s) prontas para importar
-                {preview.filter(p => !p.title || !p.partner).length > 0 && (
-                  <span style={{ color: C.danger }}> · {preview.filter(p => !p.title || !p.partner).length} serão ignoradas (sem título ou parceiro)</span>
+                <strong style={{ color: C.accent2 }}>{preview.filter(p => p.date && p.partner).length}</strong> registro(s) prontos para importar
+                {preview.filter(p => !p.date || !p.partner).length > 0 && (
+                  <span style={{ color: C.danger }}> · {preview.filter(p => !p.date || !p.partner).length} serão ignorados (sem data ou agente)</span>
                 )}
               </div>
               <div style={{ overflowX: "auto", maxHeight: 320 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead style={{ position: "sticky", top: 0 }}>
                     <tr style={{ background: C.surface }}>
-                      {["", "Título", "Parceiro", "Valor", "Tipo", "Status", "Prioridade", "Prazo"].map(h => (
+                      {["", "Data", "Agente", "Banco", "Operação", "Cliente", "VR. Bruto", "Situação", "Sit. Banco"].map(h => (
                         <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, color: C.muted, fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {preview.map((p, i) => {
-                      const ok = p.title && p.partner;
+                      const ok = p.date && p.partner;
                       return (
                         <tr key={i} style={{ borderTop: `1px solid ${C.border}`, background: ok ? "transparent" : C.danger + "08" }}>
                           <td style={{ padding: "8px 12px" }}>
                             {ok ? <span style={{ color: C.accent2, fontSize: 14 }}>✓</span> : <span style={{ color: C.danger, fontSize: 14 }}>✕</span>}
                           </td>
-                          <td style={{ padding: "8px 12px", fontWeight: 500, color: ok ? C.text : C.danger }}>{p.title || "—"}</td>
-                          <td style={{ padding: "8px 12px" }}>
-                            {p._partnerMatched
-                              ? <span style={{ color: C.accent2 }}>{p._partnerMatched.name}</span>
-                              : <span style={{ color: C.danger }}>"{p._partnerRaw}" não encontrado</span>}
+                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.date||"—"}</td>
+                          <td style={{ padding: "8px 12px", fontWeight: 500, color: ok ? C.text : C.danger }}>
+                            {p._partnerMatched ? p._partnerMatched.name : <span style={{ color: C.danger }}>"{p._partnerRaw}" não encontrado</span>}
                           </td>
-                          <td style={{ padding: "8px 12px", color: C.accent2 }}>{fmtBRL(p.value)}</td>
-                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.type}</td>
-                          <td style={{ padding: "8px 12px" }}><Pill label={p.status} color={stageColor(p.status)} /></td>
-                          <td style={{ padding: "8px 12px" }}><Pill label={p.priority} color={PRIORITY_COLOR[p.priority]} /></td>
-                          <td style={{ padding: "8px 12px", color: C.muted }}>{fmtDate(p.dueDate)}</td>
+                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.banco||"—"}</td>
+                          <td style={{ padding: "8px 12px", color: C.muted }}>{p.operacao||"—"}</td>
+                          <td style={{ padding: "8px 12px" }}>{p.cliente||"—"}</td>
+                          <td style={{ padding: "8px 12px", color: C.accent2, fontWeight: 600 }}>{fmtBRL(p.value)}</td>
+                          <td style={{ padding: "8px 12px" }}><Pill label={p.situacao||"—"} color={SITUACAO_COLOR[p.situacao]??C.muted} /></td>
+                          <td style={{ padding: "8px 12px" }}><Pill label={p.situacaoBanco||"—"} color={SIT_BANCO_COLOR[p.situacaoBanco]??C.muted} /></td>
                         </tr>
                       );
                     })}
@@ -814,9 +896,8 @@ function ImportModal({ open, onClose, partners, onImport, currentUser }) {
             {step === 1 && <Btn variant="muted" onClick={() => fileRef.current?.click()}>Selecionar arquivo</Btn>}
             {step === 2 && <Btn onClick={buildPreview} variant={mapping.title && mapping.partner ? "primary" : "muted"}>Revisar →</Btn>}
             {step === 3 && (
-              <Btn onClick={handleImport} variant="success"
-                style={{ padding: "8px 24px" }}>
-                ✓ Importar {preview.filter(p => p.title && p.partner).length} proposta(s)
+              <Btn onClick={handleImport} variant="success" style={{ padding: "8px 24px" }}>
+                ✓ Importar {preview.filter(p => p.date && p.partner).length} registro(s)
               </Btn>
             )}
           </div>
@@ -1183,9 +1264,9 @@ function ExportModal({ open, onClose, ops, partners }) {
 
   const filtered = ops.filter(o =>
     (!filters.banco        || o.banco===filters.banco) &&
-    (!filters.operacao     || o.type===filters.operacao) &&
+    (!filters.operacao     || o.operacao===filters.operacao) &&
     (!filters.convenio     || o.convenio===filters.convenio) &&
-    (!filters.agente       || o.agente===filters.agente) &&
+    (!filters.situacao     || o.situacao===filters.situacao) &&
     (!filters.situacaoBanco|| o.situacaoBanco===filters.situacaoBanco) &&
     (!filters.parceiro     || o.partner===filters.parceiro) &&
     (!filters.dateFrom     || o.date>=filters.dateFrom) &&
@@ -1196,9 +1277,28 @@ function ExportModal({ open, onClose, ops, partners }) {
     if (!window.XLSX) { alert("Aguarde, carregando exportador..."); return; }
     const rows = filtered.map(o => {
       const p = partners.find(x=>x.id===o.partner);
-      return { "Data":o.date, "Parceiro":p?.name??"", "Banco":o.banco??"", "Operação":o.type??"",
-        "Convênio":o.convenio??"", "Agente":o.agente??"", "Valor (R$)":o.value,
-        "Sit. Banco":o.situacaoBanco??"", "Status":o.status, "Observações":o.notes??"" };
+      return {
+        "DATA":              o.date,
+        "AGENTE":            p?.name??"",
+        "BANCO":             o.banco??"",
+        "OPERAÇÃO":          o.operacao??"",
+        "CONVÊNIO":          o.convenio??"",
+        "USUÁRIO":           o.usuario??"",
+        "CPF":               o.cpf??"",
+        "CLIENTE":           o.cliente??"",
+        "PROPOSTA":          o.proposta??"",
+        "Nº CONTRATO":       o.contrato??"",
+        "PRAZO":             o.prazo??"",
+        "VR. BRUTO":         o.value,
+        "VR. PARCELA":       o.vrParcela??"",
+        "VR. LÍQUIDO":       o.vrLiquido??"",
+        "VR. REPASSE":       o.vrRepasse??"",
+        "TAXA":              o.taxa??"",
+        "PRODUTO":           o.produto??"",
+        "SITUAÇÃO":          o.situacao??"",
+        "SITUAÇÃO BANCO":    o.situacaoBanco??"",
+        "OBSERVAÇÕES":       o.notes??"",
+      };
     });
     const ws = window.XLSX.utils.json_to_sheet(rows);
     const wb = window.XLSX.utils.book_new();
@@ -1206,19 +1306,18 @@ function ExportModal({ open, onClose, ops, partners }) {
     window.XLSX.writeFile(wb, `digitacoes_${TODAY}.xlsx`);
   };
 
-  const clearAll = () => setFilters({ banco:"", operacao:"", convenio:"", agente:"", situacaoBanco:"", parceiro:"", dateFrom:"", dateTo:"" });
+  const clearAll = () => setFilters({ banco:"", operacao:"", convenio:"", situacao:"", situacaoBanco:"", parceiro:"", dateFrom:"", dateTo:"" });
 
   if (!open) return null;
   const selStyle = { background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:12, outline:"none", cursor:"pointer", width:"100%" };
-  const SITCOL = { "Aprovado":C.accent2, "Recusado":C.danger, "Pendente":C.warn, "Análise":C.accent };
 
   return (
     <div style={{ position:"fixed", inset:0, background:"#000000CC", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={onClose}>
-      <div className="fade-in" onClick={e=>e.stopPropagation()} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:18, width:640, maxWidth:"100%", maxHeight:"90vh", overflowY:"auto", display:"flex", flexDirection:"column" }}>
+      <div className="fade-in" onClick={e=>e.stopPropagation()} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:18, width:660, maxWidth:"100%", maxHeight:"90vh", overflowY:"auto", display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"20px 24px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <div>
             <h3 style={{ fontFamily:"Syne", fontWeight:700, fontSize:16 }}>Exportar Digitações</h3>
-            <p style={{ fontSize:12, color:C.muted, marginTop:3 }}>Filtre e exporte para Excel (.xlsx)</p>
+            <p style={{ fontSize:12, color:C.muted, marginTop:3 }}>Filtre e exporte no mesmo formato da planilha</p>
           </div>
           <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, fontSize:22, cursor:"pointer" }}>×</button>
         </div>
@@ -1227,29 +1326,28 @@ function ExportModal({ open, onClose, ops, partners }) {
           <div>
             <div style={{ fontSize:11, color:C.accent, fontWeight:700, marginBottom:8, letterSpacing:1 }}>PERÍODO</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <Input label="De"   type="date" value={filters.dateFrom} onChange={e=>setF("dateFrom",e.target.value)} />
-              <Input label="Até"  type="date" value={filters.dateTo}   onChange={e=>setF("dateTo",  e.target.value)} />
+              <Input label="De"  type="date" value={filters.dateFrom} onChange={e=>setF("dateFrom",e.target.value)} />
+              <Input label="Até" type="date" value={filters.dateTo}   onChange={e=>setF("dateTo",  e.target.value)} />
             </div>
           </div>
-
           <div>
             <div style={{ fontSize:11, color:C.accent, fontWeight:700, marginBottom:8, letterSpacing:1 }}>FILTROS</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
               {[
-                ["Parceiro",   "parceiro",       [{value:"",label:"Todos"}, ...partners.map(p=>({value:p.id,label:p.name}))]],
-                ["Banco",      "banco",           ["Todos",...allBancos]],
-                ["Operação",   "operacao",        ["Todas",...allOps]],
-                ["Convênio",   "convenio",        ["Todos",...allConvenios]],
-                ["Agente",     "agente",          ["Todos",...allAgentes]],
-                ["Sit. Banco", "situacaoBanco",   ["Todas",...allSituacoes]],
+                ["Agente (Parceiro)", "parceiro",      [{value:"",label:"Todos"}, ...partners.map(p=>({value:p.id,label:p.name}))]],
+                ["Banco",            "banco",          ["Todos",...BANCOS_LIST]],
+                ["Operação",         "operacao",       ["Todas",...OPERACOES_LIST]],
+                ["Convênio",         "convenio",       ["Todos",...CONVENIOS_LIST]],
+                ["Situação",         "situacao",       ["Todas",...SITUACOES_LIST]],
+                ["Situação Banco",   "situacaoBanco",  ["Todas",...SIT_BANCO_LIST]],
               ].map(([lbl,key,opts])=>(
                 <div key={key} style={{ display:"flex", flexDirection:"column", gap:4 }}>
                   <label style={{ fontSize:11, color:C.muted, fontWeight:500 }}>{lbl}</label>
                   <select value={filters[key]} style={selStyle}
-                    onChange={e=>setF(key, ["Todos","Todas"].includes(e.target.value)?"":e.target.value)}>
+                    onChange={e=>setF(key,["Todos","Todas"].includes(e.target.value)?"":e.target.value)}>
                     {opts.map(o=>typeof o==="object"
-                      ? <option key={o.value} value={o.value}>{o.label}</option>
-                      : <option key={o} value={["Todos","Todas"].includes(o)?"":o}>{o}</option>)}
+                      ?<option key={o.value} value={o.value}>{o.label}</option>
+                      :<option key={o} value={["Todos","Todas"].includes(o)?"":o}>{o}</option>)}
                   </select>
                 </div>
               ))}
@@ -1259,10 +1357,10 @@ function ExportModal({ open, onClose, ops, partners }) {
           <div style={{ background:C.surface, borderRadius:10, padding:"12px 16px", border:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
             <div>
               <span style={{ fontSize:13, fontWeight:600 }}>{filtered.length} registro(s)</span>
-              <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>Total: {fmtBRL(filtered.reduce((a,o)=>a+o.value,0))}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>VR. Bruto total: {fmtBRL(filtered.reduce((a,o)=>a+o.value,0))}</div>
             </div>
             <div style={{ display:"flex", gap:8 }}>
-              <Btn variant="ghost" onClick={clearAll}>Limpar filtros</Btn>
+              <Btn variant="ghost" onClick={clearAll}>Limpar</Btn>
               <Btn variant="success" onClick={doExport}>⬇ Exportar .xlsx</Btn>
             </div>
           </div>
@@ -1272,7 +1370,7 @@ function ExportModal({ open, onClose, ops, partners }) {
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
                 <thead>
                   <tr style={{ background:C.surface, position:"sticky", top:0 }}>
-                    {["Data","Parceiro","Banco","Operação","Convênio","Agente","Valor","Sit. Banco"].map(h=>(
+                    {["DATA","AGENTE","BANCO","OPERAÇÃO","CONVÊNIO","CLIENTE","PROPOSTA","VR. BRUTO","SITUAÇÃO","SIT. BANCO"].map(h=>(
                       <th key={h} style={{ padding:"7px 10px", textAlign:"left", color:C.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>
                     ))}
                   </tr>
@@ -1280,17 +1378,18 @@ function ExportModal({ open, onClose, ops, partners }) {
                 <tbody>
                   {filtered.slice(0,60).map(o=>{
                     const p=partners.find(x=>x.id===o.partner);
-                    const sc=SITCOL[o.situacaoBanco]??C.muted;
                     return (
                       <tr key={o.id} style={{ borderTop:`1px solid ${C.border}` }}>
                         <td style={{ padding:"6px 10px", whiteSpace:"nowrap" }}>{fmtDate(o.date)}</td>
-                        <td style={{ padding:"6px 10px" }}>{p?.name??"—"}</td>
+                        <td style={{ padding:"6px 10px", whiteSpace:"nowrap" }}>{p?.name??"—"}</td>
                         <td style={{ padding:"6px 10px", color:C.muted }}>{o.banco}</td>
-                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.type}</td>
+                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.operacao}</td>
                         <td style={{ padding:"6px 10px", color:C.muted }}>{o.convenio}</td>
-                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.agente}</td>
+                        <td style={{ padding:"6px 10px" }}>{o.cliente??"—"}</td>
+                        <td style={{ padding:"6px 10px", color:C.muted }}>{o.proposta??"—"}</td>
                         <td style={{ padding:"6px 10px", color:C.accent2, fontWeight:600 }}>{fmtBRL(o.value)}</td>
-                        <td style={{ padding:"6px 10px" }}><Pill label={o.situacaoBanco||"—"} color={sc}/></td>
+                        <td style={{ padding:"6px 10px" }}><Pill label={o.situacao||"—"} color={SITUACAO_COLOR[o.situacao]??C.muted}/></td>
+                        <td style={{ padding:"6px 10px" }}><Pill label={o.situacaoBanco||"—"} color={SIT_BANCO_COLOR[o.situacaoBanco]??C.muted}/></td>
                       </tr>
                     );
                   })}
@@ -1306,17 +1405,23 @@ function ExportModal({ open, onClose, ops, partners }) {
 
 // ── Operations ────────────────────────────────────────────────────────────────
 function Operations({ ops, setOps, partners }) {
-  const blank = { id:"", date:"", partner:"", type:"Consignado", banco:"", convenio:"", agente:"", situacaoBanco:"Pendente", value:"", status:"Em andamento", notes:"" };
-  const [modal, setModal]           = useState(null);
-  const [form, setForm]             = useState(blank);
-  const [search, setSearch]         = useState("");
-  const [filterStatus, setFilterStatus] = useState("Todos");
-  const [filterBanco, setFilterBanco]   = useState("");
-  const [exportOpen, setExportOpen]     = useState(false);
+  const blank = {
+    id:"", date:"", partner:"", banco:"", operacao:"NOVO", convenio:"INSS",
+    usuario:"", cpf:"", cliente:"", proposta:"", contrato:"",
+    prazo:"", value:"", vrParcela:"", vrLiquido:"", vrRepasse:"", taxa:"",
+    produto:"", situacao:"PROPOSTA CADASTRADA", situacaoBanco:"EM ANALISE", notes:""
+  };
+  const [modal, setModal]       = useState(null);
+  const [form, setForm]         = useState(blank);
+  const [search, setSearch]     = useState("");
+  const [filterSit, setFilterSit]   = useState("");
+  const [filterBanco, setFilterBanco] = useState("");
+  const [filterOp, setFilterOp]     = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
   const [sortField, setSortField]   = useState("date");
   const [sortDir, setSortDir]       = useState(-1);
 
-  const allBancos = [...new Set(ops.map(o=>o.banco).filter(Boolean))].sort();
+  const [importOpen, setImportOpen] = useState(false);
 
   const openNew  = () => { setForm({...blank, id:uid()}); setModal("new"); };
   const openEdit = (o) => { setForm({...o}); setModal(o.id); };
@@ -1324,54 +1429,71 @@ function Operations({ ops, setOps, partners }) {
 
   const handleSave = () => {
     if(!form.date||!form.partner||!form.value) return;
-    setOps(modal==="new" ? [...ops,{...form,value:Number(form.value)}]
-      : ops.map(o=>o.id===modal?{...form,value:Number(form.value)}:o));
+    const entry = {...form, value:Number(form.value), prazo:Number(form.prazo)||0,
+      vrParcela:Number(form.vrParcela)||0, vrLiquido:Number(form.vrLiquido)||0,
+      vrRepasse:Number(form.vrRepasse)||0, taxa:Number(form.taxa)||0 };
+    setOps(modal==="new" ? [...ops, entry] : ops.map(o=>o.id===modal?entry:o));
     setModal(null);
   };
 
   let filtered = ops.filter(o=>{
     const p=partners.find(x=>x.id===o.partner);
     const q=search.toLowerCase();
-    return (!q||p?.name.toLowerCase().includes(q)||(o.banco||"").toLowerCase().includes(q)||(o.agente||"").toLowerCase().includes(q)||(o.convenio||"").toLowerCase().includes(q))
-      &&(filterStatus==="Todos"||o.status===filterStatus)
-      &&(!filterBanco||o.banco===filterBanco);
+    return (!q || p?.name.toLowerCase().includes(q) || (o.banco||"").toLowerCase().includes(q)
+      || (o.cliente||"").toLowerCase().includes(q) || (o.proposta||"").toLowerCase().includes(q)
+      || (o.cpf||"").includes(q) || (o.usuario||"").toLowerCase().includes(q))
+      && (!filterSit   || o.situacao===filterSit)
+      && (!filterBanco || o.banco===filterBanco)
+      && (!filterOp    || o.operacao===filterOp);
   });
   filtered=[...filtered].sort((a,b)=>sortField==="value"?sortDir*(a.value-b.value):sortDir*a.date.localeCompare(b.date));
 
-  const SITCOL = { "Aprovado":C.accent2, "Recusado":C.danger, "Pendente":C.warn, "Análise":C.accent };
+  const allBancosUsed = [...new Set(ops.map(o=>o.banco).filter(Boolean))].sort();
 
   return (
     <div className="fade-in" style={{ display:"flex", flexDirection:"column", gap:16 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:10 }}>
         <div>
-          <h2 style={{ fontFamily:"Syne", fontSize:20, fontWeight:700 }}>Operações</h2>
-          <p style={{ color:C.muted, fontSize:13 }}>{ops.length} digitações registradas</p>
+          <h2 style={{ fontFamily:"Syne", fontSize:20, fontWeight:700 }}>Digitações</h2>
+          <p style={{ color:C.muted, fontSize:13 }}>{ops.length} registros · VR. Bruto: <strong style={{color:C.accent2}}>{fmtBRL(ops.reduce((a,o)=>a+o.value,0))}</strong></p>
         </div>
         <div style={{ display:"flex", gap:8 }}>
+          <Btn variant="ghost" onClick={()=>setImportOpen(true)}>⬆ Importar</Btn>
           <Btn variant="ghost" onClick={()=>setExportOpen(true)}>⬇ Exportar</Btn>
           <Btn onClick={openNew}>+ Nova Digitação</Btn>
         </div>
       </div>
 
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Parceiro, banco, agente, convênio..."
-          style={{ flex:1, minWidth:220, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none" }}/>
-        <select value={filterBanco} onChange={e=>setFilterBanco(e.target.value)}
-          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:filterBanco?C.text:C.muted, padding:"8px 12px", fontSize:12, outline:"none", cursor:"pointer" }}>
-          <option value="">Todos os bancos</option>
-          {allBancos.map(b=><option key={b} value={b}>{b}</option>)}
-        </select>
-        {["Todos","Concluída","Em andamento","Cancelada"].map(s=>(
-          <button key={s} onClick={()=>setFilterStatus(s)} style={{ padding:"8px 13px", borderRadius:8, fontSize:12, cursor:"pointer", fontWeight:600, border:`1px solid ${filterStatus===s?C.accent:C.border}`, background:filterStatus===s?C.accent+"22":"transparent", color:filterStatus===s?C.accent:C.muted }}>{s}</button>
+      {/* Filtros */}
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="🔍 Parceiro, cliente, CPF, proposta, usuário..."
+          style={{ flex:1, minWidth:240, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 12px", fontSize:13, outline:"none" }}/>
+        {[
+          [allBancosUsed, filterBanco, setFilterBanco, "Banco"],
+          [OPERACOES_LIST, filterOp, setFilterOp, "Operação"],
+        ].map(([opts, val, setter, placeholder])=>(
+          <select key={placeholder} value={val} onChange={e=>setter(e.target.value)}
+            style={{ background:C.surface, border:`1px solid ${val?C.accent:C.border}`, borderRadius:8, color:val?C.text:C.muted, padding:"8px 12px", fontSize:12, outline:"none", cursor:"pointer" }}>
+            <option value="">{placeholder}: Todos</option>
+            {opts.map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
         ))}
+        <select value={filterSit} onChange={e=>setFilterSit(e.target.value)}
+          style={{ background:C.surface, border:`1px solid ${filterSit?C.accent:C.border}`, borderRadius:8, color:filterSit?C.text:C.muted, padding:"8px 12px", fontSize:12, outline:"none", cursor:"pointer" }}>
+          <option value="">Situação: Todas</option>
+          {SITUACOES_LIST.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+        {(filterBanco||filterOp||filterSit||search) &&
+          <Btn variant="ghost" onClick={()=>{setSearch("");setFilterBanco("");setFilterOp("");setFilterSit("");}}>✕ Limpar</Btn>}
       </div>
 
       <Card style={{ padding:0, overflow:"hidden" }}>
         <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:900 }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:1000 }}>
             <thead>
               <tr style={{ background:C.surface }}>
-                {[["date","Data"],["","Parceiro"],["","Banco"],["","Operação"],["","Convênio"],["","Agente"],["value","Valor"],["","Sit. Banco"],["","Status"],["",""]].map(([f,h])=>(
+                {[["date","DATA"],["","AGENTE"],["","BANCO"],["","OPERAÇÃO"],["","CONVÊNIO"],["","CLIENTE"],["","PROPOSTA"],["value","VR. BRUTO"],["","PRAZO"],["","SITUAÇÃO"],["","SIT. BANCO"],["",""]].map(([f,h])=>(
                   <th key={h} onClick={()=>f&&handleSort(f)} style={{ textAlign:"left", padding:"11px 12px", fontSize:11, color:C.muted, fontWeight:600, cursor:f?"pointer":"default", whiteSpace:"nowrap" }}>
                     {h}{f&&sortField===f?(sortDir===-1?" ↓":" ↑"):""}
                   </th>
@@ -1379,24 +1501,25 @@ function Operations({ ops, setOps, partners }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.length===0&&<tr><td colSpan={10} style={{ padding:32, textAlign:"center", color:C.muted }}>Nenhuma digitação encontrada</td></tr>}
+              {filtered.length===0 && <tr><td colSpan={12} style={{ padding:32, textAlign:"center", color:C.muted }}>Nenhuma digitação encontrada</td></tr>}
               {filtered.map(o=>{
                 const p=partners.find(x=>x.id===o.partner);
-                const sc=SITCOL[o.situacaoBanco]??C.muted;
                 return (
                   <tr key={o.id} style={{ borderTop:`1px solid ${C.border}`, cursor:"pointer" }}
                     onMouseEnter={e=>e.currentTarget.style.background=C.surface}
                     onMouseLeave={e=>e.currentTarget.style.background="transparent"}
                     onClick={()=>openEdit(o)}>
                     <td style={{ padding:"10px 12px", whiteSpace:"nowrap" }}>{fmtDate(o.date)}</td>
-                    <td style={{ padding:"0 12px" }}><div style={{ fontWeight:500 }}>{p?.name??"—"}</div><div style={{ fontSize:10, color:C.muted }}>{p?.segment}</div></td>
-                    <td style={{ padding:"0 12px", color:C.muted }}>{o.banco||"—"}</td>
-                    <td style={{ padding:"0 12px", color:C.muted }}>{o.type}</td>
+                    <td style={{ padding:"0 12px" }}><div style={{ fontWeight:500 }}>{p?.name??"—"}</div><div style={{ fontSize:10, color:C.muted }}>{o.usuario}</div></td>
+                    <td style={{ padding:"0 12px", color:C.muted, whiteSpace:"nowrap" }}>{o.banco||"—"}</td>
+                    <td style={{ padding:"0 12px", color:C.muted, whiteSpace:"nowrap" }}>{o.operacao||"—"}</td>
                     <td style={{ padding:"0 12px", color:C.muted }}>{o.convenio||"—"}</td>
-                    <td style={{ padding:"0 12px", color:C.muted }}>{o.agente||"—"}</td>
-                    <td style={{ padding:"0 12px", color:C.accent2, fontWeight:600 }}>{fmtBRL(o.value)}</td>
-                    <td style={{ padding:"0 12px" }}><Pill label={o.situacaoBanco||"—"} color={sc}/></td>
-                    <td style={{ padding:"0 12px" }}><Pill label={o.status} color={STATUS_COLOR[o.status]??C.muted}/></td>
+                    <td style={{ padding:"0 12px" }}><div style={{ fontSize:12 }}>{o.cliente||"—"}</div><div style={{ fontSize:10, color:C.muted }}>{o.cpf}</div></td>
+                    <td style={{ padding:"0 12px", color:C.muted, whiteSpace:"nowrap" }}>{o.proposta||"—"}</td>
+                    <td style={{ padding:"0 12px", color:C.accent2, fontWeight:600, whiteSpace:"nowrap" }}>{fmtBRL(o.value)}</td>
+                    <td style={{ padding:"0 12px", color:C.muted }}>{o.prazo?`${o.prazo}x`:"—"}</td>
+                    <td style={{ padding:"0 12px", whiteSpace:"nowrap" }}><Pill label={o.situacao||"—"} color={SITUACAO_COLOR[o.situacao]??C.muted}/></td>
+                    <td style={{ padding:"0 12px", whiteSpace:"nowrap" }}><Pill label={o.situacaoBanco||"—"} color={SIT_BANCO_COLOR[o.situacaoBanco]??C.muted}/></td>
                     <td style={{ padding:"0 12px", color:C.muted, fontSize:16 }}>›</td>
                   </tr>
                 );
@@ -1406,34 +1529,56 @@ function Operations({ ops, setOps, partners }) {
         </div>
       </Card>
 
-      <Modal open={!!modal} onClose={()=>setModal(null)} title={modal==="new"?"Nova Digitação":"Editar Digitação"} width={560}>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-          <Input label="Data *"      type="date"   value={form.date}      onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
-          <Sel   label="Parceiro *"               value={form.partner}   onChange={e=>setForm(f=>({...f,partner:e.target.value}))}
+      {/* Form Modal */}
+      <Modal open={!!modal} onClose={()=>setModal(null)} title={modal==="new"?"Nova Digitação":"Editar Digitação"} width={620}>
+        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>IDENTIFICAÇÃO</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
+          <Input label="Data *"    type="date"   value={form.date}      onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
+          <Sel   label="Agente (Parceiro) *"     value={form.partner}   onChange={e=>setForm(f=>({...f,partner:e.target.value}))}
             options={[{value:"",label:"Selecione..."},...partners.map(p=>({value:p.id,label:p.name}))]} />
-          <Input label="Banco"                    value={form.banco||""} onChange={e=>setForm(f=>({...f,banco:e.target.value}))}   placeholder="Itaú, Bradesco, Caixa..." />
-          <Sel   label="Operação"                 value={form.type}      onChange={e=>setForm(f=>({...f,type:e.target.value}))}
-            options={["Consignado","Crédito Pessoal","Refinanciamento","FGTS","Cartão Consignado","Portabilidade","Outro"]} />
-          <Input label="Convênio"                 value={form.convenio||""} onChange={e=>setForm(f=>({...f,convenio:e.target.value}))} placeholder="INSS, Prefeitura..." />
-          <Input label="Agente"                   value={form.agente||""}   onChange={e=>setForm(f=>({...f,agente:e.target.value}))}   placeholder="Nome do agente" />
-          <Input label="Valor (R$) *" type="number" value={form.value}    onChange={e=>setForm(f=>({...f,value:e.target.value}))}   placeholder="0.00" />
-          <Sel   label="Sit. Banco"               value={form.situacaoBanco||"Pendente"} onChange={e=>setForm(f=>({...f,situacaoBanco:e.target.value}))}
-            options={["Pendente","Análise","Aprovado","Recusado"]} />
-          <Sel   label="Status"                   value={form.status}    onChange={e=>setForm(f=>({...f,status:e.target.value}))}
-            options={["Em andamento","Concluída","Cancelada"]} />
+          <Input label="Usuário"                 value={form.usuario||""} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))} placeholder="Digitador" />
+        </div>
+        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>CLIENTE</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+          <Input label="CPF"      value={form.cpf||""}     onChange={e=>setForm(f=>({...f,cpf:e.target.value}))}     placeholder="000.000.000-00" />
+          <Input label="Cliente"  value={form.cliente||""} onChange={e=>setForm(f=>({...f,cliente:e.target.value}))} placeholder="Nome completo" />
+          <Input label="Proposta" value={form.proposta||""}onChange={e=>setForm(f=>({...f,proposta:e.target.value}))}placeholder="Nº da proposta" />
+          <Input label="Nº Contrato" value={form.contrato||""}onChange={e=>setForm(f=>({...f,contrato:e.target.value}))}placeholder="Nº do contrato" />
+        </div>
+        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>PRODUTO</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
+          <Sel label="Banco *"    value={form.banco||""}   onChange={e=>setForm(f=>({...f,banco:e.target.value}))}   options={["Selecione...",...BANCOS_LIST]} />
+          <Sel label="Operação"   value={form.operacao||""}onChange={e=>setForm(f=>({...f,operacao:e.target.value}))}options={OPERACOES_LIST} />
+          <Sel label="Convênio"   value={form.convenio||""}onChange={e=>setForm(f=>({...f,convenio:e.target.value}))}options={CONVENIOS_LIST} />
+          <Input label="Produto"  value={form.produto||""} onChange={e=>setForm(f=>({...f,produto:e.target.value}))} placeholder="Descrição do produto" style={{gridColumn:"1 / -1"}} />
+        </div>
+        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>VALORES</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
+          <Input label="VR. Bruto *" type="number" value={form.value}         onChange={e=>setForm(f=>({...f,value:e.target.value}))}      placeholder="0.00" />
+          <Input label="VR. Parcela" type="number" value={form.vrParcela||""} onChange={e=>setForm(f=>({...f,vrParcela:e.target.value}))}  placeholder="0.00" />
+          <Input label="Prazo (meses)"type="number"value={form.prazo||""}     onChange={e=>setForm(f=>({...f,prazo:e.target.value}))}      placeholder="84" />
+          <Input label="VR. Líquido" type="number" value={form.vrLiquido||""} onChange={e=>setForm(f=>({...f,vrLiquido:e.target.value}))}  placeholder="0.00" />
+          <Input label="VR. Repasse" type="number" value={form.vrRepasse||""} onChange={e=>setForm(f=>({...f,vrRepasse:e.target.value}))}  placeholder="0.00" />
+          <Input label="Taxa (%)"    type="number" value={form.taxa||""}      onChange={e=>setForm(f=>({...f,taxa:e.target.value}))}       placeholder="1.80" />
+        </div>
+        <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1, marginBottom:8 }}>SITUAÇÃO</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+          <Sel label="Situação"       value={form.situacao||"PROPOSTA CADASTRADA"} onChange={e=>setForm(f=>({...f,situacao:e.target.value}))}       options={SITUACOES_LIST} />
+          <Sel label="Situação Banco" value={form.situacaoBanco||"EM ANALISE"}     onChange={e=>setForm(f=>({...f,situacaoBanco:e.target.value}))}   options={SIT_BANCO_LIST} />
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
           <label style={{ fontSize:12, color:C.muted, fontWeight:500 }}>Observações</label>
           <textarea value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2}
             style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"9px 12px", fontSize:13, outline:"none", resize:"vertical", fontFamily:"DM Sans" }}/>
         </div>
-        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:4 }}>
           {modal!=="new"&&<Btn variant="danger" onClick={()=>{setOps(ops.filter(o=>o.id!==modal));setModal(null);}}>Excluir</Btn>}
           <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
           <Btn onClick={handleSave}>Salvar</Btn>
         </div>
       </Modal>
 
+      <ImportModal open={importOpen} onClose={()=>setImportOpen(false)} partners={partners} onImport={(rows)=>setOps(prev=>[...prev,...rows])} currentUser="admin" />
       <ExportModal open={exportOpen} onClose={()=>setExportOpen(false)} ops={ops} partners={partners}/>
     </div>
   );
@@ -1630,7 +1775,7 @@ function Analise({ ops, partners }) {
   const prevMonth = curMonth === 0 ? 11 : curMonth - 1;
   const prevYear  = curMonth === 0 ? curYear - 1 : curYear;
 
-  // ops this month vs last month per partner
+  const CONCRETIZADOS = ["CONCRETIZADO","PAGO","PAGO AO CLIENTE","PAGAMENTO REALIZADO","FINALIZADO","INT - FINALIZADO","INT - TED EMITIDA"];
   const partnerStats = partners.map(p => {
     const pOps    = ops.filter(o => o.partner === p.id);
     const thisMo  = pOps.filter(o => { const d=new Date(o.date); return d.getFullYear()===curYear  && d.getMonth()===curMonth; });
@@ -1638,8 +1783,9 @@ function Analise({ ops, partners }) {
     const thisVal = thisMo.reduce((a,o)=>a+o.value,0);
     const prevVal = prevMo.reduce((a,o)=>a+o.value,0);
     const delta   = prevVal>0 ? ((thisVal-prevVal)/prevVal*100) : (thisVal>0?100:-100);
-    const lastDate= pOps.length>0?pOps.sort((a,b)=>b.date.localeCompare(a.date))[0].date:null;
+    const lastDate= pOps.length>0?[...pOps].sort((a,b)=>b.date.localeCompare(a.date))[0].date:null;
     const daysSinceLast = lastDate ? Math.floor((now - new Date(lastDate+"T12:00:00"))/(1000*60*60*24)) : 999;
+    const concret = thisMo.filter(o=>CONCRETIZADOS.includes(o.situacaoBanco)).length;
 
     let alert="ok";
     if(thisMo.length===0 && prevMo.length>0)       alert="zero";
@@ -1647,7 +1793,7 @@ function Analise({ ops, partners }) {
     else if(delta<=-30)                             alert="queda";
     else if(delta<0)                                alert="baixo";
 
-    return { ...p, thisMo, prevMo, thisVal, prevVal, delta, lastDate, daysSinceLast, alert, totalOps:pOps.length };
+    return { ...p, thisMo, prevMo, thisVal, prevVal, delta, lastDate, daysSinceLast, alert, totalOps:pOps.length, concret };
   });
 
   const alerts       = partnerStats.filter(p=>["zero","never","queda"].includes(p.alert));
@@ -1743,7 +1889,7 @@ function Analise({ ops, partners }) {
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
             <thead>
               <tr style={{ background:C.surface }}>
-                {["Parceiro","Digitações (mês)","Valor (mês)","Mês anterior","Variação","Última digitação","Tendência"].map(h=>(
+                {["Parceiro","Digitações (mês)","VR. Bruto (mês)","Mês anterior","Variação","Concretizados","Última digitação","Tendência"].map(h=>(
                   <th key={h} style={{ textAlign:"left", padding:"10px 16px", fontSize:11, color:C.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -1771,9 +1917,14 @@ function Analise({ ops, partners }) {
                     <td style={{ padding:"0 16px" }}>
                       {p.prevVal>0||p.thisVal>0 ? (
                         <span style={{ fontWeight:700, color:p.delta>0?C.accent2:p.delta<-30?C.danger:C.warn }}>
-                          {dSign}{p.delta.toFixed(0)}%
+                          {p.delta>0?"+":""}{p.delta.toFixed(0)}%
                         </span>
                       ) : <span style={{ color:C.muted }}>—</span>}
+                    </td>
+                    <td style={{ padding:"0 16px" }}>
+                      <span style={{ fontWeight:600, color:p.concret>0?C.accent2:C.muted }}>
+                        {p.concret} / {p.thisMo.length}
+                      </span>
                     </td>
                     <td style={{ padding:"0 16px", color:p.daysSinceLast>14?C.danger:C.muted, fontSize:12 }}>
                       {p.lastDate?`${fmtDate(p.lastDate)} (${p.daysSinceLast}d atrás)`:"Nunca"}
