@@ -237,23 +237,106 @@ function Portabilidade({ops}){const per=usePeriod();const f=per.filterOps(ops);c
     {port.length===0?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:"center",color:C.muted}}>Nenhuma PORTABILIDADE no período</div>:<><div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><TB data={bB} nl="Banco"/></div><div style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><TB data={bA} nl="Parceiro"/></div></>}
   </div>);}
 
-/* BANCOS – new view */
-function Bancos({ops}){const per=usePeriod();const f=per.filterOps(ops);
-  const data=useMemo(()=>{const m={};f.forEach(o=>{const b=o.banco||"SEM BANCO";if(!m[b])m[b]={c:0,r:0,br:0,fc:0,fr:0,ops:{}};m[b].c++;m[b].r+=(o.vrRepasse||0);m[b].br+=(o.vrBruto||0);if(isFinal(o)){m[b].fc++;m[b].fr+=(o.vrRepasse||0);}const op=o.operacao||"?";if(!m[b].ops[op])m[b].ops[op]={c:0,r:0};m[b].ops[op].c++;m[b].ops[op].r+=(o.vrRepasse||0);});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r);},[f]);
-  return(<div style={{display:"flex",flexDirection:"column",gap:14}}><h2 style={{fontFamily:"Outfit",fontWeight:800,fontSize:20}}>Bancos</h2><PeriodBar p={per}/>
-    {data.length===0?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:"center",color:C.muted}}>Sem dados</div>:
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>{data.map(([b,d])=>{const cv=d.c?(d.fc/d.c*100):0;const ops=Object.entries(d.ops).sort((a,b)=>b[1].r-a[1].r);return(<div key={b} style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><span style={{fontSize:14,fontWeight:700}}>{b}</span><span style={{fontSize:10,color:C.muted}}>{d.c} dig</span></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-        <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Repasse</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(d.r)}</div></div>
-        <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Pago</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(d.fr)}</div></div>
-        <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Bruto</div><div style={{fontSize:12,fontWeight:600,color:C.info}}>{fmtCur(d.br)}</div></div>
-        <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Conv.</div><div style={{fontSize:12,fontWeight:700,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</div></div>
-      </div>
-      <div style={{fontSize:10,fontWeight:600,marginBottom:6}}>Operações</div>
-      {ops.map(([op,od])=>(<div key={op} style={{display:"flex",justifyContent:"space-between",fontSize:10,padding:"2px 0"}}><span style={{color:C.muted}}>{op}</span><span>{od.c} · {fmtCur(od.r)}</span></div>))}
-    </div>);})}</div>}
-  </div>);}
+/* PRODUÇÃO – por Banco, Convênio, Operação */
+function Producao({ops}){const per=usePeriod();const f=per.filterOps(ops);const[tab,setTab]=useState("banco");
+  const totalR=f.reduce((s,o)=>s+(o.vrRepasse||0),0);const totalB=f.reduce((s,o)=>s+(o.vrBruto||0),0);const totalFin=f.filter(isFinal);const totalFR=totalFin.reduce((s,o)=>s+(o.vrRepasse||0),0);
+
+  const buildData=(keyFn)=>{const m={};f.forEach(o=>{const k=keyFn(o)||"SEM INFO";if(!m[k])m[k]={c:0,r:0,br:0,fc:0,fr:0,subs:{},parceiros:{}};m[k].c++;m[k].r+=(o.vrRepasse||0);m[k].br+=(o.vrBruto||0);if(isFinal(o)){m[k].fc++;m[k].fr+=(o.vrRepasse||0);}
+    // sub-breakdown depends on tab
+    const sub=tab==="banco"?o.operacao||"?":tab==="convenio"?o.operacao||"?":o.banco||"?";
+    if(!m[k].subs[sub])m[k].subs[sub]={c:0,r:0,fc:0};m[k].subs[sub].c++;m[k].subs[sub].r+=(o.vrRepasse||0);if(isFinal(o))m[k].subs[sub].fc++;
+    // top parceiros
+    const ag=o.agente||"?";if(!m[k].parceiros[ag])m[k].parceiros[ag]={c:0,r:0,fc:0};m[k].parceiros[ag].c++;m[k].parceiros[ag].r+=(o.vrRepasse||0);if(isFinal(o))m[k].parceiros[ag].fc++;
+  });return Object.entries(m).sort((a,b)=>b[1].r-a[1].r);};
+
+  const data=useMemo(()=>{
+    if(tab==="banco")return buildData(o=>o.banco);
+    if(tab==="convenio")return buildData(o=>o.convenio);
+    return buildData(o=>o.operacao);
+  },[f,tab]);
+
+  const subLabel=tab==="banco"?"Operações":tab==="convenio"?"Operações":"Bancos";
+  const tabs=[{id:"banco",label:"Por Banco",icon:"🏦"},{id:"convenio",label:"Por Convênio",icon:"📑"},{id:"operacao",label:"Por Operação",icon:"⚡"}];
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <h2 style={{fontFamily:"Outfit",fontWeight:800,fontSize:20}}>Produção</h2>
+    <PeriodBar p={per}/>
+
+    {/* Tabs */}
+    <div style={{display:"flex",gap:4}}>{tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"7px 16px",borderRadius:8,border:"1px solid "+(tab===t.id?C.accent:C.border),background:tab===t.id?C.accentBg:"transparent",color:tab===t.id?C.accent:C.muted,fontSize:12,fontWeight:tab===t.id?600:400,cursor:"pointer",fontFamily:"Outfit",display:"flex",alignItems:"center",gap:5}}><span>{t.icon}</span>{t.label}</button>))}</div>
+
+    {/* Summary */}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <Stat label="Repasse Total" value={fmtCur(totalR)} color={C.accent}/>
+      <Stat label="Pago" value={fmtCur(totalFR)} color={C.accent2} sub={totalFin.length+" ops"}/>
+      <Stat label="Bruto" value={fmtCur(totalB)} color={C.info}/>
+      <Stat label="Digitações" value={f.length}/>
+      <Stat label={tab==="banco"?"Bancos":tab==="convenio"?"Convênios":"Operações"} value={data.length}/>
+    </div>
+
+    {/* Ranking table */}
+    <div style={{overflowX:"auto",borderRadius:10,border:"1px solid "+C.border}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}><thead><tr style={{background:C.surface}}>
+        {[tab==="banco"?"Banco":tab==="convenio"?"Convênio":"Operação","Dig.","Repasse","%","Pago","Conv.","Bruto","Top Parceiro"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:600,color:C.muted,fontSize:8,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}
+      </tr></thead><tbody>{data.map(([name,d])=>{
+        const pct=totalR?(d.r/totalR*100):0;const cv=d.c?(d.fc/d.c*100):0;
+        const topP=Object.entries(d.parceiros).sort((a,b)=>b[1].r-a[1].r)[0];
+        return(<tr key={name} style={{borderBottom:"1px solid "+C.border}}>
+          <td style={{padding:"8px 10px",fontWeight:700}}>{name}</td>
+          <td style={{padding:"8px 10px"}}>{d.c}</td>
+          <td style={{padding:"8px 10px",fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td>
+          <td style={{padding:"8px 10px"}}><div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:40,height:5,background:C.surface,borderRadius:2}}><div style={{height:"100%",background:C.accent,borderRadius:2,width:pct+"%"}}/></div><span style={{fontSize:9,color:C.muted}}>{pct.toFixed(1)}%</span></div></td>
+          <td style={{padding:"8px 10px",color:C.accent2,fontWeight:600}}>{fmtCur(d.fr)}</td>
+          <td style={{padding:"8px 10px"}}><span style={{fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</span></td>
+          <td style={{padding:"8px 10px"}}>{fmtCur(d.br)}</td>
+          <td style={{padding:"8px 10px",fontSize:10}}>{topP?<span>{topP[0]} <span style={{color:C.muted}}>({topP[1].c})</span></span>:"—"}</td>
+        </tr>);
+      })}</tbody></table>
+      {data.length===0&&<div style={{padding:24,textAlign:"center",color:C.muted}}>Sem dados no período</div>}
+    </div>
+
+    {/* Detail cards */}
+    {data.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12}}>
+      {data.slice(0,12).map(([name,d])=>{
+        const cv=d.c?(d.fc/d.c*100):0;
+        const subs=Object.entries(d.subs).sort((a,b)=>b[1].r-a[1].r);
+        const tops=Object.entries(d.parceiros).sort((a,b)=>b[1].r-a[1].r).slice(0,5);
+        return(<div key={name} style={{background:C.card,border:"1px solid "+C.border,borderRadius:14,padding:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{fontSize:14,fontWeight:700}}>{name}</span>
+            <span style={{fontSize:10,color:C.muted}}>{d.c} dig</span>
+          </div>
+
+          {/* Metrics */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Repasse</div><div style={{fontSize:13,fontWeight:700,color:C.accent}}>{fmtCur(d.r)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Pago</div><div style={{fontSize:13,fontWeight:700,color:C.accent2}}>{fmtCur(d.fr)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Conv.</div><div style={{fontSize:13,fontWeight:700,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</div></div>
+          </div>
+
+          {/* Sub breakdown */}
+          <div style={{fontSize:10,fontWeight:600,marginBottom:4,color:C.muted}}>{subLabel}</div>
+          {subs.slice(0,5).map(([sub,sd])=>{const sr=d.r?(sd.r/d.r*100):0;return(<div key={sub} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0"}}>
+            <span style={{fontSize:10,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</span>
+            <div style={{width:40,height:4,background:C.surface,borderRadius:2,flexShrink:0}}><div style={{height:"100%",background:C.info,borderRadius:2,width:sr+"%"}}/></div>
+            <span style={{fontSize:9,color:C.muted,minWidth:28,textAlign:"right"}}>{sd.c}</span>
+            <span style={{fontSize:9,fontWeight:600,minWidth:65,textAlign:"right"}}>{fmtCur(sd.r)}</span>
+          </div>);})}
+
+          {/* Top parceiros */}
+          {tops.length>0&&<><div style={{fontSize:10,fontWeight:600,marginBottom:4,marginTop:8,color:C.muted}}>Top Parceiros</div>
+          {tops.map(([ag,ad],i)=>{const acv=ad.c?(ad.fc/ad.c*100):0;return(<div key={ag} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0"}}>
+            <span style={{fontSize:9,color:i<3?C.accent:C.muted,fontWeight:700,width:12}}>{i+1}</span>
+            <span style={{fontSize:10,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ag}</span>
+            <span style={{fontSize:9,color:acv>=50?C.accent2:acv>=30?C.warn:C.danger,fontWeight:600}}>{acv.toFixed(0)}%</span>
+            <span style={{fontSize:9,fontWeight:600,minWidth:60,textAlign:"right"}}>{fmtCur(ad.r)}</span>
+          </div>);})}
+          </>}
+        </div>);
+      })}
+    </div>}
+  </div>);
+}
 
 /* ANÁLISE */
 function Analise({ops}){const per=usePeriod();const f=per.filterOps(ops);const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];const cM=NOW.toISOString().slice(0,7);const pM=new Date(NOW.getFullYear(),NOW.getMonth()-1,1).toISOString().slice(0,7);
@@ -269,7 +352,7 @@ function Analise({ops}){const per=usePeriod();const f=per.filterOps(ops);const a
   </div>);}
 
 /* MAIN */
-const NAV=[{id:"dashboard",l:"Dashboard",i:"📊"},{id:"ops",l:"Operações",i:"💼"},{id:"kanban",l:"Kanban",i:"📋"},{id:"cadastros",l:"Cadastros",i:"📁"},{id:"parceiros",l:"Estratégico",i:"🤝"},{id:"bancos",l:"Bancos",i:"🏦"},{id:"portabilidade",l:"Portabilidade",i:"🔄"},{id:"analise",l:"Análise",i:"📈"}];
+const NAV=[{id:"dashboard",l:"Dashboard",i:"📊"},{id:"ops",l:"Operações",i:"💼"},{id:"kanban",l:"Kanban",i:"📋"},{id:"cadastros",l:"Cadastros",i:"📁"},{id:"parceiros",l:"Estratégico",i:"🤝"},{id:"producao",l:"Produção",i:"🏦"},{id:"portabilidade",l:"Portabilidade",i:"🔄"},{id:"analise",l:"Análise",i:"📈"}];
 
 export default function App(){
   const[user,setUser]=useState(null);const[view,setView]=useState("dashboard");const[ops,setOpsR]=useState([]);const[cad,setCadR]=useState([]);const[loaded,setLoaded]=useState(false);
@@ -292,7 +375,7 @@ export default function App(){
         {view==="kanban"&&<Kanban ops={ops} setOps={setOps}/>}
         {view==="cadastros"&&<Cadastros ops={ops} cad={cad} setCad={setCad}/>}
         {view==="parceiros"&&<Parceiros ops={ops} cad={cad}/>}
-        {view==="bancos"&&<Bancos ops={ops}/>}
+        {view==="producao"&&<Producao ops={ops}/>}
         {view==="portabilidade"&&<Portabilidade ops={ops}/>}
         {view==="analise"&&<Analise ops={ops}/>}
       </div>
