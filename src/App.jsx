@@ -1,635 +1,288 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from './supabase'
 import * as XLSX from 'xlsx'
 
-/* ═══════════════════════════════════════════════════════════════════
-   OpsManager — Vercel + Supabase Edition
-   ═══════════════════════════════════════════════════════════════════ */
+const C={bg:'#0A0E17',surface:'#0F1520',card:'#141B2B',border:'#1C2538',text:'#DAE0ED',muted:'#5B6B85',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#38BDF8',abg:'#3B82F622'}
+const NOW=new Date(),TODAY=NOW.toISOString().split('T')[0],CUR_M=NOW.toISOString().slice(0,7),PREV_M=new Date(NOW.getFullYear(),NOW.getMonth()-1,1).toISOString().slice(0,7)
+const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+const fmtDate=d=>{if(!d)return'—';const p=String(d).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d}
+const isFin=o=>['FINALIZADO','PAGO','AVERBADO','CONCRETIZADO','PAGO C/ PENDENCIA','PAGO C/ PENDÊNCIA','FINALIZADO / PAGO','PAGO AO CLIENTE','PAGO - CRÉDITO ENVIADO'].includes((o.situacaoBanco||'').toUpperCase())
+const isEstorno=o=>['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA','CANCELADO PELO CLIENTE'].includes((o.situacao||'').toUpperCase())
+const sitCol=s=>{s=(s||'').toUpperCase();if(['FINALIZADO','PAGO','AVERBADO','APROVADO','CONCRETIZADO','PAGO C/ PENDENCIA','PAGO C/ PENDÊNCIA','FINALIZADO / PAGO','PAGO AO CLIENTE'].includes(s))return C.accent2;if(['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA'].includes(s))return C.danger;if(['EM ANÁLISE','PENDENTE','PENDÊNCIA','ANALISE BANCO'].includes(s))return C.warn;return C.info}
+function nDate(v){if(!v)return'';if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400*1000));return!isNaN(d.getTime())?d.toISOString().split('T')[0]:'';}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;return''}
+function pNum(v){if(v==null||v==='')return 0;if(typeof v==='number')return v;return parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.'))||0}
+function fromDb(r){return{id:r.id,id_ext:r.id_ext||'',banco:r.banco||'',cpf:r.cpf||'',cliente:r.cliente||'',proposta:r.proposta||'',contrato:r.contrato||'',data:r.data||'',prazo:r.prazo||'',vrBruto:Number(r.vr_bruto)||0,vrParcela:Number(r.vr_parcela)||0,vrLiquido:Number(r.vr_liquido)||0,vrRepasse:Number(r.vr_repasse)||0,vrSeguro:Number(r.vr_seguro)||0,taxa:r.taxa||'',operacao:r.operacao||'',situacao:r.situacao||'',produto:r.produto||'',convenio:r.convenio||'',agente:r.agente||'',situacaoBanco:r.situacao_banco||'',obsSituacao:r.obs_situacao||'',usuario:r.usuario||'',crcCliente:r.crc_cliente||'',dataNossoCredito:r.data_nosso_credito||''}}
+function toDb(o){return{id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cliente||'',proposta:o.proposta||'',contrato:o.contrato||'',data:o.data||null,prazo:o.prazo||'',vr_bruto:o.vrBruto||0,vr_parcela:o.vrParcela||0,vr_liquido:o.vrLiquido||0,vr_repasse:o.vrRepasse||0,vr_seguro:o.vrSeguro||0,taxa:o.taxa||'',operacao:o.operacao||'',situacao:o.situacao||'',produto:o.produto||'',convenio:o.convenio||'',agente:o.agente||'',situacao_banco:o.situacaoBanco||'',obs_situacao:o.obsSituacao||'',usuario:o.usuario||'',crc_cliente:o.crcCliente||null,data_nosso_credito:o.dataNossoCredito||null}}
 
-// ── THEME ─────────────────────────────────────────────────────────
-const C = {
-  bg:'#0A0E17', surface:'#0F1520', card:'#141B2B', border:'#1C2538',
-  text:'#DAE0ED', muted:'#5B6B85', accent:'#3B82F6', accent2:'#10B981',
-  warn:'#F59E0B', danger:'#EF4444', info:'#38BDF8', abg:'#3B82F622',
+// UI
+function Btn({children,variant='primary',style,disabled,onClick}){const b={border:'none',borderRadius:8,fontFamily:'Outfit',fontWeight:600,fontSize:12,cursor:disabled?'not-allowed':'pointer',padding:'8px 16px',opacity:disabled?0.4:1};const v={primary:{background:C.accent,color:'#fff'},success:{background:C.accent2,color:'#fff'},ghost:{background:C.surface,color:C.text,border:'1px solid '+C.border},danger:{background:'#EF444418',color:C.danger}};return<button style={{...b,...(v[variant]||v.primary),...style}} disabled={disabled} onClick={onClick}>{children}</button>}
+function Stat({label,value,sub,color}){return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'14px 16px',flex:1,minWidth:120}}><div style={{fontSize:9,color:C.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>{label}</div><div style={{fontSize:18,fontWeight:700,color:color||C.text}}>{value}</div>{sub&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{sub}</div>}</div>}
+function Field({label,value,onChange,type='text',options,placeholder,style:st}){const b={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:12,outline:'none',width:'100%',fontFamily:'Outfit'};return<div style={{display:'flex',flexDirection:'column',gap:3,...st}}>{label&&<label style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{label}</label>}{options?<select value={value||''} onChange={e=>onChange(e.target.value)} style={{...b,cursor:'pointer'}}><option value="">— Todos —</option>{options.map(o=><option key={o} value={o}>{o}</option>)}</select>:<input type={type} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={b}/>}</div>}
+function Badge({text,color}){return<span style={{fontSize:10,padding:'2px 8px',borderRadius:6,background:color+'22',color,fontWeight:600}}>{text}</span>}
+function usePeriod(){const[per,setPer]=useState('mes');const[df,setDf]=useState('');const[dt,setDt]=useState('');const y=NOW.getFullYear(),mo=NOW.getMonth();const fmt=d=>d.toISOString().split('T')[0];const f=(a,b)=>fmt(new Date(a,b,1));const l=(a,b)=>fmt(new Date(a,b+1,0));const pr={mes:{f:f(y,mo),t:l(y,mo),n:'Mês Atual'},ant:{f:f(y,mo-1),t:l(y,mo-1),n:'Mês Anterior'},tri:{f:f(y,mo-2),t:l(y,mo),n:'Trimestre'},sem:{f:f(y,mo-5),t:l(y,mo),n:'Semestre'},ano:{f:y+'-01-01',t:y+'-12-31',n:String(y)},tudo:{f:'2000-01-01',t:'2099-12-31',n:'Tudo'}};useEffect(()=>{if(per!=='custom'&&pr[per]){setDf(pr[per].f);setDt(pr[per].t)}},[per]);return{per,setPer,df,setDf,dt,setDt,pr,filter:ops=>ops.filter(o=>o.data&&o.data>=df&&o.data<=dt),label:per==='custom'?fmtDate(df)+' a '+fmtDate(dt):(pr[per]?.n||'')}}
+function PeriodBar({p}){return<div style={{display:'flex',flexDirection:'column',gap:6}}><div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{Object.entries(p.pr).map(([k,v])=><button key={k} onClick={()=>p.setPer(k)} style={{padding:'4px 10px',borderRadius:6,border:'1px solid '+(p.per===k?C.accent:C.border),background:p.per===k?C.abg:'transparent',color:p.per===k?C.accent:C.muted,fontSize:10,fontWeight:p.per===k?600:400,cursor:'pointer',fontFamily:'Outfit'}}>{v.n}</button>)}<button onClick={()=>p.setPer('custom')} style={{padding:'4px 10px',borderRadius:6,border:'1px solid '+(p.per==='custom'?C.accent:C.border),background:p.per==='custom'?C.abg:'transparent',color:p.per==='custom'?C.accent:C.muted,fontSize:10,cursor:'pointer',fontFamily:'Outfit'}}>Custom</button></div>{p.per==='custom'&&<div style={{display:'flex',gap:8}}><Field label="De" value={p.df} onChange={p.setDf} type="date" style={{minWidth:120}}/><Field label="Até" value={p.dt} onChange={p.setDt} type="date" style={{minWidth:120}}/></div>}<div style={{fontSize:10,color:C.muted}}>Período: <strong style={{color:C.text}}>{p.label}</strong></div></div>}
+function RateBar({r,w=50}){return<div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:w,height:5,background:C.surface,borderRadius:3}}><div style={{height:'100%',background:r>=50?C.accent2:r>=30?C.warn:C.danger,borderRadius:3,width:Math.min(r,100)+'%'}}/></div><span style={{fontWeight:600,color:r>=50?C.accent2:r>=30?C.warn:C.danger,fontSize:10}}>{r.toFixed(0)}%</span></div>}
+
+// ── IMPORT ────────────────────────────────────────────────────────
+const IMP={id_ext:{l:'ID',a:['id']},banco:{l:'Banco',a:['banco']},cpf:{l:'CPF',a:['cpf']},cliente:{l:'Cliente',a:['cliente','nome']},proposta:{l:'Proposta',a:['proposta']},contrato:{l:'Nº Contrato',a:['contrato','nº contrato']},data:{l:'Data',a:['data','date']},prazo:{l:'Prazo',a:['prazo']},vrBruto:{l:'Vr. Bruto',a:['vr. bruto','vr bruto','bruto']},vrParcela:{l:'Vr. Parcela',a:['vr. parcela','vr parcela']},vrLiquido:{l:'Vr. Líquido',a:['vr. líquido','vr liquido']},vrRepasse:{l:'Vr. Repasse',a:['vr. repasse','vr repasse','repasse']},vrSeguro:{l:'Vr. Seguro',a:['vr. seguro']},taxa:{l:'Taxa',a:['taxa']},operacao:{l:'Operação',a:['operação','operacao']},situacao:{l:'Situação',a:['situação','situacao','status']},produto:{l:'Produto',a:['produto']},convenio:{l:'Convênio',a:['convênio','convenio']},agente:{l:'Agente',a:['agente']},situacaoBanco:{l:'Sit. Banco',a:['situação banco','situacao banco','sit. banco']},obsSituacao:{l:'Obs.',a:['obs. situação banco','obs situação']},usuario:{l:'Usuário',a:['usuário','usuario']},crcCliente:{l:'CRC Cliente',a:['crc cliente','crc','data crc']},dataNossoCredito:{l:'Nosso Crédito',a:['nosso crédito','nosso credito','dt nosso crédito']}}
+
+function ImportModal({open,onClose,onImport}){
+  const fr=useRef(null);const[step,setStep]=useState(1);const[raw,setRaw]=useState([]);const[hd,setHd]=useState([]);const[mp,setMp]=useState({});const[pv,setPv]=useState([]);const[er,setEr]=useState([]);const[fn,setFn]=useState('');const[busy,setBusy]=useState(false)
+  useEffect(()=>{if(!open){setStep(1);setRaw([]);setHd([]);setMp({});setPv([]);setEr([]);setFn('');setBusy(false)}},[open])
+  function autoMap(cols){const m={};Object.entries(IMP).forEach(([f,def])=>{const found=cols.find(c=>{const cl=c.toLowerCase().trim();return def.a.some(a=>cl===a||cl.includes(a))});if(found)m[f]=found});return m}
+  function parse(file){setFn(file.name);setEr([]);const rd=new FileReader();rd.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});if(!rows.length){setEr(['Planilha vazia']);return}setRaw(rows);const cols=Object.keys(rows[0]);setHd(cols);setMp(autoMap(cols));setStep(2)}catch(ex){setEr(['Erro: '+ex.message])}};rd.readAsArrayBuffer(file)}
+  function build(){const errs=[];const built=raw.map((row,i)=>{const cl=mp.cliente?String(row[mp.cliente]||'').trim():'';const pr=mp.proposta?String(row[mp.proposta]||'').trim():'';const ok=!!(cl||pr);if(!ok)errs.push(i+2);const g=f=>mp[f]?String(row[mp[f]]||'').trim():'';const gu=f=>g(f).toUpperCase();return{_v:ok,cliente:cl,proposta:pr,id_ext:g('id_ext'),banco:g('banco'),cpf:g('cpf'),contrato:g('contrato'),data:nDate(mp.data?row[mp.data]:''),prazo:g('prazo'),vrBruto:pNum(mp.vrBruto?row[mp.vrBruto]:''),vrParcela:pNum(mp.vrParcela?row[mp.vrParcela]:''),vrLiquido:pNum(mp.vrLiquido?row[mp.vrLiquido]:''),vrRepasse:pNum(mp.vrRepasse?row[mp.vrRepasse]:''),vrSeguro:pNum(mp.vrSeguro?row[mp.vrSeguro]:''),taxa:g('taxa'),operacao:gu('operacao'),situacao:gu('situacao'),produto:g('produto'),convenio:gu('convenio'),agente:g('agente'),situacaoBanco:gu('situacaoBanco'),obsSituacao:g('obsSituacao'),usuario:g('usuario'),crcCliente:nDate(mp.crcCliente?row[mp.crcCliente]:''),dataNossoCredito:nDate(mp.dataNossoCredito?row[mp.dataNossoCredito]:'')}});setEr(errs);setPv(built);setStep(3)}
+  async function doImport(){setBusy(true);const valid=pv.filter(p=>p._v).map(({_v,...r})=>r);await onImport(valid);setBusy(false);onClose()}
+  if(!open)return null;const vc=pv.filter(p=>p._v).length;const tR=pv.filter(p=>p._v).reduce((s,o)=>s+(o.vrRepasse||0),0)
+  return<div style={{position:'fixed',inset:0,background:'#000000CC',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}><div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:18,width:760,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto'}}>
+    <div style={{padding:'16px 22px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3 style={{fontWeight:700,fontSize:15,margin:0}}>Importar Digitações — Etapa {step}/3</h3><button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:22,cursor:'pointer'}}>×</button></div>
+    <div style={{padding:'16px 22px'}}>
+      {step===1&&<div style={{display:'flex',flexDirection:'column',gap:12}}><div onClick={()=>fr.current?.click()} style={{border:'2px dashed '+C.border,borderRadius:14,padding:'36px 20px',textAlign:'center',background:C.surface,cursor:'pointer'}}><div style={{fontSize:32,marginBottom:6}}>📂</div><div style={{fontSize:13,fontWeight:600}}>Clique para selecionar</div><div style={{fontSize:11,color:C.muted}}>.xlsx, .xls, .csv</div><input ref={fr} type="file" accept=".xlsx,.xls,.csv" onChange={e=>{const f=e.target.files?.[0];if(f)parse(f)}} style={{display:'none'}}/></div>{er.length>0&&<div style={{background:'#EF444418',borderRadius:8,padding:'8px 12px',fontSize:12,color:C.danger}}>{er[0]}</div>}</div>}
+      {step===2&&<div style={{display:'flex',flexDirection:'column',gap:10}}><div style={{fontSize:12,color:C.muted}}>Arquivo: <strong style={{color:C.text}}>{fn}</strong> — {raw.length} linhas — <strong style={{color:C.accent2}}>{Object.keys(mp).length}</strong> detectados</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>{Object.entries(IMP).map(([f,def])=><div key={f} style={{display:'flex',flexDirection:'column',gap:2}}><label style={{fontSize:8,color:mp[f]?C.accent:C.muted,fontWeight:600,textTransform:'uppercase'}}>{def.l}</label><select value={mp[f]||''} onChange={e=>{const v=e.target.value;setMp(prev=>({...prev,[f]:v||undefined}))}} style={{background:C.surface,border:'1px solid '+(mp[f]?C.accent+'66':C.border),borderRadius:6,color:mp[f]?C.text:C.muted,padding:'4px 6px',fontSize:10,outline:'none',cursor:'pointer'}}><option value="">—</option>{hd.map(h=><option key={h} value={h}>{h}</option>)}</select></div>)}</div><div style={{display:'flex',gap:8}}><Btn variant="ghost" onClick={()=>setStep(1)}>←</Btn><Btn onClick={build} style={{flex:1}}>Revisar →</Btn></div></div>}
+      {step===3&&<div style={{display:'flex',flexDirection:'column',gap:10}}>{er.length>0&&<div style={{background:C.warn+'18',borderRadius:8,padding:'6px 12px',fontSize:11,color:C.warn}}>{er.length} linhas ignoradas</div>}<div style={{fontSize:12}}><strong style={{color:C.accent2}}>{vc}</strong> válidas — Repasse: <strong style={{color:C.accent}}>{fmtCur(tR)}</strong></div><div style={{overflowX:'auto',maxHeight:260,borderRadius:8,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface}}>{['','Cliente','Banco','Op.','Situação','Agente','Repasse'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{pv.slice(0,50).map((p,i)=><tr key={i} style={{borderBottom:'1px solid '+C.border,opacity:p._v?1:0.3}}><td style={{padding:'4px 8px',color:p._v?C.accent2:C.danger,fontWeight:700}}>{p._v?'✓':'✕'}</td><td style={{padding:'4px 8px'}}>{p.cliente}</td><td style={{padding:'4px 8px'}}>{p.banco}</td><td style={{padding:'4px 8px'}}>{p.operacao}</td><td style={{padding:'4px 8px'}}><Badge text={p.situacao||'—'} color={sitCol(p.situacao)}/></td><td style={{padding:'4px 8px'}}>{p.agente}</td><td style={{padding:'4px 8px',fontWeight:600}}>{fmtCur(p.vrRepasse)}</td></tr>)}</tbody></table></div><div style={{display:'flex',gap:8}}><Btn variant="ghost" onClick={()=>setStep(2)}>←</Btn><Btn variant="success" onClick={doImport} disabled={vc===0||busy} style={{flex:1}}>{busy?'Gravando...':'✓ Importar '+vc}</Btn></div></div>}
+    </div></div></div>
 }
 
-// ── UTILS ─────────────────────────────────────────────────────────
-const NOW = new Date()
-const TODAY = NOW.toISOString().split('T')[0]
-const fmtCur = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
-const fmtDate = d => { if(!d) return '—'; const p = String(d).split('-'); return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : d }
-const isFinal = o => ['FINALIZADO','PAGO','AVERBADO','CONCRETIZADO','PAGO C/ PENDENCIA','PAGO C/ PENDÊNCIA'].includes((o.situacaoBanco||'').toUpperCase())
-const sitColor = s => { s=(s||'').toUpperCase(); if(['FINALIZADO','PAGO','AVERBADO','APROVADO','CONCRETIZADO','PAGO C/ PENDENCIA','PAGO C/ PENDÊNCIA'].includes(s)) return C.accent2; if(['ESTORNADO','CANCELADO','RECUSADO'].includes(s)) return C.danger; if(['EM ANÁLISE','PENDENTE'].includes(s)) return C.warn; return C.info }
-function nDate(v) { if(!v) return ''; if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400*1000));return !isNaN(d.getTime())?d.toISOString().split('T')[0]:'';} const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/); if(m) return (m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; return '' }
-function pNum(v) { if(v==null||v==='') return 0; if(typeof v==='number') return v; return parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.'))||0 }
-
-// ── DB MAPPING ────────────────────────────────────────────────────
-function fromDb(r) {
-  return { id:r.id, id_ext:r.id_ext||'', banco:r.banco||'', cpf:r.cpf||'', cliente:r.cliente||'',
-    proposta:r.proposta||'', contrato:r.contrato||'', data:r.data||'', prazo:r.prazo||'',
-    vrBruto:Number(r.vr_bruto)||0, vrParcela:Number(r.vr_parcela)||0, vrLiquido:Number(r.vr_liquido)||0,
-    vrRepasse:Number(r.vr_repasse)||0, vrSeguro:Number(r.vr_seguro)||0, taxa:r.taxa||'',
-    operacao:r.operacao||'', situacao:r.situacao||'', produto:r.produto||'', convenio:r.convenio||'',
-    agente:r.agente||'', situacaoBanco:r.situacao_banco||'', obsSituacao:r.obs_situacao||'',
-    usuario:r.usuario||'', crcCliente:r.crc_cliente||'', dataNossoCredito:r.data_nosso_credito||'' }
-}
-function toDb(o) {
-  return { id_ext:o.id_ext||'', banco:o.banco||'', cpf:o.cpf||'', cliente:o.cliente||'',
-    proposta:o.proposta||'', contrato:o.contrato||'', data:o.data||null, prazo:o.prazo||'',
-    vr_bruto:o.vrBruto||0, vr_parcela:o.vrParcela||0, vr_liquido:o.vrLiquido||0,
-    vr_repasse:o.vrRepasse||0, vr_seguro:o.vrSeguro||0, taxa:o.taxa||'',
-    operacao:o.operacao||'', situacao:o.situacao||'', produto:o.produto||'', convenio:o.convenio||'',
-    agente:o.agente||'', situacao_banco:o.situacaoBanco||'', obs_situacao:o.obsSituacao||'',
-    usuario:o.usuario||'', crc_cliente:o.crcCliente||null, data_nosso_credito:o.dataNossoCredito||null }
-}
-
-// ── SHARED UI ─────────────────────────────────────────────────────
-function Btn({children, variant='primary', style, disabled, onClick}) {
-  const base = {border:'none',borderRadius:8,fontFamily:'Outfit',fontWeight:600,fontSize:12,cursor:disabled?'not-allowed':'pointer',padding:'8px 16px',opacity:disabled?0.4:1}
-  const vs = {primary:{background:C.accent,color:'#fff'},success:{background:C.accent2,color:'#fff'},ghost:{background:C.surface,color:C.text,border:'1px solid '+C.border},danger:{background:'#EF444418',color:C.danger}}
-  return <button style={{...base,...(vs[variant]||vs.primary),...style}} disabled={disabled} onClick={onClick}>{children}</button>
-}
-function Stat({label,value,sub,color}) {
-  return <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'14px 16px',flex:1,minWidth:120}}>
-    <div style={{fontSize:9,color:C.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>{label}</div>
-    <div style={{fontSize:18,fontWeight:700,color:color||C.text}}>{value}</div>
-    {sub && <div style={{fontSize:10,color:C.muted,marginTop:2}}>{sub}</div>}
-  </div>
-}
-function Field({label,value,onChange,type='text',options,placeholder,style:st}) {
-  const b = {background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:12,outline:'none',width:'100%',fontFamily:'Outfit'}
-  return <div style={{display:'flex',flexDirection:'column',gap:3,...st}}>
-    {label && <label style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{label}</label>}
-    {options
-      ? <select value={value||''} onChange={e=>onChange(e.target.value)} style={{...b,cursor:'pointer'}}>
-          <option value="">— Todos —</option>
-          {options.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      : <input type={type} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={b}/>
-    }
-  </div>
-}
-function Badge({text,color}) { return <span style={{fontSize:10,padding:'2px 8px',borderRadius:6,background:color+'22',color,fontWeight:600}}>{text}</span> }
-
-// ── PERIOD FILTER ─────────────────────────────────────────────────
-function usePeriod() {
-  const [per,setPer] = useState('mes')
-  const [df,setDf] = useState('')
-  const [dt,setDt] = useState('')
-  const y = NOW.getFullYear(), mo = NOW.getMonth()
-  const fmt = d => d.toISOString().split('T')[0]
-  const f = (a,b) => fmt(new Date(a,b,1))
-  const l = (a,b) => fmt(new Date(a,b+1,0))
-  const pr = {
-    mes:{f:f(y,mo),t:l(y,mo),n:'Mês Atual'}, ant:{f:f(y,mo-1),t:l(y,mo-1),n:'Mês Anterior'},
-    tri:{f:f(y,mo-2),t:l(y,mo),n:'Trimestre'}, sem:{f:f(y,mo-5),t:l(y,mo),n:'Semestre'},
-    ano:{f:y+'-01-01',t:y+'-12-31',n:String(y)}, tudo:{f:'2000-01-01',t:'2099-12-31',n:'Tudo'}
-  }
-  useEffect(() => { if(per!=='custom' && pr[per]) { setDf(pr[per].f); setDt(pr[per].t) } }, [per])
-  return { per, setPer, df, setDf, dt, setDt, pr,
-    filter: ops => ops.filter(o => o.data && o.data>=df && o.data<=dt),
-    label: per==='custom' ? fmtDate(df)+' a '+fmtDate(dt) : (pr[per]?.n||'')
-  }
-}
-function PeriodBar({p}) {
-  return <div style={{display:'flex',flexDirection:'column',gap:6}}>
-    <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
-      {Object.entries(p.pr).map(([k,v]) =>
-        <button key={k} onClick={()=>p.setPer(k)} style={{padding:'4px 10px',borderRadius:6,border:'1px solid '+(p.per===k?C.accent:C.border),background:p.per===k?C.abg:'transparent',color:p.per===k?C.accent:C.muted,fontSize:10,fontWeight:p.per===k?600:400,cursor:'pointer',fontFamily:'Outfit'}}>{v.n}</button>
-      )}
-      <button onClick={()=>p.setPer('custom')} style={{padding:'4px 10px',borderRadius:6,border:'1px solid '+(p.per==='custom'?C.accent:C.border),background:p.per==='custom'?C.abg:'transparent',color:p.per==='custom'?C.accent:C.muted,fontSize:10,cursor:'pointer',fontFamily:'Outfit'}}>Custom</button>
-    </div>
-    {p.per==='custom' && <div style={{display:'flex',gap:8}}><Field label="De" value={p.df} onChange={p.setDf} type="date" style={{minWidth:120}}/><Field label="Até" value={p.dt} onChange={p.setDt} type="date" style={{minWidth:120}}/></div>}
-    <div style={{fontSize:10,color:C.muted}}>Período: <strong style={{color:C.text}}>{p.label}</strong></div>
-  </div>
-}
-
-// ── IMPORT FIELDS ─────────────────────────────────────────────────
-const IMP = {
-  id_ext:{l:'ID',a:['id']}, banco:{l:'Banco',a:['banco']}, cpf:{l:'CPF',a:['cpf']},
-  cliente:{l:'Cliente',a:['cliente','nome']}, proposta:{l:'Proposta',a:['proposta']},
-  contrato:{l:'Nº Contrato',a:['contrato','nº contrato']}, data:{l:'Data',a:['data','date']},
-  prazo:{l:'Prazo',a:['prazo']}, vrBruto:{l:'Vr. Bruto',a:['vr. bruto','vr bruto','bruto']},
-  vrParcela:{l:'Vr. Parcela',a:['vr. parcela','vr parcela']},
-  vrLiquido:{l:'Vr. Líquido',a:['vr. líquido','vr liquido']},
-  vrRepasse:{l:'Vr. Repasse',a:['vr. repasse','vr repasse','repasse']},
-  vrSeguro:{l:'Vr. Seguro',a:['vr. seguro']}, taxa:{l:'Taxa',a:['taxa']},
-  operacao:{l:'Operação',a:['operação','operacao']},
-  situacao:{l:'Situação',a:['situação','situacao','status']},
-  produto:{l:'Produto',a:['produto']}, convenio:{l:'Convênio',a:['convênio','convenio']},
-  agente:{l:'Agente',a:['agente']},
-  situacaoBanco:{l:'Sit. Banco',a:['situação banco','situacao banco','sit. banco']},
-  obsSituacao:{l:'Obs.',a:['obs. situação banco','obs situação']},
-  usuario:{l:'Usuário',a:['usuário','usuario']},
-  crcCliente:{l:'CRC Cliente',a:['crc cliente','crc','data crc']},
-  dataNossoCredito:{l:'Nosso Crédito',a:['nosso crédito','nosso credito','dt nosso crédito']},
-}
-
-// ── IMPORT MODAL ──────────────────────────────────────────────────
-function ImportModal({open, onClose, onImport}) {
-  const fr = useRef(null)
-  const [step,setStep] = useState(1)
-  const [raw,setRaw] = useState([])
-  const [hd,setHd] = useState([])
-  const [mp,setMp] = useState({})
-  const [pv,setPv] = useState([])
-  const [er,setEr] = useState([])
-  const [fn,setFn] = useState('')
-  const [busy,setBusy] = useState(false)
-
-  useEffect(() => { if(!open) { setStep(1);setRaw([]);setHd([]);setMp({});setPv([]);setEr([]);setFn('');setBusy(false) } }, [open])
-
-  function autoMap(cols) {
-    const m = {}
-    Object.entries(IMP).forEach(([f,def]) => {
-      const found = cols.find(c => { const cl=c.toLowerCase().trim(); return def.a.some(a => cl===a || cl.includes(a)) })
-      if(found) m[f] = found
-    })
-    return m
-  }
-
-  function parse(file) {
-    setFn(file.name); setEr([])
-    const rd = new FileReader()
-    rd.onload = e => {
-      try {
-        const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'})
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''})
-        if(!rows.length) { setEr(['Planilha vazia']); return }
-        setRaw(rows)
-        const cols = Object.keys(rows[0])
-        setHd(cols)
-        setMp(autoMap(cols))
-        setStep(2)
-      } catch(ex) { setEr(['Erro: '+ex.message]) }
-    }
-    rd.readAsArrayBuffer(file)
-  }
-
-  function build() {
-    const errs = []
-    const built = raw.map((row,i) => {
-      const cl = mp.cliente ? String(row[mp.cliente]||'').trim() : ''
-      const pr = mp.proposta ? String(row[mp.proposta]||'').trim() : ''
-      const ok = !!(cl||pr)
-      if(!ok) errs.push(i+2)
-      const g = f => mp[f] ? String(row[mp[f]]||'').trim() : ''
-      const gu = f => g(f).toUpperCase()
-      return {
-        _v:ok, cliente:cl, proposta:pr, id_ext:g('id_ext'), banco:g('banco'), cpf:g('cpf'),
-        contrato:g('contrato'), data:nDate(mp.data?row[mp.data]:''), prazo:g('prazo'),
-        vrBruto:pNum(mp.vrBruto?row[mp.vrBruto]:''), vrParcela:pNum(mp.vrParcela?row[mp.vrParcela]:''),
-        vrLiquido:pNum(mp.vrLiquido?row[mp.vrLiquido]:''), vrRepasse:pNum(mp.vrRepasse?row[mp.vrRepasse]:''),
-        vrSeguro:pNum(mp.vrSeguro?row[mp.vrSeguro]:''), taxa:g('taxa'),
-        operacao:gu('operacao'), situacao:gu('situacao'), produto:g('produto'), convenio:gu('convenio'),
-        agente:g('agente'), situacaoBanco:gu('situacaoBanco'), obsSituacao:g('obsSituacao'),
-        usuario:g('usuario'), crcCliente:nDate(mp.crcCliente?row[mp.crcCliente]:''),
-        dataNossoCredito:nDate(mp.dataNossoCredito?row[mp.dataNossoCredito]:''),
-      }
-    })
-    setEr(errs); setPv(built); setStep(3)
-  }
-
-  async function doImport() {
-    setBusy(true)
-    const valid = pv.filter(p=>p._v).map(({_v,...r})=>r)
-    await onImport(valid)
-    setBusy(false)
-    onClose()
-  }
-
-  if(!open) return null
-  const vc = pv.filter(p=>p._v).length
-  const tR = pv.filter(p=>p._v).reduce((s,o)=>s+(o.vrRepasse||0),0)
-
-  return (
-    <div style={{position:'fixed',inset:0,background:'#000000CC',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:18,width:760,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto'}}>
-        <div style={{padding:'16px 22px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <h3 style={{fontFamily:'Outfit',fontWeight:700,fontSize:15,margin:0}}>Importar Digitações — Etapa {step}/3</h3>
-          <button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:22,cursor:'pointer'}}>×</button>
-        </div>
-        <div style={{padding:'16px 22px'}}>
-          {step===1 && <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            <div onClick={()=>fr.current?.click()} style={{border:'2px dashed '+C.border,borderRadius:14,padding:'36px 20px',textAlign:'center',background:C.surface,cursor:'pointer'}}>
-              <div style={{fontSize:32,marginBottom:6}}>📂</div>
-              <div style={{fontSize:13,fontWeight:600}}>Clique para selecionar arquivo</div>
-              <div style={{fontSize:11,color:C.muted}}>.xlsx, .xls, .csv</div>
-              <input ref={fr} type="file" accept=".xlsx,.xls,.csv" onChange={e=>{const f=e.target.files?.[0];if(f)parse(f)}} style={{display:'none'}}/>
-            </div>
-            {er.length>0 && <div style={{background:'#EF444418',borderRadius:8,padding:'8px 12px',fontSize:12,color:C.danger}}>{er[0]}</div>}
-          </div>}
-          {step===2 && <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            <div style={{fontSize:12,color:C.muted}}>Arquivo: <strong style={{color:C.text}}>{fn}</strong> — {raw.length} linhas — <strong style={{color:C.accent2}}>{Object.keys(mp).length}</strong> detectados</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
-              {Object.entries(IMP).map(([f,def]) =>
-                <div key={f} style={{display:'flex',flexDirection:'column',gap:2}}>
-                  <label style={{fontSize:8,color:mp[f]?C.accent:C.muted,fontWeight:600,textTransform:'uppercase'}}>{def.l}</label>
-                  <select value={mp[f]||''} onChange={e=>{const v=e.target.value;setMp(prev=>({...prev,[f]:v||undefined}))}} style={{background:C.surface,border:'1px solid '+(mp[f]?C.accent+'66':C.border),borderRadius:6,color:mp[f]?C.text:C.muted,padding:'4px 6px',fontSize:10,outline:'none',cursor:'pointer'}}>
-                    <option value="">—</option>
-                    {hd.map(h => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                </div>
-              )}
-            </div>
-            <div style={{display:'flex',gap:8}}>
-              <Btn variant="ghost" onClick={()=>setStep(1)}>←</Btn>
-              <Btn onClick={build} style={{flex:1}}>Revisar →</Btn>
-            </div>
-          </div>}
-          {step===3 && <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {er.length>0 && <div style={{background:C.warn+'18',borderRadius:8,padding:'6px 12px',fontSize:11,color:C.warn}}>{er.length} linhas ignoradas</div>}
-            <div style={{fontSize:12}}><strong style={{color:C.accent2}}>{vc}</strong> válidas — Repasse: <strong style={{color:C.accent}}>{fmtCur(tR)}</strong></div>
-            <div style={{overflowX:'auto',maxHeight:260,borderRadius:8,border:'1px solid '+C.border}}>
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
-                <thead><tr style={{background:C.surface}}>
-                  {['','Cliente','Banco','Op.','Situação','Agente','Repasse'].map(h => <th key={h} style={{padding:'6px 8px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}
-                </tr></thead>
-                <tbody>{pv.slice(0,50).map((p,i) =>
-                  <tr key={i} style={{borderBottom:'1px solid '+C.border,opacity:p._v?1:0.3}}>
-                    <td style={{padding:'4px 8px',color:p._v?C.accent2:C.danger,fontWeight:700}}>{p._v?'✓':'✕'}</td>
-                    <td style={{padding:'4px 8px'}}>{p.cliente}</td>
-                    <td style={{padding:'4px 8px'}}>{p.banco}</td>
-                    <td style={{padding:'4px 8px'}}>{p.operacao}</td>
-                    <td style={{padding:'4px 8px'}}><Badge text={p.situacao||'—'} color={sitColor(p.situacao)}/></td>
-                    <td style={{padding:'4px 8px'}}>{p.agente}</td>
-                    <td style={{padding:'4px 8px',fontWeight:600}}>{fmtCur(p.vrRepasse)}</td>
-                  </tr>
-                )}</tbody>
-              </table>
-            </div>
-            <div style={{display:'flex',gap:8}}>
-              <Btn variant="ghost" onClick={()=>setStep(2)}>←</Btn>
-              <Btn variant="success" onClick={doImport} disabled={vc===0||busy} style={{flex:1}}>
-                {busy ? 'Gravando no banco...' : '✓ Importar '+vc+' digitações'}
-              </Btn>
-            </div>
-          </div>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── EXPORT ────────────────────────────────────────────────────────
-function ExportModal({open, onClose, ops}) {
-  const [f,sf] = useState({})
-  const aOf = k => [...new Set(ops.map(o=>o[k]).filter(Boolean))].sort()
-  const fd = ops.filter(o =>
-    (!f.banco||o.banco===f.banco)&&(!f.operacao||o.operacao===f.operacao)&&
-    (!f.agente||o.agente===f.agente)&&(!f.situacao||o.situacao===f.situacao)&&
-    (!f.df||o.data>=f.df)&&(!f.dt||o.data<=f.dt)
-  )
-  function go() {
-    const ws = XLSX.utils.json_to_sheet(fd.map(o=>({Data:o.data,Banco:o.banco,CPF:o.cpf,Cliente:o.cliente,Proposta:o.proposta,Operação:o.operacao,Situação:o.situacao,Convênio:o.convenio,Agente:o.agente,'Vr.Repasse':o.vrRepasse,'Vr.Bruto':o.vrBruto,'Sit.Banco':o.situacaoBanco,CRC:o.crcCliente,'Nosso Crédito':o.dataNossoCredito})))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb,ws,'Dig')
-    XLSX.writeFile(wb,'digitacoes_'+TODAY+'.xlsx')
-    onClose()
-  }
-  if(!open) return null
-  return <div style={{position:'fixed',inset:0,background:'#000000BB',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
-    <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:16,width:640,maxWidth:'96vw',maxHeight:'92vh',overflowY:'auto'}}>
-      <div style={{padding:'14px 20px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <h3 style={{fontWeight:700,fontSize:15,margin:0}}>Exportar</h3>
-        <button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:20,cursor:'pointer'}}>×</button>
-      </div>
-      <div style={{padding:'16px 20px'}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:12}}>
-          <Field label="Banco" value={f.banco||''} onChange={v=>sf(x=>({...x,banco:v}))} options={aOf('banco')}/>
-          <Field label="Op." value={f.operacao||''} onChange={v=>sf(x=>({...x,operacao:v}))} options={aOf('operacao')}/>
-          <Field label="Agente" value={f.agente||''} onChange={v=>sf(x=>({...x,agente:v}))} options={aOf('agente')}/>
-          <Field label="Sit." value={f.situacao||''} onChange={v=>sf(x=>({...x,situacao:v}))} options={aOf('situacao')}/>
-          <Field label="De" value={f.df||''} onChange={v=>sf(x=>({...x,df:v}))} type="date"/>
-          <Field label="Até" value={f.dt||''} onChange={v=>sf(x=>({...x,dt:v}))} type="date"/>
-        </div>
-        <div style={{background:C.surface,borderRadius:8,padding:'8px 14px',marginBottom:10,fontSize:12}}>
-          <strong style={{color:C.accent}}>{fd.length}</strong> registros — {fmtCur(fd.reduce((s,o)=>s+(o.vrRepasse||0),0))}
-        </div>
-        <Btn variant="success" onClick={go} style={{width:'100%'}} disabled={!fd.length}>📤 Exportar</Btn>
-      </div>
-    </div>
-  </div>
+function ExportModal({open,onClose,ops}){const[f,sf]=useState({});const aOf=k=>[...new Set(ops.map(o=>o[k]).filter(Boolean))].sort();const fd=ops.filter(o=>(!f.banco||o.banco===f.banco)&&(!f.operacao||o.operacao===f.operacao)&&(!f.agente||o.agente===f.agente)&&(!f.situacao||o.situacao===f.situacao)&&(!f.df||o.data>=f.df)&&(!f.dt||o.data<=f.dt));function go(){const ws=XLSX.utils.json_to_sheet(fd.map(o=>({Data:o.data,Banco:o.banco,CPF:o.cpf,Cliente:o.cliente,Proposta:o.proposta,Operação:o.operacao,Situação:o.situacao,Convênio:o.convenio,Agente:o.agente,'Vr.Repasse':o.vrRepasse,'Vr.Bruto':o.vrBruto,'Sit.Banco':o.situacaoBanco,CRC:o.crcCliente,'NossoCredito':o.dataNossoCredito})));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Dig');XLSX.writeFile(wb,'digitacoes_'+TODAY+'.xlsx');onClose()}
+  if(!open)return null;return<div style={{position:'fixed',inset:0,background:'#000000BB',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}><div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:16,width:640,maxWidth:'96vw',maxHeight:'92vh',overflowY:'auto'}}><div style={{padding:'14px 20px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3 style={{fontWeight:700,fontSize:15,margin:0}}>Exportar</h3><button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:20,cursor:'pointer'}}>×</button></div><div style={{padding:'16px 20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:12}}><Field label="Banco" value={f.banco||''} onChange={v=>sf(x=>({...x,banco:v}))} options={aOf('banco')}/><Field label="Op." value={f.operacao||''} onChange={v=>sf(x=>({...x,operacao:v}))} options={aOf('operacao')}/><Field label="Agente" value={f.agente||''} onChange={v=>sf(x=>({...x,agente:v}))} options={aOf('agente')}/><Field label="Sit." value={f.situacao||''} onChange={v=>sf(x=>({...x,situacao:v}))} options={aOf('situacao')}/><Field label="De" value={f.df||''} onChange={v=>sf(x=>({...x,df:v}))} type="date"/><Field label="Até" value={f.dt||''} onChange={v=>sf(x=>({...x,dt:v}))} type="date"/></div><div style={{background:C.surface,borderRadius:8,padding:'8px 14px',marginBottom:10,fontSize:12}}><strong style={{color:C.accent}}>{fd.length}</strong> — {fmtCur(fd.reduce((s,o)=>s+(o.vrRepasse||0),0))}</div><Btn variant="success" onClick={go} style={{width:'100%'}} disabled={!fd.length}>📤 Exportar</Btn></div></div></div>
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────
-function Dashboard({ops}) {
-  const p = usePeriod()
-  const f = p.filter(ops)
-  const tR = f.reduce((s,o)=>s+(o.vrRepasse||0),0)
-  const fin = f.filter(isFinal)
-  const fR = fin.reduce((s,o)=>s+(o.vrRepasse||0),0)
-  const ags = [...new Set(f.map(o=>o.agente).filter(Boolean))]
-
-  const bySit = useMemo(() => {
-    const m = {}; f.forEach(o => { const k=o.situacao||'?'; m[k]=(m[k]||0)+1 })
-    return Object.entries(m).sort((a,b)=>b[1]-a[1])
-  }, [f])
-
-  const byOp = useMemo(() => {
-    const m = {}; f.forEach(o => { const k=o.operacao||'?'; if(!m[k])m[k]={r:0,c:0}; m[k].r+=(o.vrRepasse||0);m[k].c++ })
-    return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
-  }, [f])
-
-  return <div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>
-    <PeriodBar p={p}/>
-    {!ops.length
-      ? <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:'36px 20px',textAlign:'center'}}>
-          <div style={{fontSize:32,marginBottom:8}}>📋</div>
-          <div style={{fontSize:13,fontWeight:600}}>Nenhuma digitação</div>
-          <div style={{fontSize:12,color:C.muted}}>Vá em Operações → Importar</div>
-        </div>
-      : <>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <Stat label="Produção" value={fmtCur(tR)} color={C.accent}/>
-          <Stat label="Pago" value={fmtCur(fR)} color={C.accent2} sub={fin.length+' ops'}/>
-          <Stat label="Digitações" value={f.length}/>
-          <Stat label="Parceiros" value={ags.length}/>
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-            <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Situação</div>
-            {bySit.slice(0,7).map(([s,c]) =>
-              <div key={s} style={{marginBottom:5}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
-                  <span style={{color:sitColor(s),fontWeight:600}}>{s}</span>
-                  <span style={{color:C.muted}}>{c}</span>
-                </div>
-                <div style={{height:4,background:C.surface,borderRadius:2}}>
-                  <div style={{height:'100%',background:sitColor(s),borderRadius:2,width:(c/(f.length||1)*100)+'%'}}/>
-                </div>
-              </div>
-            )}
-          </div>
-          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-            <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Operações</div>
-            {byOp.map(([op,d]) =>
-              <div key={op} style={{marginBottom:6}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
-                  <span style={{fontWeight:600}}>{op}</span>
-                  <span style={{color:C.accent}}>{fmtCur(d.r)}</span>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <div style={{flex:1,height:5,background:C.surface,borderRadius:2}}>
-                    <div style={{height:'100%',background:C.accent,borderRadius:2,width:(d.r/(tR||1)*100)+'%'}}/>
-                  </div>
-                  <span style={{fontSize:8,color:C.muted}}>{d.c}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </>
-    }
+function Dashboard({ops}){const p=usePeriod();const f=p.filter(ops);const tR=f.reduce((s,o)=>s+(o.vrRepasse||0),0);const fin=f.filter(isFin);const fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0);const est=f.filter(isEstorno);const ags=[...new Set(f.map(o=>o.agente).filter(Boolean))]
+  const bySit=useMemo(()=>{const m={};f.forEach(o=>{const k=o.situacao||'?';m[k]=(m[k]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1])},[f])
+  const byOp=useMemo(()=>{const m={};f.forEach(o=>{const k=o.operacao||'?';if(!m[k])m[k]={r:0,c:0};m[k].r+=(o.vrRepasse||0);m[k].c++});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)},[f])
+  const topP=useMemo(()=>{const m={};f.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={r:0,c:0,fc:0};m[a].r+=(o.vrRepasse||0);m[a].c++;if(isFin(o))m[a].fc++});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r).slice(0,8)},[f])
+  const mo={};f.forEach(o=>{const m=o.data?.slice(0,7);if(m){if(!mo[m])mo[m]={r:0};mo[m].r+=(o.vrRepasse||0)}});const srt=Object.entries(mo).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12);const mx=Math.max(...srt.map(s=>s[1].r),1)
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2><PeriodBar p={p}/>
+    {!ops.length?<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:'36px 20px',textAlign:'center'}}><div style={{fontSize:32,marginBottom:8}}>📋</div><div style={{fontSize:13,fontWeight:600}}>Nenhuma digitação</div><div style={{fontSize:12,color:C.muted}}>Vá em Operações → Importar</div></div>:<>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Produção" value={fmtCur(tR)} color={C.accent}/><Stat label="Pago" value={fmtCur(fR)} color={C.accent2} sub={fin.length+' ops'}/><Stat label="Estornos" value={est.length} sub={fmtCur(est.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.danger}/><Stat label="Digitações" value={f.length}/><Stat label="Parceiros" value={ags.length}/></div>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:10}}>Produção Mensal</div><div style={{display:'flex',gap:3,alignItems:'flex-end',height:100}}>{srt.map(([m,v])=><div key={m} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}><div style={{fontSize:7,color:C.muted}}>{fmtCur(v.r)}</div><div style={{width:'100%',maxWidth:36,background:'linear-gradient(180deg,'+C.accent+','+C.accent2+')',borderRadius:4,height:Math.max(4,(v.r/mx)*85)+'%'}}/><div style={{fontSize:7,color:C.muted}}>{m.slice(5)}/{m.slice(2,4)}</div></div>)}</div></div>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Situação</div>{bySit.slice(0,7).map(([s,c])=><div key={s} style={{marginBottom:5}}><div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{color:sitCol(s),fontWeight:600}}>{s}</span><span style={{color:C.muted}}>{c}</span></div><div style={{height:4,background:C.surface,borderRadius:2}}><div style={{height:'100%',background:sitCol(s),borderRadius:2,width:(c/(f.length||1)*100)+'%'}}/></div></div>)}</div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Top Parceiros</div>{topP.map(([ag,d],i)=><div key={ag} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',borderBottom:'1px solid '+C.border}}><div style={{width:18,height:18,borderRadius:5,background:i<3?C.accent:C.surface,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:i<3?'#fff':C.muted,flexShrink:0}}>{i+1}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:10,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ag}</div><div style={{fontSize:8,color:C.muted}}>{d.c} dig · {d.fc} pagas</div></div><div style={{fontSize:10,fontWeight:700,color:C.accent2,flexShrink:0}}>{fmtCur(d.r)}</div></div>)}</div>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Operações</div>{byOp.map(([op,d])=><div key={op} style={{marginBottom:6}}><div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{fontWeight:600}}>{op}</span><span style={{color:C.accent}}>{fmtCur(d.r)}</span></div><div style={{display:'flex',alignItems:'center',gap:4}}><div style={{flex:1,height:5,background:C.surface,borderRadius:2}}><div style={{height:'100%',background:C.accent,borderRadius:2,width:(d.r/(tR||1)*100)+'%'}}/></div><span style={{fontSize:8,color:C.muted}}>{d.c}</span></div></div>)}</div>
+      </div>
+    </>}
   </div>
 }
 
 // ── OPERAÇÕES ─────────────────────────────────────────────────────
-function Operacoes({ops, onImport}) {
-  const [io,sio] = useState(false)
-  const [eo,seo] = useState(false)
-  const [se,sse] = useState('')
-  const [fs,sfs] = useState('')
-  const aS = [...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
-  const fd = ops
-    .filter(o => !fs||o.situacao===fs)
-    .filter(o => { if(!se) return true; const s=se.toLowerCase(); return (o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s) })
-    .sort((a,b) => (b.data||'').localeCompare(a.data||''))
-
-  return <div style={{display:'flex',flexDirection:'column',gap:12}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
-      <h2 style={{fontWeight:800,fontSize:20}}>Operações</h2>
-      <div style={{display:'flex',gap:6}}>
-        <Btn variant="ghost" onClick={()=>sio(true)}>📥 Importar</Btn>
-        <Btn variant="ghost" onClick={()=>seo(true)}>📤 Exportar</Btn>
-      </div>
-    </div>
-    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-      <input value={se} onChange={e=>sse(e.target.value)} placeholder="Buscar..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none',flex:1,minWidth:160,fontFamily:'Outfit'}}/>
-      <Field value={fs} onChange={sfs} options={aS} style={{minWidth:90}}/>
-    </div>
+function Operacoes({ops,onImport}){const[io,sio]=useState(false);const[eo,seo]=useState(false);const[se,sse]=useState('');const[fs,sfs]=useState('');const[fb,sfb]=useState('');const aS=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort();const aB=[...new Set(ops.map(o=>o.banco).filter(Boolean))].sort()
+  const fd=ops.filter(o=>(!fs||o.situacao===fs)&&(!fb||o.banco===fb)).filter(o=>{if(!se)return true;const s=se.toLowerCase();return(o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s)}).sort((a,b)=>(b.data||'').localeCompare(a.data||''))
+  return<div style={{display:'flex',flexDirection:'column',gap:12}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Operações</h2><div style={{display:'flex',gap:6}}><Btn variant="ghost" onClick={()=>sio(true)}>📥 Importar</Btn><Btn variant="ghost" onClick={()=>seo(true)}>📤 Exportar</Btn></div></div>
+    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}><input value={se} onChange={e=>sse(e.target.value)} placeholder="Buscar..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none',flex:1,minWidth:160,fontFamily:'Outfit'}}/><Field value={fs} onChange={sfs} options={aS} style={{minWidth:90}}/><Field value={fb} onChange={sfb} options={aB} style={{minWidth:90}}/></div>
     <div style={{fontSize:10,color:C.muted}}>{fd.length} registros — {fmtCur(fd.reduce((s,o)=>s+(o.vrRepasse||0),0))}</div>
-    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
-      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-        <thead><tr style={{background:C.surface}}>
-          {['Data','Cliente','Banco','Op.','Situação','Agente','Repasse'].map(h =>
-            <th key={h} style={{padding:'8px 9px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>
-          )}
-        </tr></thead>
-        <tbody>{fd.slice(0,300).map(o =>
-          <tr key={o.id} style={{borderBottom:'1px solid '+C.border}}>
-            <td style={{padding:'7px 9px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td>
-            <td style={{padding:'7px 9px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente||'—'}</td>
-            <td style={{padding:'7px 9px'}}>{o.banco}</td>
-            <td style={{padding:'7px 9px'}}>{o.operacao}</td>
-            <td style={{padding:'7px 9px'}}><Badge text={o.situacao||'—'} color={sitColor(o.situacao)}/></td>
-            <td style={{padding:'7px 9px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.agente}</td>
-            <td style={{padding:'7px 9px',fontWeight:600}}>{fmtCur(o.vrRepasse)}</td>
-          </tr>
-        )}</tbody>
-      </table>
-      {!fd.length && <div style={{padding:24,textAlign:'center',color:C.muted}}>Nenhuma digitação. Importe sua planilha.</div>}
-    </div>
-    <ImportModal open={io} onClose={()=>sio(false)} onImport={onImport}/>
-    <ExportModal open={eo} onClose={()=>seo(false)} ops={ops}/>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Data','Cliente','Banco','Op.','Situação','Conv.','Agente','Repasse'].map(h=><th key={h} style={{padding:'8px 9px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.slice(0,300).map(o=><tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td><td style={{padding:'7px 9px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente||'—'}</td><td style={{padding:'7px 9px'}}>{o.banco}</td><td style={{padding:'7px 9px'}}>{o.operacao}</td><td style={{padding:'7px 9px'}}><Badge text={o.situacao||'—'} color={sitCol(o.situacao)}/></td><td style={{padding:'7px 9px'}}>{o.convenio}</td><td style={{padding:'7px 9px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.agente}</td><td style={{padding:'7px 9px',fontWeight:600}}>{fmtCur(o.vrRepasse)}</td></tr>)}</tbody></table>{!fd.length&&<div style={{padding:24,textAlign:'center',color:C.muted}}>Nenhuma digitação. Importe sua planilha.</div>}</div>
+    <ImportModal open={io} onClose={()=>sio(false)} onImport={onImport}/><ExportModal open={eo} onClose={()=>seo(false)} ops={ops}/>
   </div>
 }
 
 // ── PRODUÇÃO ──────────────────────────────────────────────────────
-function Producao({ops}) {
-  const per = usePeriod(); const f = per.filter(ops)
-  const [tab,sTab] = useState('banco')
-  const tR = f.reduce((s,o)=>s+(o.vrRepasse||0),0)
-  const data = useMemo(() => {
-    const kFn = tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao
-    const m = {}
-    f.forEach(o => { const k=kFn(o)||'?'; if(!m[k]) m[k]={c:0,r:0,fc:0,fr:0}; m[k].c++; m[k].r+=(o.vrRepasse||0); if(isFinal(o)){m[k].fc++;m[k].fr+=(o.vrRepasse||0)} })
-    return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
-  }, [f,tab])
-
-  return <div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <h2 style={{fontWeight:800,fontSize:20}}>Produção</h2>
-    <PeriodBar p={per}/>
-    <div style={{display:'flex',gap:4}}>
-      {[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t =>
-        <button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,fontWeight:tab===t.id?600:400,cursor:'pointer',fontFamily:'Outfit'}}>{t.n}</button>
-      )}
-    </div>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <Stat label="Repasse" value={fmtCur(tR)} color={C.accent}/>
-      <Stat label="Digitações" value={f.length}/>
-    </div>
-    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
-      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-        <thead><tr style={{background:C.surface}}>
-          {[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Dig.','Repasse','%','Pago','Conv.'].map(h =>
-            <th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>
-          )}
-        </tr></thead>
-        <tbody>{data.map(([n,d]) => {
-          const pct=tR?(d.r/tR*100):0; const cv=d.c?(d.fc/d.c*100):0
-          return <tr key={n} style={{borderBottom:'1px solid '+C.border}}>
-            <td style={{padding:'8px 10px',fontWeight:700}}>{n}</td>
-            <td style={{padding:'8px 10px'}}>{d.c}</td>
-            <td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td>
-            <td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td>
-            <td style={{padding:'8px 10px',color:C.accent2,fontWeight:600}}>{fmtCur(d.fr)}</td>
-            <td style={{padding:'8px 10px'}}><span style={{fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</span></td>
-          </tr>
-        })}</tbody>
-      </table>
-    </div>
+function Producao({ops}){const per=usePeriod();const f=per.filter(ops);const[tab,sTab]=useState('banco');const tR=f.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const data=useMemo(()=>{const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao;const sFn=tab==='operacao'?o=>o.banco:o=>o.operacao;const m={};f.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0,fc:0,fr:0,subs:{},prc:{}};m[k].c++;m[k].r+=(o.vrRepasse||0);if(isFin(o)){m[k].fc++;m[k].fr+=(o.vrRepasse||0)}const sub=sFn(o)||'?';if(!m[k].subs[sub])m[k].subs[sub]={c:0,r:0};m[k].subs[sub].c++;m[k].subs[sub].r+=(o.vrRepasse||0);const ag=o.agente||'?';if(!m[k].prc[ag])m[k].prc[ag]={c:0,r:0};m[k].prc[ag].c++;m[k].prc[ag].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)},[f,tab])
+  const subL=tab==='operacao'?'Bancos':'Operações'
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><PeriodBar p={per}/>
+    <div style={{display:'flex',gap:4}}>{[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,fontWeight:tab===t.id?600:400,cursor:'pointer',fontFamily:'Outfit'}}>{t.n}</button>)}</div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Repasse" value={fmtCur(tR)} color={C.accent}/><Stat label="Digitações" value={f.length}/></div>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Dig.','Repasse','%','Pago','Conv.','Top Parceiro'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,d])=>{const pct=tR?(d.r/tR*100):0;const cv=d.c?(d.fc/d.c*100):0;const tp=Object.entries(d.prc).sort((a,b)=>b[1].r-a[1].r)[0];return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:700}}>{n}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td><td style={{padding:'8px 10px',color:C.accent2,fontWeight:600}}>{fmtCur(d.fr)}</td><td style={{padding:'8px 10px'}}><RateBar r={cv}/></td><td style={{padding:'8px 10px',fontSize:10}}>{tp?tp[0]:'—'}</td></tr>})}</tbody></table></div>
+    {data.length>0&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:10}}>{data.slice(0,12).map(([n,d])=>{const cv=d.c?(d.fc/d.c*100):0;const subs=Object.entries(d.subs).sort((a,b)=>b[1].r-a[1].r);const tops=Object.entries(d.prc).sort((a,b)=>b[1].r-a[1].r).slice(0,5);return<div key={n} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:13,fontWeight:700}}>{n}</span><span style={{fontSize:10,color:C.muted}}>{d.c}</span></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:10}}><div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>REPASSE</div><div style={{fontSize:12,fontWeight:700,color:C.accent}}>{fmtCur(d.r)}</div></div><div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PAGO</div><div style={{fontSize:12,fontWeight:700,color:C.accent2}}>{fmtCur(d.fr)}</div></div><div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>CONV.</div><div style={{fontSize:12,fontWeight:700,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</div></div></div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:3}}>{subL}</div>{subs.slice(0,5).map(([sb,sd])=><div key={sb} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{sb}</span><span style={{fontWeight:600}}>{fmtCur(sd.r)}</span></div>)}{tops.length>0&&<><div style={{fontSize:10,fontWeight:600,color:C.muted,marginTop:6,marginBottom:3}}>Top Parceiros</div>{tops.map(([ag,ad],i)=><div key={ag} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'1px 0'}}><span style={{color:i<3?C.accent:C.muted}}>{i+1}. {ag}</span><span style={{fontWeight:600}}>{fmtCur(ad.r)}</span></div>)}</>}</div>})}</div>}
   </div>
 }
 
-// ── RECEBIMENTOS ──────────────────────────────────────────────────
-function Recebimentos({ops}) {
-  const per = usePeriod(); const f = per.filter(ops)
-  const pend = useMemo(()=>f.filter(o=>o.crcCliente&&!o.dataNossoCredito),[f])
-  const rec = useMemo(()=>f.filter(o=>o.crcCliente&&o.dataNossoCredito),[f])
-  const pR = pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
-
-  const byBanco = useMemo(() => {
-    const m = {}
-    pend.forEach(o => { const b=o.banco||'?'; if(!m[b])m[b]={c:0,r:0}; m[b].c++; m[b].r+=(o.vrRepasse||0) })
-    return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
-  }, [pend])
-
-  return <div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <h2 style={{fontWeight:800,fontSize:20}}>Recebimentos Pendentes</h2>
-    <PeriodBar p={per}/>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <Stat label="Pendentes" value={pend.length} sub={fmtCur(pR)} color={C.danger}/>
-      <Stat label="Recebidas" value={rec.length} sub={fmtCur(rec.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/>
-    </div>
-    {!pend.length
-      ? <div style={{background:C.card,borderRadius:14,padding:28,textAlign:'center',color:C.muted}}>Nenhuma pendência (mapeie CRC CLIENTE e NOSSO CRÉDITO na importação)</div>
-      : <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-            <thead><tr style={{background:C.surface}}>
-              {['Banco','Qtd','Pendente'].map(h => <th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}
-            </tr></thead>
-            <tbody>{byBanco.map(([b,d]) =>
-              <tr key={b} style={{borderBottom:'1px solid '+C.border}}>
-                <td style={{padding:'8px 10px',fontWeight:700}}>{b}</td>
-                <td style={{padding:'8px 10px'}}>{d.c}</td>
-                <td style={{padding:'8px 10px',fontWeight:600,color:C.danger}}>{fmtCur(d.r)}</td>
-              </tr>
-            )}</tbody>
-          </table>
-        </div>
-    }
+// ── ESTRATÉGICO (per partner deep dive) ──────────────────────────
+function Estrategico({ops}){const per=usePeriod();const f=per.filter(ops);const[sel,sSel]=useState(null)
+  const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))]
+  const list=useMemo(()=>ags.map(a=>{const al=f.filter(o=>o.agente===a);const aT=ops.filter(o=>o.agente===a);const r=al.reduce((s,o)=>s+(o.vrRepasse||0),0);const fn=al.filter(isFin);const est=al.filter(isEstorno);const cv=al.length?(fn.length/al.length*100):0;const estR=est.length?(est.length/al.length*100):0
+    const bO={};al.forEach(o=>{const k=o.operacao||'?';if(!bO[k])bO[k]={c:0,r:0,fc:0};bO[k].c++;bO[k].r+=(o.vrRepasse||0);if(isFin(o))bO[k].fc++})
+    const bB={};al.forEach(o=>{const k=o.banco||'?';if(!bB[k])bB[k]={c:0,r:0,fc:0};bB[k].c++;bB[k].r+=(o.vrRepasse||0);if(isFin(o))bB[k].fc++})
+    const bS={};al.forEach(o=>{const k=o.situacao||'?';if(!bS[k])bS[k]={c:0,r:0};bS[k].c++;bS[k].r+=(o.vrRepasse||0)})
+    const mo={};aT.forEach(o=>{const m=o.data?.slice(0,7);if(m){if(!mo[m])mo[m]={r:0,c:0};mo[m].r+=(o.vrRepasse||0);mo[m].c++}})
+    const lo=[...aT].sort((a,b)=>(b.data||'').localeCompare(a.data||''))[0]
+    return{name:a,c:al.length,r,fC:fn.length,fR:fn.reduce((s,o)=>s+(o.vrRepasse||0),0),cv,estC:est.length,estR,bO:Object.entries(bO).sort((x,y)=>y[1].r-x[1].r),bB:Object.entries(bB).sort((x,y)=>y[1].r-x[1].r),bS:Object.entries(bS).sort((x,y)=>y[1].c-x[1].c),mo:Object.entries(mo).sort((x,y)=>x[0].localeCompare(y[0])).slice(-6),ld:lo?.data,tA:aT.length}
+  }).sort((a,b)=>b.r-a.r),[ags,f,ops])
+  const s=sel?list.find(l=>l.name===sel):null
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Visão Estratégica</h2><PeriodBar p={per}/>
+    {!s?<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Dig.','Repasse','Pagas','Conv.','Estornos','Última',''].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{list.map(p=><tr key={p.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>sSel(p.name)}><td style={{padding:'8px 10px',fontWeight:600}}>{p.name}</td><td style={{padding:'8px 10px'}}>{p.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(p.r)}</td><td style={{padding:'8px 10px',color:C.accent2}}>{p.fC}</td><td style={{padding:'8px 10px'}}><RateBar r={p.cv}/></td><td style={{padding:'8px 10px',color:p.estC>0?C.danger:C.muted}}>{p.estC} ({p.estR.toFixed(0)}%)</td><td style={{padding:'8px 10px'}}>{p.ld?fmtDate(p.ld):'—'}</td><td style={{padding:'8px 10px',color:C.accent}}>→</td></tr>)}</tbody></table>{!list.length&&<div style={{padding:24,textAlign:'center',color:C.muted}}>Importe digitações</div>}</div>
+    :<div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}><button onClick={()=>sSel(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.accent,padding:'5px 10px',cursor:'pointer',fontSize:11,fontFamily:'Outfit'}}>← Voltar</button><h3 style={{fontWeight:700,fontSize:17}}>{s.name}</h3></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitações" value={s.c}/><Stat label="Repasse" value={fmtCur(s.r)} color={C.accent}/><Stat label="Pagas" value={s.fC} sub={fmtCur(s.fR)} color={C.accent2}/><Stat label="Conv." value={s.cv.toFixed(1)+'%'} color={s.cv>=50?C.accent2:s.cv>=30?C.warn:C.danger}/><Stat label="Estornos" value={s.estC} sub={s.estR.toFixed(0)+'%'} color={s.estC>0?C.danger:C.muted}/><Stat label="Total Geral" value={s.tA}/></div>
+      {s.mo.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:10}}>Evolução</div><div style={{display:'flex',gap:5,alignItems:'flex-end',height:80}}>{(()=>{const mx=Math.max(...s.mo.map(([,v])=>v.r),1);return s.mo.map(([m,v])=><div key={m} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}><div style={{fontSize:7,color:C.muted}}>{fmtCur(v.r)}</div><div style={{width:'100%',maxWidth:34,background:'linear-gradient(180deg,'+C.accent+','+C.accent2+')',borderRadius:4,height:Math.max(4,(v.r/mx)*70)+'%'}}/><div style={{fontSize:7,color:C.muted}}>{m.slice(5)}</div></div>)})()}</div></div>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Operações</div>{s.bO.map(([op,d])=>{const rt=d.c?(d.fc/d.c*100):0;return<div key={op} style={{marginBottom:6}}><div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{fontWeight:600}}>{op}</span><span style={{color:C.accent}}>{fmtCur(d.r)}</span></div><div style={{fontSize:9,color:C.muted}}>{d.c} dig · {d.fc} pagas · <span style={{color:rt>=50?C.accent2:rt>=30?C.warn:C.danger,fontWeight:600}}>{rt.toFixed(0)}%</span></div></div>})}</div>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Bancos</div>{s.bB.map(([b,d])=>{const rt=d.c?(d.fc/d.c*100):0;return<div key={b} style={{marginBottom:6}}><div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{fontWeight:600}}>{b}</span><span style={{color:C.accent}}>{fmtCur(d.r)}</span></div><div style={{fontSize:9,color:C.muted}}>{d.c} dig · {d.fc} pagas · <span style={{color:rt>=50?C.accent2:rt>=30?C.warn:C.danger,fontWeight:600}}>{rt.toFixed(0)}%</span></div></div>})}</div>
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Situações</div><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{s.bS.map(([st,d])=><div key={st} style={{background:C.surface,borderRadius:8,padding:'8px 12px',border:'1px solid '+C.border}}><div style={{fontSize:15,fontWeight:700,color:sitCol(st)}}>{d.c}</div><div style={{fontSize:9,color:sitCol(st),fontWeight:600}}>{st}</div><div style={{fontSize:8,color:C.muted}}>{fmtCur(d.r)}</div></div>)}</div></div>
+      <div style={{background:C.card,border:'1px solid '+C.accent+'33',borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,color:C.accent,marginBottom:8}}>📌 Pontos para Conversa</div><div style={{display:'flex',flexDirection:'column',gap:4,fontSize:11}}>
+        {s.c===0&&<div style={{color:C.danger}}>⚠ Sem digitação no período</div>}
+        {s.cv<30&&s.c>0&&<div style={{color:C.danger}}>⚠ Conversão baixa ({s.cv.toFixed(0)}%) — revisar qualidade e estornos</div>}
+        {s.cv>=30&&s.cv<50&&s.c>0&&<div style={{color:C.warn}}>⚡ Conversão razoável ({s.cv.toFixed(0)}%) — alinhar bancos/produtos</div>}
+        {s.cv>=50&&s.c>0&&<div style={{color:C.accent2}}>✓ Boa conversão ({s.cv.toFixed(0)}%) — manter e aumentar volume</div>}
+        {s.estR>20&&<div style={{color:C.danger}}>⚠ {s.estC} estornos ({s.estR.toFixed(0)}% da produção) — URGENTE</div>}
+        {s.bO.length>0&&<div>📊 Principal op: <strong>{s.bO[0][0]}</strong> ({fmtCur(s.bO[0][1].r)})</div>}
+        {s.bB.length>0&&<div>🏦 Principal banco: <strong>{s.bB[0][0]}</strong></div>}
+        {s.mo.length>=2&&(()=>{const l=s.mo[s.mo.length-1][1].r,p=s.mo[s.mo.length-2][1].r,v=p?((l-p)/p*100):0;return v<-20?<div style={{color:C.danger}}>📉 Queda de {Math.abs(v).toFixed(0)}% último mês</div>:v>20?<div style={{color:C.accent2}}>📈 Crescimento de {v.toFixed(0)}%</div>:null})()}
+      </div></div>
+    </div>}
   </div>
 }
 
-// ── NAV ───────────────────────────────────────────────────────────
-const NAV = [
-  {id:'dashboard',l:'Dashboard',i:'📊'},
-  {id:'ops',l:'Operações',i:'💼'},
-  {id:'producao',l:'Produção',i:'🏦'},
-  {id:'recebimentos',l:'Recebimentos',i:'💰'},
-]
+// ── RANKING ───────────────────────────────────────────────────────
+function Ranking({ops}){const per=usePeriod();const f=per.filter(ops)
+  const data=useMemo(()=>{const ags=[...new Set(f.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=f.filter(o=>o.agente===a);const fn=al.filter(isFin);const est=al.filter(isEstorno);const r=al.reduce((s,o)=>s+(o.vrRepasse||0),0);const fR=fn.reduce((s,o)=>s+(o.vrRepasse||0),0);const cv=al.length?(fn.length/al.length*100):0;const eR=al.length?(est.length/al.length*100):0
+    const cuM=ops.filter(o=>o.agente===a&&o.data?.startsWith(CUR_M));const pvM=ops.filter(o=>o.agente===a&&o.data?.startsWith(PREV_M));const cuR=cuM.reduce((s,o)=>s+(o.vrRepasse||0),0);const pvR=pvM.reduce((s,o)=>s+(o.vrRepasse||0),0);const trend=pvR?((cuR-pvR)/pvR*100):(cuR>0?100:0)
+    return{name:a,c:al.length,r,fR,fC:fn.length,cv,estC:est.length,eR,cuC:cuM.length,cuR,trend}
+  }).sort((a,b)=>b.r-a.r)},[f,ops])
+  const maxR=Math.max(...data.map(d=>d.r),1)
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Ranking de Performance</h2><PeriodBar p={per}/>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['#','Parceiro','Dig.','Repasse','Share','Pago','Conv.','Estornos','Mês Atual','Tendência'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead><tbody>{data.map((d,i)=>{const share=maxR?(d.r/maxR*100):0;return<tr key={d.name} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px'}}><div style={{width:22,height:22,borderRadius:6,background:i<3?C.accent:C.surface,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</div></td><td style={{padding:'8px 10px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px'}}><div style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:60,height:6,background:C.surface,borderRadius:3}}><div style={{height:'100%',background:i<3?C.accent:C.accent+'66',borderRadius:3,width:share+'%'}}/></div></div></td><td style={{padding:'8px 10px',color:C.accent2,fontWeight:600}}>{fmtCur(d.fR)}</td><td style={{padding:'8px 10px'}}><RateBar r={d.cv}/></td><td style={{padding:'8px 10px',color:d.estC>0?C.danger:C.muted}}>{d.estC>0?d.estC+' ('+d.eR.toFixed(0)+'%)':'0'}</td><td style={{padding:'8px 10px'}}>{d.cuC} dig · {fmtCur(d.cuR)}</td><td style={{padding:'8px 10px',fontWeight:600,color:d.trend>0?C.accent2:d.trend<-20?C.danger:d.trend<0?C.warn:C.text}}>{d.trend>0?'+':''}{d.trend.toFixed(0)}%</td></tr>})}</tbody></table>{!data.length&&<div style={{padding:24,textAlign:'center',color:C.muted}}>Sem dados</div>}</div>
+  </div>
+}
+
+// ── PORTABILIDADE ────────────────────────────────────────────────
+function Portabilidade({ops}){const per=usePeriod();const f=per.filter(ops);const port=useMemo(()=>f.filter(o=>(o.operacao||'').toUpperCase()==='PORTABILIDADE'),[f])
+  const mk=fn=>{const m={};port.forEach(o=>{const k=fn(o)||'?';if(!m[k])m[k]={d:0,p:0,rd:0,rp:0};m[k].d++;m[k].rd+=(o.vrRepasse||0);if(isFin(o)){m[k].p++;m[k].rp+=(o.vrRepasse||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)}
+  const bB=useMemo(()=>mk(o=>o.banco),[port]);const bA=useMemo(()=>mk(o=>o.agente),[port])
+  const tD=port.length,tP=port.filter(isFin).length,cv=tD?(tP/tD*100):0
+  const TB=({d,nl})=><div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[nl,'Dig.','Pago','Conv.','Rep.Dig.','Rep.Pago'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{d.map(([n,x])=>{const r=x.d?(x.p/x.d*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n}</td><td style={{padding:'7px 9px'}}>{x.d}</td><td style={{padding:'7px 9px',color:C.accent2,fontWeight:600}}>{x.p}</td><td style={{padding:'7px 9px'}}><RateBar r={r}/></td><td style={{padding:'7px 9px'}}>{fmtCur(x.rd)}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.accent2}}>{fmtCur(x.rp)}</td></tr>})}</tbody></table></div>
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Portabilidade</h2><PeriodBar p={per}/>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s,o)=>s+(o.vrRepasse||0),0))}/><Stat label="Pago" value={tP} sub={fmtCur(port.filter(isFin).reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/><Stat label="Conv." value={cv.toFixed(1)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/></div>
+    {!port.length?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:'center',color:C.muted}}>Nenhuma PORTABILIDADE</div>:<><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><TB d={bB} nl="Banco"/></div><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><TB d={bA} nl="Parceiro"/></div></>}
+  </div>
+}
+
+// ── RECEBIMENTOS ─────────────────────────────────────────────────
+function Recebimentos({ops}){const per=usePeriod();const f=per.filter(ops);const[fB,sFB]=useState('')
+  const pend=useMemo(()=>f.filter(o=>o.crcCliente&&!o.dataNossoCredito),[f]);const rec=useMemo(()=>f.filter(o=>o.crcCliente&&o.dataNossoCredito),[f]);const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const byBanco=useMemo(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrRepasse||0);if(o.crcCliente)m[b].ds.push(Math.floor((NOW-new Date(o.crcCliente))/86400000))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,b)=>a+b,0)/d.ds.length):0})).sort((a,b)=>b.r-a.r)},[pend])
+  const aging=useMemo(()=>{const fx={'0-15d':0,'16-30d':0,'31-60d':0,'61-90d':0,'90+d':0};const fR={'0-15d':0,'16-30d':0,'31-60d':0,'61-90d':0,'90+d':0};pend.forEach(o=>{if(!o.crcCliente)return;const d=Math.floor((NOW-new Date(o.crcCliente))/86400000);const k=d<=15?'0-15d':d<=30?'16-30d':d<=60?'31-60d':d<=90?'61-90d':'90+d';fx[k]++;fR[k]+=(o.vrRepasse||0)});return Object.entries(fx).map(([f,c])=>({f,c,r:fR[f]}))},[pend])
+  const filt=fB?pend.filter(o=>o.banco===fB):pend
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Recebimentos Pendentes</h2><PeriodBar p={per}/>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Pendentes" value={pend.length} sub={fmtCur(pR)} color={C.danger}/><Stat label="Recebidas" value={rec.length} sub={fmtCur(rec.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/></div>
+    {!pend.length?<div style={{background:C.card,borderRadius:14,padding:28,textAlign:'center',color:C.muted}}>Nenhuma pendência (mapeie CRC CLIENTE e NOSSO CRÉDITO na importação)</div>:<>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Aging</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{aging.map(a=>{const col=a.f.includes('90')||a.f.includes('61')?C.danger:a.f.includes('31')?C.warn:C.info;return a.c>0?<div key={a.f} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:'10px 16px'}}><div style={{fontSize:18,fontWeight:700,color:col}}>{a.c}</div><div style={{fontSize:10,fontWeight:600,color:col}}>{a.f}</div><div style={{fontSize:9,color:C.muted}}>{fmtCur(a.r)}</div></div>:null})}</div></div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','Pendente','Média Dias'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{byBanco.map(b=><tr key={b.b} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:700}}>{b.b}</td><td style={{padding:'8px 10px'}}>{b.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.danger}}>{fmtCur(b.r)}</td><td style={{padding:'8px 10px',color:b.md>60?C.danger:b.md>30?C.warn:C.text}}>{b.md}d</td></tr>)}</tbody></table></div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}><div style={{fontSize:12,fontWeight:700}}>Analítico</div><Field value={fB} onChange={sFB} options={[...new Set(pend.map(o=>o.banco).filter(Boolean))].sort()} style={{minWidth:110}}/></div><div style={{overflowX:'auto',maxHeight:350,borderRadius:8,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Banco','Op.','Agente','Repasse','CRC','Dias'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{filt.slice(0,200).map(o=>{const d=o.crcCliente?Math.floor((NOW-new Date(o.crcCliente))/86400000):0;return<tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'5px 8px'}}>{o.cliente}</td><td style={{padding:'5px 8px'}}>{o.cpf}</td><td style={{padding:'5px 8px'}}>{o.banco}</td><td style={{padding:'5px 8px'}}>{o.operacao}</td><td style={{padding:'5px 8px'}}>{o.agente}</td><td style={{padding:'5px 8px',fontWeight:600,color:C.danger}}>{fmtCur(o.vrRepasse)}</td><td style={{padding:'5px 8px'}}>{fmtDate(o.crcCliente)}</td><td style={{padding:'5px 8px',fontWeight:600,color:d>90?C.danger:d>30?C.warn:C.text}}>{d}d</td></tr>})}</tbody></table></div></div>
+    </>}
+  </div>
+}
+
+// ── ESTORNOS ──────────────────────────────────────────────────────
+function Estornos({ops}){const per=usePeriod();const f=per.filter(ops);const est=useMemo(()=>f.filter(isEstorno),[f]);const total=f.length;const estR=est.reduce((s,o)=>s+(o.vrRepasse||0),0);const pctGeral=total?(est.length/total*100):0
+  const byBanco=useMemo(()=>{const m={};est.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0}; m[b].c++;m[b].r+=(o.vrRepasse||0)});const t={};f.forEach(o=>{const b=o.banco||'?';t[b]=(t[b]||0)+1});return Object.entries(m).map(([b,d])=>({b,...d,total:t[b]||0,pct:t[b]?(d.c/t[b]*100):0})).sort((a,b)=>b.c-a.c)},[est,f])
+  const byAgente=useMemo(()=>{const m={};est.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0};m[a].c++;m[a].r+=(o.vrRepasse||0)});const t={};f.forEach(o=>{const a=o.agente||'?';t[a]=(t[a]||0)+1});return Object.entries(m).map(([a,d])=>({a,...d,total:t[a]||0,pct:t[a]?(d.c/t[a]*100):0})).sort((a,b)=>b.pct-a.pct)},[est,f])
+  const bySit=useMemo(()=>{const m={};est.forEach(o=>{const s=o.situacao||'?';if(!m[s])m[s]={c:0,r:0};m[s].c++;m[s].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c)},[est])
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Análise de Estornos</h2><PeriodBar p={per}/>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Estornos" value={est.length} color={C.danger}/><Stat label="Repasse Perdido" value={fmtCur(estR)} color={C.danger}/><Stat label="% da Produção" value={pctGeral.toFixed(1)+'%'} color={pctGeral>20?C.danger:pctGeral>10?C.warn:C.accent2}/><Stat label="Total Digitações" value={total}/></div>
+    {!est.length?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:'center',color:C.muted}}>Nenhum estorno no período</div>:<>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco — quem mais estorna?</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Estornos','Total','% Estorno','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{byBanco.map(b=><tr key={b.b} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{b.b}</td><td style={{padding:'7px 9px',color:C.danger,fontWeight:600}}>{b.c}</td><td style={{padding:'7px 9px'}}>{b.total}</td><td style={{padding:'7px 9px'}}><RateBar r={100-b.pct} w={40}/></td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(b.r)}</td></tr>)}</tbody></table></div>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.danger}}>Parceiros com mais estornos (%)</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Est.','Total','%','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{byAgente.slice(0,15).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.a}</td><td style={{padding:'7px 9px',color:C.danger,fontWeight:600}}>{a.c}</td><td style={{padding:'7px 9px'}}>{a.total}</td><td style={{padding:'7px 9px',color:a.pct>20?C.danger:a.pct>10?C.warn:C.text,fontWeight:600}}>{a.pct.toFixed(0)}%</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(a.r)}</td></tr>)}</tbody></table></div>
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Tipos de Estorno</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{bySit.map(([s,d])=><div key={s} style={{background:C.surface,borderRadius:8,padding:'10px 16px',border:'1px solid '+C.border}}><div style={{fontSize:16,fontWeight:700,color:C.danger}}>{d.c}</div><div style={{fontSize:10,fontWeight:600,color:sitCol(s)}}>{s}</div><div style={{fontSize:9,color:C.muted}}>{fmtCur(d.r)}</div></div>)}</div></div>
+    </>}
+  </div>
+}
+
+// ── ALERTAS ───────────────────────────────────────────────────────
+function Alertas({ops}){const per=usePeriod();const f=per.filter(ops);const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))]
+  const st=useMemo(()=>ags.map(a=>{const al=f.filter(o=>o.agente===a);const cu=ops.filter(o=>o.agente===a&&o.data?.startsWith(CUR_M));const pv=ops.filter(o=>o.agente===a&&o.data?.startsWith(PREV_M));const cR=cu.reduce((s,o)=>s+(o.vrRepasse||0),0);const pR=pv.reduce((s,o)=>s+(o.vrRepasse||0),0);const vr=pR?((cR-pR)/pR*100):(cR>0?100:0);const lo=[...ops.filter(o=>o.agente===a)].sort((a,b)=>(b.data||'').localeCompare(a.data||''))[0];const ds=lo?Math.floor((NOW-new Date(lo.data))/86400000):999;const fn=al.filter(isFin);const est=al.filter(isEstorno);let a2='ok';if(cu.length===0&&pv.length>0)a2='inactive';else if(vr<=-30)a2='drop';else if(est.length>al.length*0.3&&al.length>5)a2='estorno';return{nm:a,cc:cu.length,pc:pv.length,cR,pR,vr,ds,ld:lo?.data,a2,fc:al.length,fr:al.reduce((s,o)=>s+(o.vrRepasse||0),0),cv:al.length?(fn.length/al.length*100):0,estC:est.length,estP:al.length?(est.length/al.length*100):0}}).sort((a,b)=>{const o={inactive:0,drop:1,estorno:2,ok:3};return(o[a.a2]??4)-(o[b.a2]??4)}),[ags,f,ops])
+  const ac=st.filter(s=>s.a2!=='ok').length
+  const days=[];for(let i=29;i>=0;i--){const d=new Date(NOW);d.setDate(d.getDate()-i);const ds=d.toISOString().split('T')[0];days.push({d:ds,c:ops.filter(o=>o.data===ds).length})}const mxC=Math.max(...days.map(d=>d.c),1)
+  if(!ops.length)return<div style={{padding:28,textAlign:'center',color:C.muted}}>Importe digitações</div>
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Alertas e Monitoramento</h2><PeriodBar p={per}/>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Mês Atual" value={ops.filter(o=>o.data?.startsWith(CUR_M)).length}/><Stat label="Parados" value={st.filter(s=>s.a2==='inactive').length} color={C.danger}/><Stat label="Em Queda" value={st.filter(s=>s.a2==='drop').length} color={C.warn}/><Stat label="Alto Estorno" value={st.filter(s=>s.a2==='estorno').length} color={C.danger}/><Stat label="Total Alertas" value={ac} color={ac?C.danger:C.accent2}/></div>
+    {ac>0&&<div style={{background:'#EF444418',border:'1px solid '+C.danger+'33',borderRadius:12,padding:14}}><div style={{fontSize:12,fontWeight:700,color:C.danger,marginBottom:6}}>⚠ Parceiros que precisam de ação</div>{st.filter(s=>s.a2!=='ok').map(s=><div key={s.nm} style={{fontSize:11,padding:'3px 0',display:'flex',gap:8,alignItems:'center'}}><span style={{color:s.a2==='inactive'?C.danger:s.a2==='estorno'?C.danger:C.warn}}>{s.a2==='inactive'?'🔴':s.a2==='estorno'?'🔴':'🟡'}</span><strong>{s.nm}</strong><span style={{color:C.muted}}>— {s.a2==='inactive'?'Parado (última: '+(s.ld?fmtDate(s.ld):'nunca')+')':s.a2==='estorno'?s.estC+' estornos ('+s.estP.toFixed(0)+'%) — CONVERSAR':'Queda de '+Math.abs(s.vr).toFixed(0)+'% vs mês anterior'}</span></div>)}</div>}
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}><div style={{fontSize:11,fontWeight:600,marginBottom:10}}>Digitações/dia (30d)</div><div style={{display:'flex',gap:2,alignItems:'flex-end',height:80}}>{days.map(d=><div key={d.d} style={{flex:1}} title={fmtDate(d.d)+': '+d.c}><div style={{width:'100%',background:d.d===TODAY?C.accent:C.accent+'55',borderRadius:2,height:Math.max(2,(d.c/mxC)*70)+'%'}}/></div>)}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:8,color:C.muted}}>{fmtDate(days[0]?.d)}</span><span style={{fontSize:8,color:C.accent}}>Hoje</span></div></div>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface}}>{['','Parceiro','Período','Repasse','Mês','Ant.','Var.','Conv.','Estornos','Última','Dias'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{st.map(s=>{const ic=s.a2==='inactive'?'🔴':s.a2==='drop'?'🟡':s.a2==='estorno'?'🔴':'↗';const vc=s.vr>0?C.accent2:s.vr<-30?C.danger:s.vr<0?C.warn:C.text;return<tr key={s.nm} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 8px',fontSize:12}}>{ic}</td><td style={{padding:'7px 8px',fontWeight:600,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.nm}</td><td style={{padding:'7px 8px'}}>{s.fc}</td><td style={{padding:'7px 8px',fontWeight:600,color:C.accent}}>{fmtCur(s.fr)}</td><td style={{padding:'7px 8px'}}>{s.cc}</td><td style={{padding:'7px 8px'}}>{s.pc}</td><td style={{padding:'7px 8px',fontWeight:600,color:vc}}>{s.vr>0?'+':''}{s.vr.toFixed(0)}%</td><td style={{padding:'7px 8px'}}><span style={{color:s.cv>=50?C.accent2:s.cv>=30?C.warn:C.danger,fontWeight:600}}>{s.cv.toFixed(0)}%</span></td><td style={{padding:'7px 8px',color:s.estC>0?C.danger:C.muted}}>{s.estC>0?s.estC+' ('+s.estP.toFixed(0)+'%)':'0'}</td><td style={{padding:'7px 8px'}}>{s.ld?fmtDate(s.ld):'—'}</td><td style={{padding:'7px 8px',color:s.ds>30?C.danger:s.ds>14?C.warn:C.text}}>{s.ds<999?s.ds+'d':'—'}</td></tr>})}</tbody></table></div>
+  </div>
+}
 
 // ── LOGIN ─────────────────────────────────────────────────────────
-function Login({onLogin}) {
-  const [u,setU] = useState('')
-  const [p,setP] = useState('')
-  const [err,setErr] = useState('')
-  function go() {
-    if(u.trim().length>=2 && p.trim().length>=2) onLogin({name:u.trim(),role:'Gestor'})
-    else setErr('Preencha nome e senha')
-  }
-  return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg}}>
+function Login({onLogin}){const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('')
+  return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg}}>
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',width:370}}>
-      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
-        <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div>
-        <h1 style={{fontSize:22,fontWeight:800}}>OpsManager</h1>
-      </div>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800}}>OpsManager</h1></div>
       <p style={{color:C.muted,fontSize:12,marginBottom:28}}>Gestão de Digitações</p>
-      {err && <div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{err}</div>}
+      {err&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{err}</div>}
       <Field label="Usuário" value={u} onChange={v=>{setU(v);setErr('')}} placeholder="Seu nome"/>
       <div style={{height:8}}/>
       <Field label="Senha" value={p} onChange={v=>{setP(v);setErr('')}} type="password" placeholder="Sua senha"/>
       <div style={{height:16}}/>
-      <Btn onClick={go} style={{width:'100%',padding:'11px 0',fontSize:13,borderRadius:10}}>Entrar</Btn>
+      <Btn onClick={()=>{if(u.trim().length>=2&&p.trim().length>=2)onLogin({name:u.trim(),role:'Gestor'});else setErr('Preencha nome e senha')}} style={{width:'100%',padding:'11px 0',fontSize:13,borderRadius:10}}>Entrar</Btn>
     </div>
   </div>
 }
 
-// ── MAIN APP ──────────────────────────────────────────────────────
-export default function App() {
-  const [user,setUser] = useState(null)
-  const [ops,setOps] = useState([])
-  const [view,setView] = useState('dashboard')
-  const [status,setStatus] = useState('')
+// ── NAV & MAIN ────────────────────────────────────────────────────
+const NAV=[
+  {id:'dashboard',l:'Dashboard',i:'📊'},
+  {id:'ops',l:'Operações',i:'💼'},
+  {id:'producao',l:'Produção',i:'🏦'},
+  {id:'estrategico',l:'Estratégico',i:'🤝'},
+  {id:'ranking',l:'Ranking',i:'🏆'},
+  {id:'portabilidade',l:'Portabilidade',i:'🔄'},
+  {id:'recebimentos',l:'Recebimentos',i:'💰'},
+  {id:'estornos',l:'Estornos',i:'⚠'},
+  {id:'alertas',l:'Alertas',i:'📈'},
+]
 
-  // Load data from Supabase on mount
-  useEffect(() => {
+export default function App(){
+  const[user,setUser]=useState(null);const[ops,setOps]=useState([]);const[view,setView]=useState('dashboard');const[status,setStatus]=useState('')
+
+  useEffect(()=>{
     setStatus('loading')
     supabase.from('digitacoes').select('*').order('data',{ascending:false})
-      .then(({data,error}) => {
-        if(error) { console.error(error); setStatus('error') }
-        else { setOps((data||[]).map(fromDb)); setStatus('') }
-      })
-      .catch(e => { console.error(e); setStatus('error') })
-  }, [])
+      .then(({data,error})=>{if(error){console.error(error);setStatus('error')}else{setOps((data||[]).map(fromDb));setStatus('')}})
+      .catch(e=>{console.error(e);setStatus('error')})
+  },[])
 
-  // Import handler
-  async function handleImport(rows) {
+  async function handleImport(rows){
     setStatus('saving')
-    try {
-      for(let i=0; i<rows.length; i+=500) {
-        const batch = rows.slice(i,i+500).map(toDb)
-        const {error} = await supabase.from('digitacoes').insert(batch)
-        if(error) throw error
-      }
-      // Reload
-      const {data} = await supabase.from('digitacoes').select('*').order('data',{ascending:false})
-      setOps((data||[]).map(fromDb))
-      setStatus('')
-    } catch(e) { console.error(e); setStatus('error') }
+    try{
+      for(let i=0;i<rows.length;i+=500){const batch=rows.slice(i,i+500).map(toDb);const{error}=await supabase.from('digitacoes').insert(batch);if(error)throw error}
+      const{data}=await supabase.from('digitacoes').select('*').order('data',{ascending:false});setOps((data||[]).map(fromDb));setStatus('')
+    }catch(e){console.error(e);setStatus('error')}
   }
 
-  if(!user) return <Login onLogin={setUser}/>
+  if(!user)return<Login onLogin={setUser}/>
 
-  return <div style={{display:'flex',minHeight:'100vh'}}>
-    {/* Sidebar */}
-    <div style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
-      <div style={{padding:'20px 14px 10px'}}>
-        <div style={{display:'flex',alignItems:'center',gap:7}}>
-          <div style={{width:26,height:26,borderRadius:7,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>O</div>
-          <h1 style={{fontSize:14,fontWeight:800}}>OpsManager</h1>
+  const pendR=ops.filter(o=>o.crcCliente&&!o.dataNossoCredito).length
+  const estC=ops.filter(isEstorno).length
+
+  return<>
+    <div style={{display:'flex',minHeight:'100vh'}}>
+      <div style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
+        <div style={{padding:'20px 14px 10px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:7}}><div style={{width:26,height:26,borderRadius:7,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:14,fontWeight:800}}>OpsManager</h1></div>
+          <div style={{fontSize:9,color:C.muted,marginTop:2,marginLeft:33}}>
+            {ops.length} digitações
+            {status==='loading'&&' · Carregando...'}{status==='saving'&&' · 💾'}{status==='error'&&' · ⚠'}
+          </div>
+          <div style={{fontSize:8,color:C.accent2,marginTop:2,marginLeft:33}}>● Supabase</div>
         </div>
-        <div style={{fontSize:9,color:C.muted,marginTop:2,marginLeft:33}}>
-          {ops.length} digitações
-          {status==='loading' && ' · Carregando...'}
-          {status==='saving' && ' · 💾 Salvando...'}
-          {status==='error' && ' · ⚠ Erro'}
-        </div>
-        <div style={{fontSize:8,color:C.accent2,marginTop:2,marginLeft:33}}>● Supabase</div>
+        <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>
+          {NAV.map(n=>{const a=view===n.id;const badge=n.id==='recebimentos'?pendR:n.id==='estornos'?estC:0;const bCol=n.id==='recebimentos'?C.warn:C.danger
+            return<button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:a?C.abg:'transparent',color:a?C.accent:C.muted,fontFamily:'Outfit',fontSize:11,fontWeight:a?600:400,cursor:'pointer',textAlign:'left'}}>
+              <span style={{fontSize:13}}>{n.i}</span>{n.l}
+              {badge>0&&<span style={{marginLeft:'auto',background:bCol,color:'#fff',fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:6}}>{badge}</span>}
+            </button>
+          })}
+        </nav>
+        <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.name}</div><div style={{fontSize:9,color:C.muted,marginBottom:4}}>{user.role}</div><button onClick={()=>setUser(null)} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
       </div>
-      <nav style={{flex:1,padding:'2px 7px'}}>
-        {NAV.map(n => {
-          const a = view===n.id
-          return <button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:a?C.abg:'transparent',color:a?C.accent:C.muted,fontFamily:'Outfit',fontSize:11,fontWeight:a?600:400,cursor:'pointer',textAlign:'left'}}>
-            <span style={{fontSize:13}}>{n.i}</span>{n.l}
-          </button>
-        })}
-      </nav>
-      <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}>
-        <div style={{fontSize:11,fontWeight:600}}>{user.name}</div>
-        <div style={{fontSize:9,color:C.muted,marginBottom:4}}>{user.role}</div>
-        <button onClick={()=>setUser(null)} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button>
+      <div style={{flex:1,padding:'20px 24px',overflowY:'auto',maxWidth:'calc(100vw - 195px)'}}>
+        {view==='dashboard'&&<Dashboard ops={ops}/>}
+        {view==='ops'&&<Operacoes ops={ops} onImport={handleImport}/>}
+        {view==='producao'&&<Producao ops={ops}/>}
+        {view==='estrategico'&&<Estrategico ops={ops}/>}
+        {view==='ranking'&&<Ranking ops={ops}/>}
+        {view==='portabilidade'&&<Portabilidade ops={ops}/>}
+        {view==='recebimentos'&&<Recebimentos ops={ops}/>}
+        {view==='estornos'&&<Estornos ops={ops}/>}
+        {view==='alertas'&&<Alertas ops={ops}/>}
       </div>
     </div>
-    {/* Content */}
-    <div style={{flex:1,padding:'20px 24px',overflowY:'auto',maxWidth:'calc(100vw - 195px)'}}>
-      {view==='dashboard' && <Dashboard ops={ops}/>}
-      {view==='ops' && <Operacoes ops={ops} onImport={handleImport}/>}
-      {view==='producao' && <Producao ops={ops}/>}
-      {view==='recebimentos' && <Recebimentos ops={ops}/>}
-    </div>
-  </div>
+  </>
 }
