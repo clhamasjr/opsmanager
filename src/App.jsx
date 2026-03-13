@@ -24,7 +24,13 @@ function fmtDate(d) {
   return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d
 }
 function isFin(o) {
-  return ['FINALIZADO', 'PAGO', 'AVERBADO', 'CONCRETIZADO', 'PAGO C/ PENDENCIA', 'PAGO C/ PENDÊNCIA', 'FINALIZADO / PAGO', 'PAGO AO CLIENTE'].includes((o.situacaoBanco || '').toUpperCase())
+  return !!(o.crcCliente && o.crcCliente !== '' && o.crcCliente !== '—')
+}
+function isPendReceb(o) {
+  return isFin(o) && (!o.dataNossoCredito || o.dataNossoCredito === '' || o.dataNossoCredito === '—')
+}
+function isRecebido(o) {
+  return isFin(o) && !!(o.dataNossoCredito && o.dataNossoCredito !== '' && o.dataNossoCredito !== '—')
 }
 function isEst(o) {
   return ['ESTORNADO', 'CANCELADO', 'CANCELADA', 'RECUSADA', 'REPROVADA', 'REPROVADO', 'NEGADO', 'NEGADA'].includes((o.situacao || '').toUpperCase())
@@ -52,6 +58,46 @@ function pNum(v) {
   if (v == null || v === '') return 0
   if (typeof v === 'number') return v
   return parseFloat(String(v).replace(/[R$\s.]/g, '').replace(',', '.')) || 0
+}
+
+/* ── DIAS ÚTEIS ── */
+function isBusinessDay(d) {
+  const day = d.getDay()
+  return day !== 0 && day !== 6
+}
+function countBusinessDays(start, end) {
+  let count = 0
+  const d = new Date(start)
+  while (d <= end) {
+    if (isBusinessDay(d)) count++
+    d.setDate(d.getDate() + 1)
+  }
+  return count
+}
+function getMonthProjection(ops) {
+  const y = NOW.getFullYear(), m = NOW.getMonth()
+  const firstDay = new Date(y, m, 1)
+  const lastDay = new Date(y, m + 1, 0)
+  const yesterday = new Date(NOW); yesterday.setDate(yesterday.getDate() - 1)
+  
+  const duTotal = countBusinessDays(firstDay, lastDay)
+  const duPassados = countBusinessDays(firstDay, yesterday < firstDay ? firstDay : yesterday)
+  const duRestantes = duTotal - duPassados
+  
+  const mesStr = NOW.toISOString().slice(0, 7)
+  const opsMes = ops.filter((o) => o.data && o.data.startsWith(mesStr))
+  const repMes = opsMes.reduce((s, o) => s + (o.vrRepasse || 0), 0)
+  const digMes = opsMes.length
+  
+  const mediaDiaRep = duPassados > 0 ? repMes / duPassados : 0
+  const mediaDiaDig = duPassados > 0 ? digMes / duPassados : 0
+  const projecaoRep = mediaDiaRep * duTotal
+  const projecaoDig = Math.round(mediaDiaDig * duTotal)
+  
+  const finMes = opsMes.filter(isFin)
+  const repPago = finMes.reduce((s, o) => s + (o.vrRepasse || 0), 0)
+  
+  return { duTotal, duPassados, duRestantes, repMes, digMes, mediaDiaRep, mediaDiaDig, projecaoRep, projecaoDig, repPago, finCount: finMes.length, mesStr }
 }
 
 /* ── DB MAPPING ── */
@@ -111,6 +157,7 @@ function usePeriod() {
     mes: { f: fmt(new Date(y, mo, 1)), t: fmt(new Date(y, mo + 1, 0)), n: 'Mês Atual' },
     ant: { f: fmt(new Date(y, mo - 1, 1)), t: fmt(new Date(y, mo, 0)), n: 'Mês Anterior' },
     tri: { f: fmt(new Date(y, mo - 2, 1)), t: fmt(new Date(y, mo + 1, 0)), n: 'Trimestre' },
+    sem: { f: fmt(new Date(y, mo - 5, 1)), t: fmt(new Date(y, mo + 1, 0)), n: 'Semestre' },
     ano: { f: y + '-01-01', t: y + '-12-31', n: String(y) },
     tudo: { f: '2000-01-01', t: '2099-12-31', n: 'Tudo' }
   }
@@ -127,7 +174,7 @@ function usePeriod() {
 function PeriodBar({ p }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
         {Object.entries(p.pr).map(([k, v]) => (
           <button key={k} onClick={() => p.setPer(k)} style={{
             padding: '4px 10px', borderRadius: 6,
@@ -137,7 +184,26 @@ function PeriodBar({ p }) {
             fontSize: 10, cursor: 'pointer', fontFamily: 'Outfit,sans-serif'
           }}>{v.n}</button>
         ))}
+        <button onClick={() => p.setPer('custom')} style={{
+          padding: '4px 10px', borderRadius: 6,
+          border: '1px solid ' + (p.per === 'custom' ? C.accent : C.border),
+          background: p.per === 'custom' ? C.abg : 'transparent',
+          color: p.per === 'custom' ? C.accent : C.muted,
+          fontSize: 10, cursor: 'pointer', fontFamily: 'Outfit,sans-serif'
+        }}>Personalizado</button>
       </div>
+      {p.per === 'custom' && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <label style={{ fontSize: 9, color: C.muted, fontWeight: 600 }}>DE</label>
+            <input type="date" value={p.df} onChange={(e) => p.setDf(e.target.value)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 7, color: C.text, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'Outfit,sans-serif' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <label style={{ fontSize: 9, color: C.muted, fontWeight: 600 }}>ATÉ</label>
+            <input type="date" value={p.dt} onChange={(e) => p.setDt(e.target.value)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 7, color: C.text, padding: '6px 10px', fontSize: 11, outline: 'none', fontFamily: 'Outfit,sans-serif' }} />
+          </div>
+        </div>
+      )}
       <div style={{ fontSize: 10, color: C.muted }}>Período: <strong style={{ color: C.text }}>{p.label}</strong></div>
     </div>
   )
@@ -313,6 +379,10 @@ function Dashboard({ ops }) {
   const tR = f.reduce((s, o) => s + (o.vrRepasse || 0), 0)
   const fin = f.filter(isFin)
   const fR = fin.reduce((s, o) => s + (o.vrRepasse || 0), 0)
+  const pendR = f.filter(isPendReceb)
+  const pendRR = pendR.reduce((s, o) => s + (o.vrRepasse || 0), 0)
+  const receb = f.filter(isRecebido)
+  const recebR = receb.reduce((s, o) => s + (o.vrRepasse || 0), 0)
   const est = f.filter(isEst)
   const ags = [...new Set(f.map((o) => o.agente).filter(Boolean))]
   const bySit = useMemo(() => {
@@ -323,6 +393,15 @@ function Dashboard({ ops }) {
     const m = {}; f.forEach((o) => { const a = o.agente || '?'; if (!m[a]) m[a] = { r: 0, c: 0, fc: 0 }; m[a].r += (o.vrRepasse || 0); m[a].c++; if (isFin(o)) m[a].fc++ })
     return Object.entries(m).sort((a, b) => b[1].r - a[1].r).slice(0, 8)
   }, [f])
+  const byOp = useMemo(() => {
+    const m = {}; f.forEach((o) => { const k = o.operacao || '?'; if (!m[k]) m[k] = { r: 0, c: 0 }; m[k].r += (o.vrRepasse || 0); m[k].c++ })
+    return Object.entries(m).sort((a, b) => b[1].r - a[1].r)
+  }, [f])
+  const monthly = useMemo(() => {
+    const m = {}; f.forEach((o) => { const mo = o.data?.slice(0, 7); if (mo) { if (!m[mo]) m[mo] = { r: 0, c: 0 }; m[mo].r += (o.vrRepasse || 0); m[mo].c++ } })
+    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0])).slice(-12)
+  }, [f])
+  const mxM = Math.max(...monthly.map(([, v]) => v.r), 1)
 
   if (!ops.length) return <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: '36px 20px', textAlign: 'center' }}><div style={{ fontSize: 32, marginBottom: 8 }}>📋</div><div style={{ fontSize: 13, fontWeight: 600 }}>Nenhuma digitação</div><div style={{ fontSize: 12, color: C.muted }}>Vá em Operações → Importar</div></div>
 
@@ -332,11 +411,68 @@ function Dashboard({ ops }) {
       <PeriodBar p={p} />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Stat label="Produção" value={fmtCur(tR)} color={C.accent} />
-        <Stat label="Pago" value={fmtCur(fR)} color={C.accent2} sub={fin.length + ' ops'} />
-        <Stat label="Estornos" value={est.length} color={C.danger} />
+        <Stat label="Pago (CRC)" value={fmtCur(fR)} color={C.accent2} sub={fin.length + ' ops'} />
+        <Stat label="Pend. Receber" value={fmtCur(pendRR)} color={C.warn} sub={pendR.length + ' ops'} />
+        <Stat label="Recebido" value={fmtCur(recebR)} color={C.info} sub={receb.length + ' ops'} />
+        <Stat label="Estornos" value={est.length} sub={fmtCur(est.reduce((s, o) => s + (o.vrRepasse || 0), 0))} color={C.danger} />
         <Stat label="Digitações" value={f.length} />
         <Stat label="Parceiros" value={ags.length} />
       </div>
+
+      {/* PROJEÇÃO MÊS ATUAL */}
+      {(() => {
+        const proj = getMonthProjection(ops)
+        const pctDU = proj.duTotal ? (proj.duPassados / proj.duTotal * 100) : 0
+        return (
+          <div style={{ background: C.card, border: '1px solid ' + C.accent + '44', borderRadius: 14, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>📅 Projeção Mês Atual</div>
+              <div style={{ fontSize: 10, color: C.muted }}>
+                {proj.duPassados}/{proj.duTotal} dias úteis ({pctDU.toFixed(0)}%) · Restam <strong style={{ color: C.accent }}>{proj.duRestantes}</strong> DU
+              </div>
+            </div>
+            <div style={{ height: 6, background: C.surface, borderRadius: 4, marginBottom: 14 }}>
+              <div style={{ height: '100%', background: 'linear-gradient(90deg,' + C.accent + ',' + C.accent2 + ')', borderRadius: 4, width: pctDU + '%', transition: 'width 0.3s' }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, textTransform: 'uppercase', marginBottom: 2 }}>Realizado</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.accent }}>{fmtCur(proj.repMes)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>{proj.digMes} digitações</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, textTransform: 'uppercase', marginBottom: 2 }}>Projeção Mês</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.accent2 }}>{fmtCur(proj.projecaoRep)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>~{proj.projecaoDig} digitações</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, textTransform: 'uppercase', marginBottom: 2 }}>Média/DU</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtCur(proj.mediaDiaRep)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>{proj.mediaDiaDig.toFixed(1)} dig/dia</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, textTransform: 'uppercase', marginBottom: 2 }}>Pago no Mês</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.accent2 }}>{fmtCur(proj.repPago)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>{proj.finCount} ops finalizadas</div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+      {monthly.length > 0 && (
+        <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Produção Mensal</div>
+          <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 100 }}>
+            {monthly.map(([m, v]) => (
+              <div key={m} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <div style={{ fontSize: 7, color: C.muted }}>{fmtCur(v.r)}</div>
+                <div style={{ width: '100%', maxWidth: 36, background: 'linear-gradient(180deg,' + C.accent + ',' + C.accent2 + ')', borderRadius: 4, height: Math.max(4, (v.r / mxM) * 85) + '%' }} />
+                <div style={{ fontSize: 7, color: C.muted }}>{m.slice(5)}/{m.slice(2, 4)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Situação</div>
@@ -363,32 +499,70 @@ function Dashboard({ ops }) {
           ))}
         </div>
       </div>
+      {byOp.length > 0 && (
+        <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Por Operação</div>
+          {byOp.map(([op, d]) => (
+            <div key={op} style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
+                <span style={{ fontWeight: 600 }}>{op}</span>
+                <span style={{ color: C.accent }}>{fmtCur(d.r)} <span style={{ color: C.muted }}>({d.c})</span></span>
+              </div>
+              <div style={{ height: 5, background: C.surface, borderRadius: 2 }}>
+                <div style={{ height: '100%', background: C.accent, borderRadius: 2, width: (d.r / (tR || 1) * 100) + '%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 function Operacoes({ ops, onImport }) {
   const [io, sio] = useState(false)
+  const [eo, seo] = useState(false)
   const [se, sse] = useState('')
   const [fs, sfs] = useState('')
+  const [fb, sfb] = useState('')
   const aS = [...new Set(ops.map((o) => o.situacao).filter(Boolean))].sort()
-  const fd = ops.filter((o) => !fs || o.situacao === fs).filter((o) => {
+  const aB = [...new Set(ops.map((o) => o.banco).filter(Boolean))].sort()
+  const fd = ops.filter((o) => (!fs || o.situacao === fs) && (!fb || o.banco === fb)).filter((o) => {
     if (!se) return true
     const s = se.toLowerCase()
     return (o.cliente || '').toLowerCase().includes(s) || (o.agente || '').toLowerCase().includes(s) || (o.cpf || '').includes(s)
   }).sort((a, b) => (b.data || '').localeCompare(a.data || ''))
 
+  function doExport() {
+    const ws = XLSX.utils.json_to_sheet(fd.map((o) => ({
+      Data: o.data, Banco: o.banco, CPF: o.cpf, Cliente: o.cliente, Proposta: o.proposta,
+      'Operação': o.operacao, 'Situação': o.situacao, 'Convênio': o.convenio, Agente: o.agente,
+      Repasse: o.vrRepasse, Bruto: o.vrBruto, 'Sit.Banco': o.situacaoBanco,
+      CRC: o.crcCliente, 'Nosso Crédito': o.dataNossoCredito
+    })))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Digitações')
+    XLSX.writeFile(wb, 'digitacoes_' + TODAY + '.xlsx')
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ fontWeight: 800, fontSize: 20 }}>Operações</h2>
-        <button onClick={() => sio(true)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, color: C.text, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>📥 Importar</button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => sio(true)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, color: C.text, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>📥 Importar</button>
+          <button onClick={doExport} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, color: C.text, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>📤 Exportar</button>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <input value={se} onChange={(e) => sse(e.target.value)} placeholder="Buscar..." style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 7, color: C.text, padding: '7px 12px', fontSize: 12, outline: 'none', flex: 1, minWidth: 160 }} />
         <select value={fs} onChange={(e) => sfs(e.target.value)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 7, color: C.text, padding: '7px 11px', fontSize: 12 }}>
           <option value="">— Situação —</option>
           {aS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={fb} onChange={(e) => sfb(e.target.value)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 7, color: C.text, padding: '7px 11px', fontSize: 12 }}>
+          <option value="">— Banco —</option>
+          {aB.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
       </div>
       <div style={{ fontSize: 10, color: C.muted }}>{fd.length} registros — {fmtCur(fd.reduce((s, o) => s + (o.vrRepasse || 0), 0))}</div>
@@ -440,10 +614,56 @@ function Producao({ ops }) {
           <button key={t.id} onClick={() => sTab(t.id)} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid ' + (tab === t.id ? C.accent : C.border), background: tab === t.id ? C.abg : 'transparent', color: tab === t.id ? C.accent : C.muted, fontSize: 11, cursor: 'pointer' }}>{t.n}</button>
         ))}
       </div>
+
+      {/* PROJEÇÃO MENSAL */}
+      {(() => {
+        const proj = getMonthProjection(ops)
+        const pctDU = proj.duTotal ? (proj.duPassados / proj.duTotal * 100) : 0
+        const faltaRep = proj.projecaoRep - proj.repMes
+        return (
+          <div style={{ background: C.card, border: '1px solid ' + C.accent + '44', borderRadius: 14, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>📊 Posição do Mês + Projeção</div>
+              <div style={{ fontSize: 10, color: C.muted }}>{proj.duPassados}/{proj.duTotal} DU · Restam <strong style={{ color: C.accent }}>{proj.duRestantes}</strong></div>
+            </div>
+            <div style={{ height: 8, background: C.surface, borderRadius: 4, marginBottom: 12, position: 'relative' }}>
+              <div style={{ height: '100%', background: C.accent, borderRadius: 4, width: pctDU + '%' }} />
+              <div style={{ position: 'absolute', top: -2, left: pctDU + '%', width: 2, height: 12, background: C.text, borderRadius: 1 }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, marginBottom: 2 }}>REALIZADO</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.accent }}>{fmtCur(proj.repMes)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>{proj.digMes} dig</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, marginBottom: 2 }}>PROJEÇÃO</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.accent2 }}>{fmtCur(proj.projecaoRep)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>~{proj.projecaoDig} dig</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, marginBottom: 2 }}>FALTA</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.warn }}>{fmtCur(faltaRep > 0 ? faltaRep : 0)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>p/ atingir projeção</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, marginBottom: 2 }}>MÉDIA/DU</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{fmtCur(proj.mediaDiaRep)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>{proj.mediaDiaDig.toFixed(1)} dig/dia</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 600, marginBottom: 2 }}>PAGO MÊS</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.accent2 }}>{fmtCur(proj.repPago)}</div>
+                <div style={{ fontSize: 9, color: C.muted }}>{proj.finCount} finalizadas</div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
       <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid ' + C.border }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead><tr style={{ background: C.surface }}>
-            {[tab === 'banco' ? 'Banco' : tab === 'convenio' ? 'Convênio' : 'Operação', 'Dig.', 'Repasse', 'Pago', 'Conv.'].map((h) => (
+            {[tab === 'banco' ? 'Banco' : tab === 'convenio' ? 'Convênio' : 'Operação', 'Dig.', 'Repasse', 'Pago (CRC)', 'Conv.'].map((h) => (
               <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.muted, fontSize: 8, textTransform: 'uppercase' }}>{h}</th>
             ))}
           </tr></thead>
@@ -595,40 +815,310 @@ function Ranking({ ops }) {
 
 function Recebimentos({ ops }) {
   const p = usePeriod(); const f = p.filter(ops)
-  const pend = useMemo(() => f.filter((o) => o.crcCliente && !o.dataNossoCredito), [f])
-  const rec = useMemo(() => f.filter((o) => o.crcCliente && o.dataNossoCredito), [f])
+  const [fB, sFB] = useState('')
+  const [fA, sFA] = useState('')
+  const pend = useMemo(() => f.filter(isPendReceb), [f])
+  const rec = useMemo(() => f.filter(isRecebido), [f])
+  const totalPago = useMemo(() => f.filter(isFin), [f])
   const pR = pend.reduce((s, o) => s + (o.vrRepasse || 0), 0)
+  const recR = rec.reduce((s, o) => s + (o.vrRepasse || 0), 0)
+
   const byBanco = useMemo(() => {
-    const m = {}; pend.forEach((o) => { const b = o.banco || '?'; if (!m[b]) m[b] = { c: 0, r: 0 }; m[b].c++; m[b].r += (o.vrRepasse || 0) })
+    const m = {}
+    pend.forEach((o) => {
+      const b = o.banco || '?'
+      if (!m[b]) m[b] = { c: 0, r: 0, ds: [] }
+      m[b].c++; m[b].r += (o.vrRepasse || 0)
+      if (o.crcCliente) m[b].ds.push(Math.floor((NOW - new Date(o.crcCliente)) / 86400000))
+    })
+    return Object.entries(m).map(([b, d]) => ({
+      b, ...d, md: d.ds.length ? Math.round(d.ds.reduce((a, b) => a + b, 0) / d.ds.length) : 0,
+      mx: d.ds.length ? Math.max(...d.ds) : 0
+    })).sort((a, b) => b.r - a.r)
+  }, [pend])
+
+  const byAgente = useMemo(() => {
+    const m = {}
+    pend.forEach((o) => {
+      const a = o.agente || '?'
+      if (!m[a]) m[a] = { c: 0, r: 0, ds: [] }
+      m[a].c++; m[a].r += (o.vrRepasse || 0)
+      if (o.crcCliente) m[a].ds.push(Math.floor((NOW - new Date(o.crcCliente)) / 86400000))
+    })
+    return Object.entries(m).map(([a, d]) => ({
+      a, ...d[1] ? d : d, nm: a, cnt: d.c, rep: d.r,
+      md: d.ds.length ? Math.round(d.ds.reduce((x, y) => x + y, 0) / d.ds.length) : 0
+    })).sort((a, b) => b.rep - a.rep)
+  }, [pend])
+
+  const byOp = useMemo(() => {
+    const m = {}
+    pend.forEach((o) => {
+      const k = o.operacao || '?'
+      if (!m[k]) m[k] = { c: 0, r: 0 }
+      m[k].c++; m[k].r += (o.vrRepasse || 0)
+    })
     return Object.entries(m).sort((a, b) => b[1].r - a[1].r)
   }, [pend])
 
+  const byMes = useMemo(() => {
+    const m = {}
+    pend.forEach((o) => {
+      const mes = o.crcCliente ? o.crcCliente.slice(0, 7) : o.data ? o.data.slice(0, 7) : null
+      if (!mes) return
+      if (!m[mes]) m[mes] = { c: 0, r: 0 }
+      m[mes].c++; m[mes].r += (o.vrRepasse || 0)
+    })
+    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [pend])
+
+  const aging = useMemo(() => {
+    const fx = { '0-15d': 0, '16-30d': 0, '31-60d': 0, '61-90d': 0, '90+d': 0 }
+    const fR = { '0-15d': 0, '16-30d': 0, '31-60d': 0, '61-90d': 0, '90+d': 0 }
+    pend.forEach((o) => {
+      if (!o.crcCliente) return
+      const d = Math.floor((NOW - new Date(o.crcCliente)) / 86400000)
+      const k = d <= 15 ? '0-15d' : d <= 30 ? '16-30d' : d <= 60 ? '31-60d' : d <= 90 ? '61-90d' : '90+d'
+      fx[k]++; fR[k] += (o.vrRepasse || 0)
+    })
+    return Object.entries(fx).map(([f, c]) => ({ f, c, r: fR[f] }))
+  }, [pend])
+
+  const filt = pend.filter((o) => (!fB || o.banco === fB) && (!fA || o.agente === fA))
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <h2 style={{ fontWeight: 800, fontSize: 20 }}>Recebimentos</h2>
+      <h2 style={{ fontWeight: 800, fontSize: 20 }}>Recebimentos Pendentes</h2>
       <PeriodBar p={p} />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <Stat label="Pendentes" value={pend.length} sub={fmtCur(pR)} color={C.danger} />
-        <Stat label="Recebidas" value={rec.length} sub={fmtCur(rec.reduce((s, o) => s + (o.vrRepasse || 0), 0))} color={C.accent2} />
+        <Stat label="Total Pago (CRC)" value={totalPago.length} sub={fmtCur(totalPago.reduce((s, o) => s + (o.vrRepasse || 0), 0))} color={C.accent2} />
+        <Stat label="Pendente Receber" value={pend.length} sub={fmtCur(pR)} color={C.danger} />
+        <Stat label="Já Recebido" value={rec.length} sub={fmtCur(recR)} color={C.info} />
+        <Stat label="% Pendente" value={totalPago.length ? (pend.length / totalPago.length * 100).toFixed(0) + '%' : '0%'} color={C.warn} />
       </div>
-      {pend.length > 0 && (
-        <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Por Banco</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-            <thead><tr style={{ background: C.surface }}>
-              {['Banco', 'Qtd', 'Pendente'].map((h) => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.muted, fontSize: 8 }}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {byBanco.map(([b, d]) => (
-                <tr key={b} style={{ borderBottom: '1px solid ' + C.border }}>
-                  <td style={{ padding: '8px 10px', fontWeight: 700 }}>{b}</td>
-                  <td style={{ padding: '8px 10px' }}>{d.c}</td>
-                  <td style={{ padding: '8px 10px', fontWeight: 600, color: C.danger }}>{fmtCur(d.r)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {!pend.length ? (
+        <div style={{ background: C.card, borderRadius: 14, padding: 28, textAlign: 'center', color: C.muted }}>
+          Nenhuma pendência — mapeie CRC CLIENTE e NOSSO CRÉDITO na importação
         </div>
+      ) : (
+        <>
+          {/* AGING */}
+          <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Aging — Tempo sem receber</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {aging.map((a) => {
+                const col = a.f.includes('90') || a.f.includes('61') ? C.danger : a.f.includes('31') ? C.warn : C.info
+                const pct = pend.length ? (a.c / pend.length * 100) : 0
+                return a.c > 0 ? (
+                  <div key={a.f} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 10, padding: '10px 16px', minWidth: 100 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: col }}>{a.c}</div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: col }}>{a.f}</div>
+                    <div style={{ fontSize: 9, color: C.muted }}>{fmtCur(a.r)}</div>
+                    <div style={{ height: 3, background: C.border, borderRadius: 2, marginTop: 4 }}>
+                      <div style={{ height: '100%', background: col, borderRadius: 2, width: pct + '%' }} />
+                    </div>
+                  </div>
+                ) : null
+              })}
+            </div>
+          </div>
+
+          {/* EVOLUÇÃO MENSAL */}
+          {byMes.length > 1 && (
+            <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Pendências por Mês (CRC Cliente)</div>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', height: 80 }}>
+                {(() => {
+                  const mx = Math.max(...byMes.map(([, v]) => v.r), 1)
+                  return byMes.map(([m, v]) => (
+                    <div key={m} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <div style={{ fontSize: 7, color: C.muted }}>{v.c}</div>
+                      <div style={{ width: '100%', maxWidth: 30, background: C.danger, borderRadius: 3, height: Math.max(4, (v.r / mx) * 65) + '%', opacity: 0.8 }} />
+                      <div style={{ fontSize: 7, color: C.muted }}>{m.slice(5)}/{m.slice(2, 4)}</div>
+                    </div>
+                  ))
+                })()}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {/* POR BANCO */}
+            <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Por Banco</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead><tr style={{ background: C.surface }}>
+                  {['Banco', 'Qtd', 'Pendente', 'Média', 'Máx'].map((h) => <th key={h} style={{ padding: '7px 9px', textAlign: 'left', color: C.muted, fontSize: 8, textTransform: 'uppercase' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {byBanco.map((b) => (
+                    <tr key={b.b} style={{ borderBottom: '1px solid ' + C.border }}>
+                      <td style={{ padding: '7px 9px', fontWeight: 700 }}>{b.b}</td>
+                      <td style={{ padding: '7px 9px' }}>{b.c}</td>
+                      <td style={{ padding: '7px 9px', fontWeight: 600, color: C.danger }}>{fmtCur(b.r)}</td>
+                      <td style={{ padding: '7px 9px', color: b.md > 60 ? C.danger : b.md > 30 ? C.warn : C.text }}>{b.md}d</td>
+                      <td style={{ padding: '7px 9px', color: b.mx > 90 ? C.danger : C.warn, fontWeight: 600 }}>{b.mx}d</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* POR OPERAÇÃO */}
+            <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Por Operação</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead><tr style={{ background: C.surface }}>
+                  {['Operação', 'Qtd', 'Pendente'].map((h) => <th key={h} style={{ padding: '7px 9px', textAlign: 'left', color: C.muted, fontSize: 8, textTransform: 'uppercase' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {byOp.map(([op, d]) => (
+                    <tr key={op} style={{ borderBottom: '1px solid ' + C.border }}>
+                      <td style={{ padding: '7px 9px', fontWeight: 600 }}>{op}</td>
+                      <td style={{ padding: '7px 9px' }}>{d.c}</td>
+                      <td style={{ padding: '7px 9px', fontWeight: 600, color: C.danger }}>{fmtCur(d.r)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* POR PARCEIRO */}
+          <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Por Parceiro</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead><tr style={{ background: C.surface }}>
+                {['Parceiro', 'Qtd', 'Pendente', 'Média Dias'].map((h) => <th key={h} style={{ padding: '7px 9px', textAlign: 'left', color: C.muted, fontSize: 8, textTransform: 'uppercase' }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {byAgente.map((a) => (
+                  <tr key={a.nm} style={{ borderBottom: '1px solid ' + C.border }}>
+                    <td style={{ padding: '7px 9px', fontWeight: 600 }}>{a.nm}</td>
+                    <td style={{ padding: '7px 9px' }}>{a.cnt}</td>
+                    <td style={{ padding: '7px 9px', fontWeight: 600, color: C.danger }}>{fmtCur(a.rep)}</td>
+                    <td style={{ padding: '7px 9px', color: a.md > 60 ? C.danger : a.md > 30 ? C.warn : C.text }}>{a.md}d</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ANALÍTICO */}
+          <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>Analítico</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <select value={fB} onChange={(e) => sFB(e.target.value)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 6, color: C.text, padding: '4px 8px', fontSize: 10 }}>
+                  <option value="">— Banco —</option>
+                  {[...new Set(pend.map((o) => o.banco).filter(Boolean))].sort().map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <select value={fA} onChange={(e) => sFA(e.target.value)} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 6, color: C.text, padding: '4px 8px', fontSize: 10 }}>
+                  <option value="">— Parceiro —</option>
+                  {[...new Set(pend.map((o) => o.agente).filter(Boolean))].sort().map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                {(fB || fA) && <button onClick={() => { sFB(''); sFA('') }} style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 6, color: C.muted, padding: '4px 8px', fontSize: 10, cursor: 'pointer' }}>Limpar</button>}
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 6 }}>{filt.length} pendências — {fmtCur(filt.reduce((s, o) => s + (o.vrRepasse || 0), 0))}</div>
+            <div style={{ overflowX: 'auto', maxHeight: 400, borderRadius: 8, border: '1px solid ' + C.border }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+                <thead><tr style={{ background: C.surface, position: 'sticky', top: 0 }}>
+                  {['Cliente', 'CPF', 'Banco', 'Op.', 'Agente', 'Repasse', 'CRC Cliente', 'Dias'].map((h) => <th key={h} style={{ padding: '6px 8px', textAlign: 'left', color: C.muted, fontSize: 8, textTransform: 'uppercase' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {filt.slice(0, 300).map((o) => {
+                    const dias = o.crcCliente ? Math.floor((NOW - new Date(o.crcCliente)) / 86400000) : 0
+                    return (
+                      <tr key={o.id} style={{ borderBottom: '1px solid ' + C.border }}>
+                        <td style={{ padding: '5px 8px', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.cliente}</td>
+                        <td style={{ padding: '5px 8px' }}>{o.cpf}</td>
+                        <td style={{ padding: '5px 8px' }}>{o.banco}</td>
+                        <td style={{ padding: '5px 8px' }}>{o.operacao}</td>
+                        <td style={{ padding: '5px 8px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.agente}</td>
+                        <td style={{ padding: '5px 8px', fontWeight: 600, color: C.danger }}>{fmtCur(o.vrRepasse)}</td>
+                        <td style={{ padding: '5px 8px' }}>{fmtDate(o.crcCliente)}</td>
+                        <td style={{ padding: '5px 8px', fontWeight: 600, color: dias > 90 ? C.danger : dias > 30 ? C.warn : C.text }}>{dias}d</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function Portabilidade({ ops }) {
+  const p = usePeriod(); const f = p.filter(ops)
+  const port = useMemo(() => f.filter((o) => (o.operacao || '').toUpperCase() === 'PORTABILIDADE'), [f])
+  const tD = port.length
+  const tP = port.filter(isFin).length
+  const cv = tD ? (tP / tD * 100) : 0
+
+  const byBanco = useMemo(() => {
+    const m = {}
+    port.forEach((o) => { const b = o.banco || '?'; if (!m[b]) m[b] = { d: 0, p: 0, rd: 0, rp: 0 }; m[b].d++; m[b].rd += (o.vrRepasse || 0); if (isFin(o)) { m[b].p++; m[b].rp += (o.vrRepasse || 0) } })
+    return Object.entries(m).sort((a, b) => b[1].d - a[1].d)
+  }, [port])
+
+  const byAgente = useMemo(() => {
+    const m = {}
+    port.forEach((o) => { const a = o.agente || '?'; if (!m[a]) m[a] = { d: 0, p: 0, rd: 0, rp: 0 }; m[a].d++; m[a].rd += (o.vrRepasse || 0); if (isFin(o)) { m[a].p++; m[a].rp += (o.vrRepasse || 0) } })
+    return Object.entries(m).sort((a, b) => b[1].d - a[1].d)
+  }, [port])
+
+  function PortTable({ data, nameLabel }) {
+    return (
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead><tr style={{ background: C.surface }}>
+          {[nameLabel, 'Dig.', 'Pago', 'Conv.', 'Rep.Dig.', 'Rep.Pago'].map((h) => <th key={h} style={{ padding: '7px 9px', textAlign: 'left', color: C.muted, fontSize: 8, textTransform: 'uppercase' }}>{h}</th>)}
+        </tr></thead>
+        <tbody>
+          {data.map(([n, x]) => {
+            const r = x.d ? (x.p / x.d * 100) : 0
+            return (
+              <tr key={n} style={{ borderBottom: '1px solid ' + C.border }}>
+                <td style={{ padding: '7px 9px', fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n}</td>
+                <td style={{ padding: '7px 9px' }}>{x.d}</td>
+                <td style={{ padding: '7px 9px', color: C.accent2, fontWeight: 600 }}>{x.p}</td>
+                <td style={{ padding: '7px 9px', fontWeight: 600, color: r >= 50 ? C.accent2 : r >= 30 ? C.warn : C.danger }}>{r.toFixed(0)}%</td>
+                <td style={{ padding: '7px 9px' }}>{fmtCur(x.rd)}</td>
+                <td style={{ padding: '7px 9px', fontWeight: 600, color: C.accent2 }}>{fmtCur(x.rp)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2 style={{ fontWeight: 800, fontSize: 20 }}>Portabilidade</h2>
+      <PeriodBar p={p} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s, o) => s + (o.vrRepasse || 0), 0))} />
+        <Stat label="Pago" value={tP} sub={fmtCur(port.filter(isFin).reduce((s, o) => s + (o.vrRepasse || 0), 0))} color={C.accent2} />
+        <Stat label="Conv." value={cv.toFixed(1) + '%'} color={cv >= 50 ? C.accent2 : cv >= 30 ? C.warn : C.danger} />
+      </div>
+      {!port.length ? (
+        <div style={{ background: C.card, borderRadius: 14, padding: 24, textAlign: 'center', color: C.muted }}>Nenhuma PORTABILIDADE no período</div>
+      ) : (
+        <>
+          <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Por Banco</div>
+            <PortTable data={byBanco} nameLabel="Banco" />
+          </div>
+          <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Por Parceiro</div>
+            <PortTable data={byAgente} nameLabel="Parceiro" />
+          </div>
+        </>
       )}
     </div>
   )
@@ -752,6 +1242,7 @@ const NAV = [
   { id: 'producao', l: 'Produção', i: '🏦' },
   { id: 'estrategico', l: 'Estratégico', i: '🤝' },
   { id: 'ranking', l: 'Ranking', i: '🏆' },
+  { id: 'portabilidade', l: 'Portabilidade', i: '🔄' },
   { id: 'recebimentos', l: 'Recebimentos', i: '💰' },
   { id: 'estornos', l: 'Estornos', i: '⚠' },
   { id: 'alertas', l: 'Alertas', i: '📈' },
@@ -861,6 +1352,7 @@ export default function App() {
         {view === 'producao' && <Producao ops={ops} />}
         {view === 'estrategico' && <Estrategico ops={ops} />}
         {view === 'ranking' && <Ranking ops={ops} />}
+        {view === 'portabilidade' && <Portabilidade ops={ops} />}
         {view === 'recebimentos' && <Recebimentos ops={ops} />}
         {view === 'estornos' && <Estornos ops={ops} />}
         {view === 'alertas' && <Alertas ops={ops} />}
