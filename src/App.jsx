@@ -41,9 +41,52 @@ async function fetchOps(per,onProgress,customDf,customDt){
   return all.map(fromDb)
 }
 
-/* ═══ BUSINESS DAYS ═══ */
+/* ═══ FETCH PRODUCTION — by CRC date ═══ */
+async function fetchProd(per,onProgress,customDf,customDt){
+  let df,dt
+  if(per==='custom'){df=customDf||'2000-01-01';dt=customDt||'2099-12-31'}
+  else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
+  const PAGE=1000;let all=[],from=0
+  while(true){
+    let q=supabase.from('digitacoes').select('*')
+      .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
+      .range(from,from+PAGE-1)
+    if(per!=='tudo')q=q.gte('crc_cliente',df).lte('crc_cliente',dt)
+    const{data,error}=await q
+    if(error){console.error('fetchProd err:',error);break}
+    if(!data||!data.length)break
+    all=all.concat(data);if(onProgress)onProgress(all.length)
+    if(data.length<PAGE)break;from+=PAGE
+  }
+  return all.map(fromDb)
+}
+
+/* ═══ FETCH RECEIVABLES — all with CRC filled ═══ */
+async function fetchReceb(){
+  const PAGE=1000;let all=[],from=0
+  while(true){
+    const{data,error}=await supabase.from('digitacoes').select('*')
+      .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
+      .not('crc_cliente','is',null)
+      .range(from,from+PAGE-1)
+    if(error){console.error('fetchReceb err:',error);break}
+    if(!data||!data.length)break
+    all=all.concat(data)
+    if(data.length<PAGE)break;from+=PAGE
+  }
+  return all.map(fromDb)
+}
+
+/* ═══ BUSINESS DAYS + PROJECTION by CRC ═══ */
 function countBD(s,e){let c=0;const d=new Date(s);while(d<=e){if(d.getDay()!==0&&d.getDay()!==6)c++;d.setDate(d.getDate()+1)}return c}
-function getProj(ops){const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,1),l=new Date(y,m+1,0),ye=new Date(NOW);ye.setDate(ye.getDate()-1);const duT=countBD(f,l),duP=countBD(f,ye<f?f:ye),duR=duT-duP,mo=ops.filter(o=>o.data&&o.data.startsWith(CUR_M)),dig=mo.length,fin=mo.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0),mdR=duP>0?fR/duP:0,mdD=duP>0?fin.length/duP:0;return{duT,duP,duR,fR,dig,fC:fin.length,mdR,mdD,pR:mdR*duT,pD:Math.round(mdD*duT)}}
+function getProj(prodOps){
+  const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,1),l=new Date(y,m+1,0),ye=new Date(NOW);ye.setDate(ye.getDate()-1)
+  const duT=countBD(f,l),duP=countBD(f,ye<f?f:ye),duR=duT-duP
+  // prodOps already filtered by CRC in current month
+  const fR=prodOps.reduce((s,o)=>s+(o.vrRepasse||0),0),fC=prodOps.length
+  const mdR=duP>0?fR/duP:0,mdD=duP>0?fC/duP:0
+  return{duT,duP,duR,fR,fC,mdR,mdD,pR:mdR*duT,pD:Math.round(mdD*duT)}
+}
 
 /* ═══ UI ATOMS ═══ */
 function Stat({label,value,sub,color,small}){return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:small?'10px 12px':'14px 16px',flex:1,minWidth:small?90:120}}><div style={{fontSize:small?8:9,color:C.muted,marginBottom:3,fontWeight:600,textTransform:'uppercase'}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:700,color:color||C.text}}>{value}</div>{sub&&<div style={{fontSize:small?9:10,color:C.muted,marginTop:2}}>{sub}</div>}</div>}
@@ -225,34 +268,29 @@ function PartnerHealth({name,ops,onClose}){
 }
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({curOps,prevOps}){
+function Dashboard({curOps,prevOps,curProd,prevProd}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const est=f.filter(isEst),pend=f.filter(isPend)
   const ags=[...new Set(f.map(o=>o.agente).filter(Boolean))]
-  // Situações com valores
   const bySit={};f.forEach(o=>{const k=o.situacao||'?';if(!bySit[k])bySit[k]={c:0,r:0};bySit[k].c++;bySit[k].r+=(o.vrRepasse||0)})
   const sitArr=Object.entries(bySit).sort((a,b)=>b[1].c-a[1].c)
-  // Top parceiros
   const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0,fr:0};topM[a].r+=(o.vrRepasse||0);topM[a].c++;if(isFin(o)){topM[a].fc++;topM[a].fr+=(o.vrRepasse||0)}})
-  const topP=Object.entries(topM).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
-  // Comparativo mês atual vs anterior — PRODUÇÃO = só finalizado
-  const curFinOps=curOps.filter(isFin),prevFinOps=prevOps.filter(isFin)
-  const curR=curFinOps.reduce((s,o)=>s+(o.vrRepasse||0),0),prevR=prevFinOps.reduce((s,o)=>s+(o.vrRepasse||0),0)
-  const varProd=prevR?((curR-prevR)/prevR*100):(curR>0?100:0)
+  const topP=Object.entries(topM).sort((a,b)=>b[1].fr-a[1].fr).slice(0,10)
+  // PRODUÇÃO = by CRC date
+  const curProdR=curProd.reduce((s,o)=>s+(o.vrRepasse||0),0),prevProdR=prevProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const varProd=prevProdR?((curProdR-prevProdR)/prevProdR*100):(curProdR>0?100:0)
   const curDig=curOps.length,prevDig=prevOps.length,varDig=prevDig?((curDig-prevDig)/prevDig*100):(curDig>0?100:0)
-  const curFin2=curFinOps.length,prevFin2=prevFinOps.length,varFin=prevFin2?((curFin2-prevFin2)/prevFin2*100):(curFin2>0?100:0)
-  const curEst=curOps.filter(isEst).length,prevEst=prevOps.filter(isEst).length
-  // Projeção
-  const proj=getProj(curOps),pctDU=proj.duT?(proj.duP/proj.duT*100):0
-  // Por banco no período
+  // Projeção by CRC
+  const proj=getProj(curProd),pctDU=proj.duT?(proj.duP/proj.duT*100):0
+  // Por banco
   const byBanco={};f.forEach(o=>{const k=o.banco||'?';if(!byBanco[k])byBanco[k]={c:0,r:0,f:0};byBanco[k].c++;byBanco[k].r+=(o.vrRepasse||0);if(isFin(o))byBanco[k].f++})
   const bancoArr=Object.entries(byBanco).sort((a,b)=>b[1].r-a[1].r).slice(0,8)
   const[selP,setSelP]=useState(null)
   const vc=(v)=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
-  // ONTEM E HOJE
+  // HOJE + ONTEM
   const TODAY_STR=NOW.toISOString().split('T')[0]
   const YESTERDAY=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-1);return d.toISOString().split('T')[0]})()
   const ANTEONTEM=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-2);return d.toISOString().split('T')[0]})()
@@ -263,6 +301,8 @@ function Dashboard({curOps,prevOps}){
   const yTopP=Object.entries(yAgs).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
   const yBancos={};yOps.forEach(o=>{const b=o.banco||'?';if(!yBancos[b])yBancos[b]={c:0,r:0};yBancos[b].c++;yBancos[b].r+=(o.vrRepasse||0)})
   const yTopB=Object.entries(yBancos).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
+  // Prod by situação
+  const prodBySit={};curProd.forEach(o=>{const k=o.situacao||'?';if(!prodBySit[k])prodBySit[k]={c:0,r:0};prodBySit[k].c++;prodBySit[k].r+=(o.vrRepasse||0)})
 
   return(
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -302,16 +342,16 @@ function Dashboard({curOps,prevOps}){
         </div>
       </div>}
 
-      {/* COMPARATIVO MÊS ATUAL vs ANTERIOR */}
+      {/* COMPARATIVO MÊS ATUAL vs ANTERIOR — PRODUÇÃO pelo CRC */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📊 Mês Atual vs Anterior</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10}}>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PRODUÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(curR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varProd)}}>{vc(varProd)}</div><div style={{fontSize:8,color:C.muted}}>ant: {fmtCur(prevR)}</div></div>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📊 Mês Atual vs Anterior (produção por CRC)</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PRODUÇÃO (CRC)</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(curProdR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varProd)}}>{vc(varProd)}</div><div style={{fontSize:8,color:C.muted}}>ant: {fmtCur(prevProdR)}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>OPS PRODUZIDAS</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{curProd.length}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevProd.length}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITAÇÕES</div><div style={{fontSize:14,fontWeight:700}}>{curDig}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varDig)}}>{vc(varDig)}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevDig}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FINALIZADAS</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{curFin2}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varFin)}}>{vc(varFin)}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevFin2}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>ESTORNOS</div><div style={{fontSize:14,fontWeight:700,color:curEst>prevEst?C.danger:C.accent2}}>{curEst}</div><div style={{fontSize:10,color:C.muted}}>ant: {prevEst}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:14,fontWeight:700}}>{[...new Set(curOps.map(o=>o.agente).filter(Boolean))].length}</div><div style={{fontSize:10,color:C.muted}}>ant: {[...new Set(prevOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:14,fontWeight:700}}>{[...new Set(curOps.map(o=>o.agente).filter(Boolean))].length}</div><div style={{fontSize:8,color:C.muted}}>ant: {[...new Set(prevOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
         </div>
+        {Object.keys(prodBySit).length>0&&<div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>{Object.entries(prodBySit).sort((a,b)=>b[1].r-a[1].r).map(([s,d])=><div key={s} style={{background:C.surface,borderRadius:8,padding:'6px 12px',border:'1px solid '+C.border}}><div style={{fontSize:8,color:C.accent2,fontWeight:600}}>{s}</div><div style={{fontSize:12,fontWeight:700}}>{fmtCur(d.r)}</div><div style={{fontSize:8,color:C.muted}}>{d.c} ops</div></div>)}</div>}
       </div>
 
       {/* PROJEÇÃO */}
@@ -449,25 +489,12 @@ function Recebimentos(){
 
   useEffect(()=>{
     setLoading(true)
-    // Busca todas propostas com situação de produção — depois filtra CRC no JS
-    ;(async()=>{
-      const PAGE=1000;let all=[],from=0
-      while(true){
-        const{data,error}=await supabase.from('digitacoes').select('*')
-          .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
-          .range(from,from+PAGE-1)
-        if(error){console.error('Receb error:',error);break}
-        if(!data||!data.length)break
-        all=all.concat(data)
-        if(data.length<PAGE)break;from+=PAGE
-      }
-      const mapped=all.map(fromDb)
-      const comCrc=mapped.filter(o=>o.crcCliente)
-      setPend(comCrc.filter(o=>!o.dataNossoCredito))
-      setRec(comCrc.filter(o=>o.dataNossoCredito))
+    fetchReceb().then(all=>{
+      const comCrc=all.filter(o=>o.crcCliente&&o.crcCliente.length>=8)
+      setPend(comCrc.filter(o=>!o.dataNossoCredito||o.dataNossoCredito.length<8))
+      setRec(comCrc.filter(o=>o.dataNossoCredito&&o.dataNossoCredito.length>=8))
       setLoading(false)
-    })()
-  },[])
+    }).catch(e=>{console.error('Receb load error:',e);setLoading(false)})
   },[])
 
   const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
@@ -614,7 +641,25 @@ function Recebimentos(){
 }
 
 /* ═══ ESTORNOS ═══ */
-function Performance({curOps,prevOps}){
+function Portabilidade(){
+  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+  const port=ops.filter(o=>(o.operacao||'').toUpperCase().includes('PORTAB'))
+  const tD=port.length,tP=port.filter(isFin).length,cv=tD?(tP/tD*100):0
+  const byBanco=(()=>{const m={};port.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={d:0,p:0,rd:0,rp:0};m[b].d++;m[b].rd+=(o.vrRepasse||0);if(isFin(o)){m[b].p++;m[b].rp+=(o.vrRepasse||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
+  const byAg=(()=>{const m={};port.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={d:0,p:0,rd:0,rp:0};m[a].d++;m[a].rd+=(o.vrRepasse||0);if(isFin(o)){m[a].p++;m[a].rp+=(o.vrRepasse||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
+  const PT=({data,nl})=><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[nl,'Dig.','Prod.','Conv.','Rep.Dig.','Rep.Prod.'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,x])=>{const r=x.d?(x.p/x.d*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n}</td><td style={{padding:'7px 9px'}}>{x.d}</td><td style={{padding:'7px 9px',color:C.accent2,fontWeight:600}}>{x.p}</td><td style={{padding:'7px 9px',fontWeight:600,color:r>=50?C.accent2:r>=30?C.warn:C.danger}}>{r.toFixed(0)}%</td><td style={{padding:'7px 9px'}}>{fmtCur(x.rd)}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.accent2}}>{fmtCur(x.rp)}</td></tr>})}</tbody></table>
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Portabilidade</h2><ExportBtn ops={port} name={'portabilidade-'+per}/></div>
+    <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s,o)=>s+(o.vrRepasse||0),0))}/><Stat label="Produção" value={tP} sub={fmtCur(port.filter(isFin).reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/><Stat label="Conv." value={cv.toFixed(1)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/></div>
+    {!port.length?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:'center',color:C.muted}}>Nenhuma portabilidade no período</div>:<>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><PT data={byBanco} nl="Banco"/></div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><PT data={byAg} nl="Parceiro"/></div>
+    </>}
+  </div>
+}
+
+function Performance({curProd,prevProd}){
   const[selP,setSelP]=useState(null)
   const ags=[...new Set(curOps.concat(prevOps).map(o=>o.agente).filter(Boolean))]
   const data=ags.map(a=>{
@@ -672,7 +717,7 @@ function Alertas({curOps,prevOps}){const ags=[...new Set(curOps.concat(prevOps).
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','performance','recebimentos','alertas','parceiros']
+  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','portabilidade','performance','recebimentos','alertas','parceiros']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null)
@@ -710,14 +755,20 @@ function Usuarios({user}){
 }
 
 /* ═══ NAV ═══ */
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'performance',l:'Performance',i:'📈'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'performance',l:'Performance',i:'📈'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
   const[user,setUser]=useState(null),[view,setView]=useState('dashboard'),[loginError,setLoginError]=useState('')
   const[curOps,setCurOps]=useState([]),[prevOps,setPrevOps]=useState([])
+  const[curProd,setCurProd]=useState([]),[prevProd,setPrevProd]=useState([])
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
-  useEffect(()=>{if(!user)return;fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{});fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})},[user])
+  useEffect(()=>{if(!user)return
+    fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{})
+    fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})
+    fetchProd('mes').then(d=>setCurProd(d)).catch(()=>{})
+    fetchProd('ant').then(d=>setPrevProd(d)).catch(()=>{})
+  },[user])
 
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"]};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb))}
@@ -732,12 +783,13 @@ export default function App(){
       <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:4}}>{user.perfil}</div><button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
     </div>
     <div style={{flex:1,padding:'20px 24px',overflowY:'auto'}}>
-      {view==='dashboard'&&<Dashboard curOps={curOps} prevOps={prevOps}/>}
+      {view==='dashboard'&&<Dashboard curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd}/>}
       {view==='ops'&&<Operacoes onImport={handleImport}/>}
       {view==='producao'&&<Producao/>}
       {view==='estrategico'&&<Estrategico/>}
       {view==='ranking'&&<Ranking/>}
-      {view==='performance'&&<Performance curOps={curOps} prevOps={prevOps}/>}
+      {view==='performance'&&<Performance curProd={curProd} prevProd={prevProd}/>}
+      {view==='portabilidade'&&<Portabilidade/>}
       {view==='recebimentos'&&<Recebimentos/>}
       {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps}/>}
       {view==='parceiros'&&<Parceiros/>}
