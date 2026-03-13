@@ -41,7 +41,7 @@ async function fetchOps(per,onProgress,customDf,customDt){
 
 /* ═══ BUSINESS DAYS ═══ */
 function countBD(s,e){let c=0;const d=new Date(s);while(d<=e){if(d.getDay()!==0&&d.getDay()!==6)c++;d.setDate(d.getDate()+1)}return c}
-function getProj(ops){const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,1),l=new Date(y,m+1,0),ye=new Date(NOW);ye.setDate(ye.getDate()-1);const duT=countBD(f,l),duP=countBD(f,ye<f?f:ye),duR=duT-duP,mo=ops.filter(o=>o.data&&o.data.startsWith(CUR_M)),rep=mo.reduce((s,o)=>s+(o.vrRepasse||0),0),dig=mo.length,mdR=duP>0?rep/duP:0,mdD=duP>0?dig/duP:0,fin=mo.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0);return{duT,duP,duR,rep,dig,mdR,mdD,pR:mdR*duT,pD:Math.round(mdD*duT),fR,fC:fin.length}}
+function getProj(ops){const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,1),l=new Date(y,m+1,0),ye=new Date(NOW);ye.setDate(ye.getDate()-1);const duT=countBD(f,l),duP=countBD(f,ye<f?f:ye),duR=duT-duP,mo=ops.filter(o=>o.data&&o.data.startsWith(CUR_M)),dig=mo.length,fin=mo.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0),mdR=duP>0?fR/duP:0,mdD=duP>0?fin.length/duP:0;return{duT,duP,duR,fR,dig,fC:fin.length,mdR,mdD,pR:mdR*duT,pD:Math.round(mdD*duT)}}
 
 /* ═══ UI ATOMS ═══ */
 function Stat({label,value,sub,color,small}){return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:small?'10px 12px':'14px 16px',flex:1,minWidth:small?90:120}}><div style={{fontSize:small?8:9,color:C.muted,marginBottom:3,fontWeight:600,textTransform:'uppercase'}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:700,color:color||C.text}}>{value}</div>{sub&&<div style={{fontSize:small?9:10,color:C.muted,marginTop:2}}>{sub}</div>}</div>}
@@ -142,7 +142,7 @@ function useOps(defaultPer){
 }
 
 /* ═══ IMPORT MODAL ═══ */
-const IMP={id_ext:{l:'ID',a:['id']},banco:{l:'Banco',a:['banco']},cpf:{l:'CPF',a:['cpf']},cliente:{l:'Cliente',a:['cliente','nome']},proposta:{l:'Proposta',a:['proposta']},contrato:{l:'Contrato',a:['contrato']},data:{l:'Data',a:['data']},prazo:{l:'Prazo',a:['prazo']},vrBruto:{l:'Bruto',a:['vr. bruto','bruto']},vrParcela:{l:'Parcela',a:['vr. parcela']},vrLiquido:{l:'Líquido',a:['vr. líquido','vr liquido']},vrRepasse:{l:'Repasse',a:['vr. repasse','repasse']},vrSeguro:{l:'Seguro',a:['vr. seguro']},taxa:{l:'Taxa',a:['taxa']},operacao:{l:'Operação',a:['operação','operacao']},situacao:{l:'Situação',a:['situação','situacao','status']},produto:{l:'Produto',a:['produto']},convenio:{l:'Convênio',a:['convênio','convenio']},agente:{l:'Agente',a:['agente']},situacaoBanco:{l:'Sit.Banco',a:['situação banco','sit. banco']},obsSituacao:{l:'Obs.',a:['obs. situação']},usuario:{l:'Usuário',a:['usuário','usuario']},crcCliente:{l:'CRC',a:['crc cliente','crc','data crc']},dataNossoCredito:{l:'N.Crédito',a:['nosso crédito','nosso credito']}}
+const IMP={id_ext:{l:'ID',a:['id']},banco:{l:'Banco',a:['banco']},cpf:{l:'CPF',a:['cpf']},cliente:{l:'Cliente',a:['cliente','nome']},proposta:{l:'Proposta',a:['proposta']},contrato:{l:'Contrato',a:['contrato','nº contrato']},data:{l:'Data',a:['data']},prazo:{l:'Prazo',a:['prazo']},vrBruto:{l:'Bruto',a:['vr. bruto','bruto']},vrParcela:{l:'Parcela',a:['vr. parcela']},vrLiquido:{l:'Líquido',a:['vr. líquido','vr liquido']},vrRepasse:{l:'Repasse',a:['vr. repasse','repasse']},vrSeguro:{l:'Seguro',a:['vr. seguro']},taxa:{l:'Taxa',a:['taxa']},operacao:{l:'Operação',a:['operação','operacao']},situacao:{l:'Situação',a:['situação','situacao','status']},produto:{l:'Produto',a:['produto']},convenio:{l:'Convênio',a:['convênio','convenio']},agente:{l:'Agente',a:['agente']},situacaoBanco:{l:'Sit.Banco',a:['situação banco','sit. banco']},obsSituacao:{l:'Obs.',a:['obs. situação','obs. situação banco','obs situação banco']},usuario:{l:'Usuário',a:['usuário','usuario']},crcCliente:{l:'CRC',a:['cr cliente','crc cliente','crc','data crc']},dataNossoCredito:{l:'N.Crédito',a:['nosso cr','nosso crédito','nosso credito']}}
 
 function ImportModal({open,onClose,onImport}){
   const fr=useRef(null),[step,setStep]=useState(1),[raw,setRaw]=useState([]),[hd,setHd]=useState([]),[mp,setMp]=useState({}),[pv,setPv]=useState([]),[fn,setFn]=useState(''),[busy,setBusy]=useState(false),[progress,setProg]=useState('')
@@ -235,11 +235,12 @@ function Dashboard({curOps,prevOps}){
   // Top parceiros
   const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0};topM[a].r+=(o.vrRepasse||0);topM[a].c++;if(isFin(o))topM[a].fc++})
   const topP=Object.entries(topM).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
-  // Comparativo mês atual vs anterior
-  const curR=curOps.reduce((s,o)=>s+(o.vrRepasse||0),0),prevR=prevOps.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  // Comparativo mês atual vs anterior — PRODUÇÃO = só finalizado
+  const curFinOps=curOps.filter(isFin),prevFinOps=prevOps.filter(isFin)
+  const curR=curFinOps.reduce((s,o)=>s+(o.vrRepasse||0),0),prevR=prevFinOps.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const varProd=prevR?((curR-prevR)/prevR*100):(curR>0?100:0)
   const curDig=curOps.length,prevDig=prevOps.length,varDig=prevDig?((curDig-prevDig)/prevDig*100):(curDig>0?100:0)
-  const curFin=curOps.filter(isFin).length,prevFin=prevOps.filter(isFin).length,varFin=prevFin?((curFin-prevFin)/prevFin*100):(curFin>0?100:0)
+  const curFin2=curFinOps.length,prevFin2=prevFinOps.length,varFin=prevFin2?((curFin2-prevFin2)/prevFin2*100):(curFin2>0?100:0)
   const curEst=curOps.filter(isEst).length,prevEst=prevOps.filter(isEst).length
   // Projeção
   const proj=getProj(curOps),pctDU=proj.duT?(proj.duP/proj.duT*100):0
@@ -249,12 +250,55 @@ function Dashboard({curOps,prevOps}){
   const[selP,setSelP]=useState(null)
   const vc=(v)=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
+  // ONTEM E HOJE
+  const TODAY_STR=NOW.toISOString().split('T')[0]
+  const YESTERDAY=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-1);return d.toISOString().split('T')[0]})()
+  const ANTEONTEM=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-2);return d.toISOString().split('T')[0]})()
+  const tOps=curOps.filter(o=>o.data===TODAY_STR),yOps=curOps.filter(o=>o.data===YESTERDAY),aaOps=curOps.filter(o=>o.data===ANTEONTEM)
+  const tR2=tOps.reduce((s,o)=>s+(o.vrRepasse||0),0),yR=yOps.reduce((s,o)=>s+(o.vrRepasse||0),0),aaR=aaOps.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const yFin=yOps.filter(isFin),yEst=yOps.filter(isEst)
+  const yAgs={};yOps.forEach(o=>{const a=o.agente||'?';if(!yAgs[a])yAgs[a]={c:0,r:0};yAgs[a].c++;yAgs[a].r+=(o.vrRepasse||0)})
+  const yTopP=Object.entries(yAgs).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
+  const yBancos={};yOps.forEach(o=>{const b=o.banco||'?';if(!yBancos[b])yBancos[b]={c:0,r:0};yBancos[b].c++;yBancos[b].r+=(o.vrRepasse||0)})
+  const yTopB=Object.entries(yBancos).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
 
   return(
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>&&false?&lt;ExportBtn/&gt;:'+per}/></div>
+      <h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
       <div style={{fontSize:10,color:C.muted}}>{count} digitações no período</div>
+
+      {/* HOJE + ONTEM */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.accent2+'44',borderRadius:14,padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.accent2,marginBottom:10}}>🟢 Hoje — {fmtDate(TODAY_STR)}</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{tOps.length}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>REPASSE</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{fmtCur(tR2)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:18,fontWeight:700}}>{[...new Set(tOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
+          </div>
+        </div>
+        <div style={{background:C.card,border:'1px solid '+C.info+'44',borderRadius:14,padding:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
+            <span style={{fontSize:13,fontWeight:700,color:C.info}}>📋 Ontem — {fmtDate(YESTERDAY)}</span>
+            <span style={{fontSize:9,color:C.muted}}>anteontem: {aaOps.length} · {fmtCur(aaR)}</span>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700}}>{yOps.length}</div><div style={{fontSize:9,color:yOps.length>=aaOps.length?C.accent2:C.danger}}>{yOps.length>=aaOps.length?'↑':'↓'} vs {aaOps.length}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>REPASSE</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(yR)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FINALIZADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent2}}>{yFin.length}</div></div>
+          </div>
+        </div>
+      </div>
+
+      {/* DETALHAMENTO ONTEM */}
+      {yOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Detalhamento Ontem</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>{yTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}</div>
+          <div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>{yTopB.map(([b,d])=><div key={b} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b} ({d.c})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</span></div>)}</div>
+        </div>
+      </div>}
 
       {/* COMPARATIVO MÊS ATUAL vs ANTERIOR */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
@@ -262,7 +306,7 @@ function Dashboard({curOps,prevOps}){
         <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10}}>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PRODUÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(curR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varProd)}}>{vc(varProd)}</div><div style={{fontSize:8,color:C.muted}}>ant: {fmtCur(prevR)}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITAÇÕES</div><div style={{fontSize:14,fontWeight:700}}>{curDig}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varDig)}}>{vc(varDig)}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevDig}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FINALIZADAS</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{curFin}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varFin)}}>{vc(varFin)}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevFin}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FINALIZADAS</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{curFin2}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varFin)}}>{vc(varFin)}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevFin2}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>ESTORNOS</div><div style={{fontSize:14,fontWeight:700,color:curEst>prevEst?C.danger:C.accent2}}>{curEst}</div><div style={{fontSize:10,color:C.muted}}>ant: {prevEst}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:14,fontWeight:700}}>{[...new Set(curOps.map(o=>o.agente).filter(Boolean))].length}</div><div style={{fontSize:10,color:C.muted}}>ant: {[...new Set(prevOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
         </div>
@@ -273,18 +317,18 @@ function Dashboard({curOps,prevOps}){
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:13,fontWeight:700,color:C.accent}}>📅 Projeção Mês</span><span style={{fontSize:10,color:C.muted}}>{proj.duP}/{proj.duT} DU · Restam {proj.duR}</span></div>
         <div style={{height:6,background:C.surface,borderRadius:4,marginBottom:12}}><div style={{height:'100%',background:'linear-gradient(90deg,'+C.accent+','+C.accent2+')',borderRadius:4,width:pctDU+'%'}}/></div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>REALIZADO</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(proj.rep)}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJEÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(proj.pR)}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FALTA</div><div style={{fontSize:14,fontWeight:700,color:C.warn}}>{fmtCur(Math.max(0,proj.pR-proj.rep))}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PRODUÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(proj.fR)}</div><div style={{fontSize:9,color:C.muted}}>{proj.fC} pagas</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJEÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(proj.pR)}</div><div style={{fontSize:9,color:C.muted}}>~{proj.pD} pagas</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FALTA</div><div style={{fontSize:14,fontWeight:700,color:C.warn}}>{fmtCur(Math.max(0,proj.pR-proj.fR))}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>MÉDIA/DU</div><div style={{fontSize:14,fontWeight:700}}>{fmtCur(proj.mdR)}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PAGO</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(proj.fR)}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:14,fontWeight:700}}>{proj.dig}</div></div>
         </div>
       </div>
 
       {/* CARDS PERÍODO */}
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <Stat label="Produção (período)" value={fmtCur(tR)} color={C.accent}/>
-        <Stat label="Pagas" value={fmtCur(fR)} color={C.accent2} sub={fin.length+' ops'}/>
+        <Stat label="Produção (Pago)" value={fmtCur(fR)} color={C.accent2} sub={fin.length+' finalizadas'}/>
+        <Stat label="Digitações" value={f.length} sub={fmtCur(tR)+' digitado'}/>
         <Stat label="Em Andamento" value={pend.length} sub={fmtCur(pend.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.warn}/>
         <Stat label="Estornos" value={est.length} sub={fmtCur(est.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.danger}/>
         <Stat label="Parceiros" value={ags.length}/>
@@ -345,8 +389,45 @@ function Operacoes({onImport}){
   )
 }
 
-/* ═══ PRODUÇÃO ═══ */
-function Producao(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes');const[tab,sTab]=useState('banco');const tR=ops.reduce((s,o)=>s+(o.vrRepasse||0),0);const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao;const m={};ops.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0,fc:0,fr:0};m[k].c++;m[k].r+=(o.vrRepasse||0);if(isFin(o)){m[k].fc++;m[k].fr+=(o.vrRepasse||0)}});const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r);return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><ExportBtn ops={ops} name={'producao-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{display:'flex',gap:4}}>{[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer'}}>{t.n}</button>)}</div><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Dig.','Repasse','%','Pago','Conv.'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,d])=>{const pct=tR?(d.r/tR*100):0,cv=d.c?(d.fc/d.c*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:700}}>{n}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td><td style={{padding:'8px 10px',color:C.accent2,fontWeight:600}}>{fmtCur(d.fr)}</td><td style={{padding:'8px 10px',fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</td></tr>})}</tbody></table></div></div>}
+/* ═══ PRODUÇÃO — somente FINALIZADOS ═══ */
+function Producao(){
+  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+  const[tab,sTab]=useState('banco')
+  const fin=ops.filter(isFin)
+  const totalDig=ops.length
+  const totalProd=fin.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const cv=totalDig?(fin.length/totalDig*100):0
+  const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao
+  // Agrupa FINALIZADOS por banco/convenio/operacao
+  const m={};fin.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrRepasse||0)})
+  // Conta digitações totais por grupo pra mostrar conversão
+  const md={};ops.forEach(o=>{const k=kFn(o)||'?';md[k]=(md[k]||0)+1})
+  const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
+  const finOps=fin
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><ExportBtn ops={finOps} name={'producao-'+per}/></div>
+    <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <Stat label="Produção (Pago)" value={fmtCur(totalProd)} color={C.accent2} sub={fin.length+' finalizadas'}/>
+      <Stat label="Digitadas" value={totalDig}/>
+      <Stat label="Conversão" value={cv.toFixed(0)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/>
+    </div>
+    <div style={{display:'flex',gap:4}}>{[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer'}}>{t.n}</button>)}</div>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+        <thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Produção (Pago)','%','Qtd Pagas','Digitadas','Conv.'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+        <tbody>{data.map(([n,d])=>{const pct=totalProd?(d.r/totalProd*100):0;const dig=md[n]||0;const cvn=dig?(d.c/dig*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}>
+          <td style={{padding:'8px 10px',fontWeight:700}}>{n}</td>
+          <td style={{padding:'8px 10px',fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</td>
+          <td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td>
+          <td style={{padding:'8px 10px',fontWeight:600}}>{d.c}</td>
+          <td style={{padding:'8px 10px',color:C.muted}}>{dig}</td>
+          <td style={{padding:'8px 10px',fontWeight:600,color:cvn>=50?C.accent2:cvn>=30?C.warn:C.danger}}>{cvn.toFixed(0)}%</td>
+        </tr>})}</tbody>
+      </table>
+    </div>
+  </div>
+}
 
 /* ═══ ESTRATÉGICO ═══ */
 function Estrategico(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('tudo');const[sel,sSel]=useState(null),[selP,setSelP]=useState(null);const list=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrRepasse||0),0),cv=al.length?(fn.length/al.length*100):0,er=al.length?(est.length/al.length*100):0;return{name:a,c:al.length,r,fC:fn.length,cv,estC:est.length,er}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estratégico</h2><ExportBtn ops={ops} name={'estrategico-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Dig.','Repasse','Conv.','Estornos','Health',''].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{list.map(p=>{const h=p.cv>=60?'🟢':p.cv>=40?'🟡':p.cv>=25?'🟠':'🔴';return<tr key={p.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(p.name)}><td style={{padding:'8px 10px',fontWeight:600}}>{p.name}</td><td style={{padding:'8px 10px'}}>{p.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(p.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:p.cv>=50?C.accent2:p.cv>=30?C.warn:C.danger}}>{p.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:p.estC?C.danger:C.muted}}>{p.estC} ({p.er.toFixed(0)}%)</td><td style={{padding:'8px 10px',fontSize:14}}>{h}</td><td style={{color:C.accent}}>→</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
