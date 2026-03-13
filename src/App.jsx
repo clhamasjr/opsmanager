@@ -9,10 +9,12 @@ const NOW=new Date(),CUR_M=NOW.toISOString().slice(0,7),PREV_M=new Date(NOW.getF
 /* ═══ UTILS ═══ */
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
 const fmtDate=d=>{if(!d)return'—';const p=String(d).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d}
-const isFin=o=>['FINALIZADO','PAGO','AVERBADO','CONCRETIZADO','PAGO C/ PENDENCIA','PAGO C/ PENDÊNCIA','FINALIZADO / PAGO','PAGO AO CLIENTE','PAGO - CRÉDITO ENVIADO'].includes((o.situacaoBanco||'').toUpperCase())
-const isEst=o=>['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA','CANCELADO PELO CLIENTE'].includes((o.situacao||'').toUpperCase())
+const PROD_SIT=['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PAGO C/PENDENCIA','PORTABILIDADE AVERBADA']
+const PROD_SITB=['FINALIZADO','PAGO','PAGA','AVERBADO','CONCRETIZADO','INTEGRADA','INTEGRADO','INT - FINALIZADO','INT - FINALIZADO REFIN','INT - TED EMITIDA','PAGO AO CLIENTE','PAGO C/PENDÊNCIA','PAGO C/PENDENCIA','PAGAMENTO REALIZADO','FINALIZADO / PAGO','PAGO - CRÉDITO ENVIADO','PORTABILIDADE AVERBADA']
+const isFin=o=>PROD_SIT.includes((o.situacao||'').toUpperCase())||PROD_SITB.includes((o.situacaoBanco||'').toUpperCase())
+const isEst=o=>{const s=(o.situacao||'').toUpperCase(),sb=(o.situacaoBanco||'').toUpperCase();return['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA','CANCELADO PELO CLIENTE'].includes(s)||['CANCELADO','CANCELADA','REPROVADA','REPROVADO','NEGADA','REPROVADA - FINALIZADA','REPROVADO CRÉDITO'].includes(sb)}
 const isPend=o=>!isFin(o)&&!isEst(o)
-const sitCol=s=>{s=(s||'').toUpperCase();if(['FINALIZADO','PAGO','AVERBADO','APROVADO','CONCRETIZADO'].includes(s))return C.accent2;if(['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA'].includes(s))return C.danger;if(['EM ANÁLISE','PENDENTE','ANALISE BANCO'].includes(s))return C.warn;return C.info}
+const sitCol=s=>{s=(s||'').toUpperCase();if(['FINALIZADO','PAGO','AVERBADO','APROVADO','CONCRETIZADO','INTEGRADA','INTEGRADO','CRC CLIENTE','PAGA','PAGAMENTO REALIZADO'].includes(s))return C.accent2;if(['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA'].includes(s))return C.danger;if(['EM ANÁLISE','EM ANALISE','PENDENTE','ANALISE BANCO','ANDAMENTO','AGUARDANDO RETORNO CIP','PROPOSTA CADASTRADA','ASSINADO CCB'].includes(s))return C.warn;return C.info}
 function nDate(v){if(!v)return'';if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400*1000));return!isNaN(d.getTime())?d.toISOString().split('T')[0]:''}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);return''}
 function pNum(v){if(v==null||v==='')return 0;if(typeof v==='number')return v;return parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.'))||0}
 const fixDate=v=>{if(!v)return'';const s=String(v).trim();return s.length>=10&&s[4]==='-'?s.slice(0,10):s}
@@ -233,7 +235,7 @@ function Dashboard({curOps,prevOps}){
   const bySit={};f.forEach(o=>{const k=o.situacao||'?';if(!bySit[k])bySit[k]={c:0,r:0};bySit[k].c++;bySit[k].r+=(o.vrRepasse||0)})
   const sitArr=Object.entries(bySit).sort((a,b)=>b[1].c-a[1].c)
   // Top parceiros
-  const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0};topM[a].r+=(o.vrRepasse||0);topM[a].c++;if(isFin(o))topM[a].fc++})
+  const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0,fr:0};topM[a].r+=(o.vrRepasse||0);topM[a].c++;if(isFin(o)){topM[a].fc++;topM[a].fr+=(o.vrRepasse||0)}})
   const topP=Object.entries(topM).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
   // Comparativo mês atual vs anterior — PRODUÇÃO = só finalizado
   const curFinOps=curOps.filter(isFin),prevFinOps=prevOps.filter(isFin)
@@ -347,11 +349,16 @@ function Dashboard({curOps,prevOps}){
         {/* TOP PARCEIROS — clicável */}
         <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
           <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Top Parceiros <span style={{fontSize:9,color:C.muted}}>(clique p/ health)</span></div>
-          {topP.map(([ag,d],i)=>{const cv=d.c?(d.fc/d.c*100):0;return<div key={ag} onClick={()=>setSelP(ag)} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 0',borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+          {topP.map(([ag,d],i)=>{const cv=d.c?(d.fc/d.c*100):0;return<div key={ag} onClick={()=>setSelP(ag)} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <span style={{fontSize:10,fontWeight:700,color:i<3?C.accent:C.muted,width:16}}>{i+1}</span>
-            <div style={{flex:1,fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ag}</div>
-            <span style={{fontSize:9,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger,fontWeight:600}}>{cv.toFixed(0)}%</span>
-            <span style={{fontSize:10,fontWeight:700,color:C.accent2}}>{fmtCur(d.r)}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ag}</div>
+              <div style={{fontSize:8,color:C.muted}}>{d.c} dig · {d.fc} prod · {cv.toFixed(0)}%</div>
+            </div>
+            <div style={{textAlign:'right',flexShrink:0}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.accent2}}>{fmtCur(d.fr)}</div>
+              <div style={{fontSize:8,color:C.muted}}>dig: {fmtCur(d.r)}</div>
+            </div>
           </div>})}
         </div>
 
@@ -440,39 +447,27 @@ function Recebimentos(){
   const[pend,setPend]=useState([]),[rec,setRec]=useState([]),[loading,setLoading]=useState(true)
   const[fB,sFB]=useState(''),[fA,sFA]=useState(''),[showExp,setShowExp]=useState(false)
 
-  // Query DIRETA: CRC preenchido + Nosso Crédito vazio = A RECEBER
   useEffect(()=>{
     setLoading(true)
-    Promise.all([
-      // Pendentes: CRC preenchido — filtra nosso_credito vazio no JS
-      (async()=>{
-        const PAGE=1000;let all=[],from=0
-        while(true){
-          const{data,error}=await supabase.from('digitacoes').select('*')
-            .not('crc_cliente','is',null).neq('crc_cliente','')
-            .range(from,from+PAGE-1)
-          if(error||!data||!data.length)break
-          all=all.concat(data)
-          if(data.length<PAGE)break;from+=PAGE
-        }
-        const mapped=all.map(fromDb)
-        return mapped.filter(o=>!o.dataNossoCredito)
-      })(),
-      // Recebidas: ambos preenchidos
-      (async()=>{
-        const PAGE=1000;let all=[],from=0
-        while(true){
-          const{data,error}=await supabase.from('digitacoes').select('*')
-            .not('crc_cliente','is',null).neq('crc_cliente','')
-            .not('data_nosso_credito','is',null).neq('data_nosso_credito','')
-            .range(from,from+PAGE-1)
-          if(error||!data||!data.length)break
-          all=all.concat(data)
-          if(data.length<PAGE)break;from+=PAGE
-        }
-        return all.map(fromDb)
-      })()
-    ]).then(([p,r])=>{setPend(p);setRec(r);setLoading(false)}).catch(()=>setLoading(false))
+    // Busca todas propostas com situação de produção — depois filtra CRC no JS
+    ;(async()=>{
+      const PAGE=1000;let all=[],from=0
+      while(true){
+        const{data,error}=await supabase.from('digitacoes').select('*')
+          .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
+          .range(from,from+PAGE-1)
+        if(error){console.error('Receb error:',error);break}
+        if(!data||!data.length)break
+        all=all.concat(data)
+        if(data.length<PAGE)break;from+=PAGE
+      }
+      const mapped=all.map(fromDb)
+      const comCrc=mapped.filter(o=>o.crcCliente)
+      setPend(comCrc.filter(o=>!o.dataNossoCredito))
+      setRec(comCrc.filter(o=>o.dataNossoCredito))
+      setLoading(false)
+    })()
+  },[])
   },[])
 
   const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
@@ -549,6 +544,32 @@ function Recebimentos(){
         </div>
       </div>
 
+      {/* BANCO × DIAS EM ABERTO */}
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Banco × Dias em Aberto</div>
+        {(()=>{
+          const FAIXAS=['0-5','5-10','10-15','15-30','30-60','60-90','90+']
+          const getFaixa=d=>d<=5?'0-5':d<=10?'5-10':d<=15?'10-15':d<=30?'15-30':d<=60?'30-60':d<=90?'60-90':'90+'
+          const mx={};pend.forEach(o=>{const b=o.banco||'?',d=o.crcCliente?Math.floor((NOW-new Date(o.crcCliente))/86400000):0,f=getFaixa(d);if(!mx[b])mx[b]={};if(!mx[b][f])mx[b][f]={c:0,r:0};mx[b][f].c++;mx[b][f].r+=(o.vrRepasse||0)})
+          const bancos=Object.keys(mx).sort()
+          return<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+            <thead><tr style={{background:C.surface}}>
+              <th style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,position:'sticky',left:0,background:C.surface}}>BANCO</th>
+              {FAIXAS.map(f=><th key={f} style={{padding:'6px 8px',textAlign:'center',color:C.muted,fontSize:8,minWidth:70}}>{f}d</th>)}
+              <th style={{padding:'6px 8px',textAlign:'center',color:C.muted,fontSize:8,fontWeight:700}}>TOTAL</th>
+            </tr></thead>
+            <tbody>{bancos.map(b=>{
+              const total={c:0,r:0};FAIXAS.forEach(f=>{if(mx[b]?.[f]){total.c+=mx[b][f].c;total.r+=mx[b][f].r}})
+              return<tr key={b} style={{borderBottom:'1px solid '+C.border}}>
+                <td style={{padding:'6px 8px',fontWeight:600,position:'sticky',left:0,background:C.card}}>{b}</td>
+                {FAIXAS.map(f=>{const v=mx[b]?.[f];const col=f.includes('90')||f.includes('60')?C.danger:f.includes('30')?C.warn:f.includes('15')?C.info:C.accent2;return<td key={f} style={{padding:'6px 8px',textAlign:'center'}}>{v?<div><div style={{fontWeight:600,color:col}}>{v.c}</div><div style={{fontSize:8,color:C.muted}}>{fmtCur(v.r)}</div></div>:<span style={{color:C.border}}>—</span>}</td>})}
+                <td style={{padding:'6px 8px',textAlign:'center',fontWeight:700}}><div style={{color:C.danger}}>{total.c}</div><div style={{fontSize:8,color:C.muted}}>{fmtCur(total.r)}</div></td>
+              </tr>
+            })}</tbody>
+          </table></div>
+        })()}
+      </div>
+
       {/* ANALÍTICO */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,alignItems:'center',flexWrap:'wrap',gap:8}}>
@@ -593,14 +614,65 @@ function Recebimentos(){
 }
 
 /* ═══ ESTORNOS ═══ */
-function Estornos(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes');const est=ops.filter(isEst);const byBanco=(()=>{const m={};est.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0};m[b].c++;m[b].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c)})();const byAg=(()=>{const m={};est.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,t:0};m[a].c++;m[a].r+=(o.vrRepasse||0)});ops.forEach(o=>{const a=o.agente||'?';if(m[a])m[a].t++});return Object.entries(m).map(([a,d])=>({a,...d,pct:d.t?(d.c/d.t*100):0})).sort((a,b)=>b.pct-a.pct)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estornos</h2><ExportBtn ops={est} name={'estornos-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Estornos" value={est.length} color={C.danger}/><Stat label="Perda" value={fmtCur(est.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.danger}/></div>{est.length>0&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byBanco.map(([b,d])=><tr key={b} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{b}</td><td style={{padding:'7px 9px',color:C.danger}}>{d.c}</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(d.r)}</td></tr>)}</tbody></table></div><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.danger}}>Top Estornadores</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Est.','%','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byAg.slice(0,15).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{a.a}</td><td style={{padding:'7px 9px',color:C.danger}}>{a.c}</td><td style={{padding:'7px 9px',fontWeight:600,color:a.pct>20?C.danger:a.pct>10?C.warn:C.text}}>{a.pct.toFixed(0)}%</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(a.r)}</td></tr>)}</tbody></table></div></div>}</div>}
+function Performance({curOps,prevOps}){
+  const[selP,setSelP]=useState(null)
+  const ags=[...new Set(curOps.concat(prevOps).map(o=>o.agente).filter(Boolean))]
+  const data=ags.map(a=>{
+    const cu=curOps.filter(o=>o.agente===a),pv=prevOps.filter(o=>o.agente===a)
+    const cDig=cu.length,pDig=pv.length,cProd=cu.filter(isFin),pProd=pv.filter(isFin)
+    const cR=cProd.reduce((s,o)=>s+(o.vrRepasse||0),0),pR=pProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
+    const cEst=cu.filter(isEst).length,pEst=pv.filter(isEst).length
+    const cv=cDig?(cProd.length/cDig*100):0,pvCv=pDig?(pProd.length/pDig*100):0
+    const varR=pR?((cR-pR)/pR*100):(cR>0?100:0),varDig=pDig?((cDig-pDig)/pDig*100):(cDig>0?100:0)
+    const bB={};cu.forEach(o=>{const b=o.banco||'?';if(!bB[b])bB[b]=0;bB[b]++})
+    const topB=Object.entries(bB).sort((a,b)=>b[1]-a[1])[0]
+    const health=cv>=60?'🟢':cv>=40?'🟡':cv>=25?'🟠':'🔴'
+    return{name:a,cDig,pDig,cProd:cProd.length,pProd:pProd.length,cR,pR,cv,pvCv,varR,varDig,cEst,pEst,topB:topB?topB[0]:'—',health}
+  }).sort((a,b)=>b.cR-a.cR)
+  const totCR=data.reduce((s,d)=>s+d.cR,0),totPR=data.reduce((s,d)=>s+d.pR,0)
+  const vc=v=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
+  const vC=v=>v>0?C.accent2:v<-10?C.danger:C.warn
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Performance</h2><ExportBtn ops={curOps} name={'performance-mes'}/></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Stat label="Produção Mês" value={fmtCur(totCR)} color={C.accent} sub={data.reduce((s,d)=>s+d.cProd,0)+' ops'}/>
+        <Stat label="Produção Anterior" value={fmtCur(totPR)} sub={data.reduce((s,d)=>s+d.pProd,0)+' ops'}/>
+        <Stat label="Variação" value={(totPR?((totCR-totPR)/totPR*100):0).toFixed(0)+'%'} color={totCR>=totPR?C.accent2:C.danger}/>
+        <Stat label="Parceiros Ativos" value={data.filter(d=>d.cDig>0).length} sub={'de '+ags.length}/>
+      </div>
+      <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+          <thead><tr style={{background:C.surface}}>
+            {['','Parceiro','Dig.Mês','Dig.Ant.','Var.','Prod.Mês','Prod.Ant.','Var.Prod.','Conv.','Conv.Ant.','Princ.Banco','Health'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',color:C.muted,fontSize:7,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{data.map((d,i)=><tr key={d.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(d.name)}>
+            <td style={{padding:'6px 8px'}}><span style={{display:'inline-flex',width:20,height:20,borderRadius:5,background:i<3?C.accent:C.surface,alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</span></td>
+            <td style={{padding:'6px 8px',fontWeight:600,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</td>
+            <td style={{padding:'6px 8px'}}>{d.cDig}</td>
+            <td style={{padding:'6px 8px',color:C.muted}}>{d.pDig}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:vC(d.varDig)}}>{vc(d.varDig)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:C.accent2}}>{fmtCur(d.cR)}</td>
+            <td style={{padding:'6px 8px',color:C.muted}}>{fmtCur(d.pR)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:vC(d.varR)}}>{vc(d.varR)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:d.cv>=50?C.accent2:d.cv>=30?C.warn:C.danger}}>{d.cv.toFixed(0)}%</td>
+            <td style={{padding:'6px 8px',color:C.muted}}>{d.pvCv.toFixed(0)}%</td>
+            <td style={{padding:'6px 8px',fontSize:9}}>{d.topB}</td>
+            <td style={{padding:'6px 8px',fontSize:13}}>{d.health}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <PartnerHealth name={selP} ops={curOps} onClose={()=>setSelP(null)}/>
+    </div>
+  )
+}
 
 /* ═══ ALERTAS ═══ */
 function Alertas({curOps,prevOps}){const ags=[...new Set(curOps.concat(prevOps).map(o=>o.agente).filter(Boolean))];const st=ags.map(a=>{const cu=curOps.filter(o=>o.agente===a),pv=prevOps.filter(o=>o.agente===a),cR=cu.reduce((s,o)=>s+(o.vrRepasse||0),0),pR=pv.reduce((s,o)=>s+(o.vrRepasse||0),0),vr=pR?((cR-pR)/pR*100):(cR>0?100:0);let flag='ok';if(cu.length===0&&pv.length>0)flag='parado';else if(vr<=-30)flag='queda';return{nm:a,cc:cu.length,pc:pv.length,vr,flag}}).sort((a,b)=>{const o={parado:0,queda:1,ok:2};return(o[a.flag]??3)-(o[b.flag]??3)});return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Alertas</h2><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Parados" value={st.filter(s=>s.flag==='parado').length} color={C.danger}/><Stat label="Em Queda" value={st.filter(s=>s.flag==='queda').length} color={C.warn}/></div>{st.filter(s=>s.flag!=='ok').length>0&&<div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:12,padding:14}}><div style={{fontSize:12,fontWeight:700,color:C.danger,marginBottom:6}}>⚠ Ação necessária</div>{st.filter(s=>s.flag!=='ok').map(s=><div key={s.nm} style={{fontSize:11,padding:'3px 0'}}>{s.flag==='parado'?'🔴':'🟡'} <strong>{s.nm}</strong> — {s.flag==='parado'?'Parado no mês':'Queda '+Math.abs(s.vr).toFixed(0)+'%'}</div>)}</div>}<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface}}>{['','Parceiro','Mês','Ant.','Var.'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{st.map(s=><tr key={s.nm} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 8px'}}>{s.flag==='parado'?'🔴':s.flag==='queda'?'🟡':'↗'}</td><td style={{padding:'7px 8px',fontWeight:600}}>{s.nm}</td><td style={{padding:'7px 8px'}}>{s.cc}</td><td style={{padding:'7px 8px'}}>{s.pc}</td><td style={{padding:'7px 8px',fontWeight:600,color:s.vr>0?C.accent2:s.vr<-30?C.danger:C.warn}}>{s.vr>0?'+':''}{s.vr.toFixed(0)}%</td></tr>)}</tbody></table></div></div>}
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','recebimentos','estornos','alertas','parceiros']
+  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','performance','recebimentos','alertas','parceiros']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null)
@@ -638,7 +710,7 @@ function Usuarios({user}){
 }
 
 /* ═══ NAV ═══ */
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'estornos',l:'Estornos',i:'⚠'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'performance',l:'Performance',i:'📈'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
@@ -665,8 +737,8 @@ export default function App(){
       {view==='producao'&&<Producao/>}
       {view==='estrategico'&&<Estrategico/>}
       {view==='ranking'&&<Ranking/>}
+      {view==='performance'&&<Performance curOps={curOps} prevOps={prevOps}/>}
       {view==='recebimentos'&&<Recebimentos/>}
-      {view==='estornos'&&<Estornos/>}
       {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps}/>}
       {view==='parceiros'&&<Parceiros/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
