@@ -23,11 +23,14 @@ const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cl
 const PERIODS=(()=>{const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>new Date(a,b,1).toISOString().split('T')[0],e=(a,b)=>new Date(a,b+1,0).toISOString().split('T')[0];return{mes:{n:'Mês Atual',f:d(y,m),t:e(y,m)},ant:{n:'Mês Anterior',f:d(y,m-1),t:e(y,m-1)},tri:{n:'Trimestre',f:d(y,m-2),t:e(y,m)},sem:{n:'Semestre',f:d(y,m-5),t:e(y,m)},ano:{n:String(y),f:y+'-01-01',t:y+'-12-31'},tudo:{n:'Tudo',f:'2000-01-01',t:'2099-12-31'}}})()
 
 /* ═══ SERVER-SIDE FETCH ═══ */
-async function fetchOps(per,onProgress){
-  const r=PERIODS[per]||PERIODS.tudo;const PAGE=1000;let all=[],from=0
+async function fetchOps(per,onProgress,customDf,customDt){
+  let df,dt
+  if(per==='custom'){df=customDf||'2000-01-01';dt=customDt||'2099-12-31'}
+  else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
+  const PAGE=1000;let all=[],from=0
   while(true){
     let q=supabase.from('digitacoes').select('*').range(from,from+PAGE-1)
-    if(per!=='tudo')q=q.gte('data',r.f).lte('data',r.t)
+    if(per!=='tudo')q=q.gte('data',df).lte('data',dt)
     const{data,error}=await q
     if(error||!data||data.length===0)break
     all=all.concat(data);if(onProgress)onProgress(all.length)
@@ -43,20 +46,99 @@ function getProj(ops){const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,
 /* ═══ UI ATOMS ═══ */
 function Stat({label,value,sub,color,small}){return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:small?'10px 12px':'14px 16px',flex:1,minWidth:small?90:120}}><div style={{fontSize:small?8:9,color:C.muted,marginBottom:3,fontWeight:600,textTransform:'uppercase'}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:700,color:color||C.text}}>{value}</div>{sub&&<div style={{fontSize:small?9:10,color:C.muted,marginTop:2}}>{sub}</div>}</div>}
 function Badge({text,color}){return<span style={{fontSize:10,padding:'2px 8px',borderRadius:6,background:color+'22',color,fontWeight:600}}>{text}</span>}
-function PeriodBar({per,setPer,loading}){return<div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:6,alignItems:'center'}}>{Object.entries(PERIODS).map(([k,v])=><button key={k} onClick={()=>setPer(k)} disabled={loading} style={{padding:'5px 12px',borderRadius:6,fontFamily:'Outfit,sans-serif',fontSize:10,border:'1px solid '+(per===k?C.accent:C.border),background:per===k?C.abg:'transparent',color:per===k?C.accent:C.muted,fontWeight:per===k?700:400,cursor:loading?'wait':'pointer',opacity:loading?.5:1}}>{v.n}</button>)}{loading&&<span style={{fontSize:10,color:C.warn,marginLeft:8}}>⏳</span>}</div>}
+function PeriodBar({per,setPer,loading,customDf,customDt,setCustomDf,setCustomDt,onApplyCustom}){
+  return<div style={{display:'flex',flexDirection:'column',gap:6}}>
+    <div style={{display:'flex',gap:4,flexWrap:'wrap',alignItems:'center'}}>
+      {Object.entries(PERIODS).map(([k,v])=><button key={k} onClick={()=>setPer(k)} disabled={loading} style={{padding:'5px 12px',borderRadius:6,fontFamily:'Outfit,sans-serif',fontSize:10,border:'1px solid '+(per===k?C.accent:C.border),background:per===k?C.abg:'transparent',color:per===k?C.accent:C.muted,fontWeight:per===k?700:400,cursor:loading?'wait':'pointer',opacity:loading?.5:1}}>{v.n}</button>)}
+      <button onClick={()=>setPer('custom')} disabled={loading} style={{padding:'5px 12px',borderRadius:6,fontFamily:'Outfit,sans-serif',fontSize:10,border:'1px solid '+(per==='custom'?C.accent:C.border),background:per==='custom'?C.abg:'transparent',color:per==='custom'?C.accent:C.muted,fontWeight:per==='custom'?700:400,cursor:loading?'wait':'pointer'}}>📅 Personalizado</button>
+      {loading&&<span style={{fontSize:10,color:C.warn,marginLeft:8}}>⏳</span>}
+    </div>
+    {per==='custom'&&<div style={{display:'flex',gap:8,alignItems:'end'}}>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>DE</label><input type="date" value={customDf||''} onChange={e=>setCustomDf&&setCustomDf(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'6px 10px',fontSize:11,fontFamily:'Outfit,sans-serif'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>ATÉ</label><input type="date" value={customDt||''} onChange={e=>setCustomDt&&setCustomDt(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'6px 10px',fontSize:11,fontFamily:'Outfit,sans-serif'}}/></div>
+      <button onClick={()=>onApplyCustom&&onApplyCustom()} style={{background:C.accent,color:'#fff',border:'none',borderRadius:7,padding:'7px 16px',fontSize:11,fontWeight:600,cursor:'pointer'}}>Aplicar</button>
+    </div>}
+  </div>
+}
 
 /* ═══ EXPORT XLSX ═══ */
 function exportXlsx(ops,filename){
   const ws=XLSX.utils.json_to_sheet(ops.map(o=>({Data:o.data,Banco:o.banco,CPF:o.cpf,Cliente:o.cliente,Proposta:o.proposta,'Operação':o.operacao,'Situação':o.situacao,'Sit.Banco':o.situacaoBanco,'Convênio':o.convenio,Agente:o.agente,Repasse:o.vrRepasse,Bruto:o.vrBruto,Líquido:o.vrLiquido,Parcela:o.vrParcela,CRC:o.crcCliente,'Nosso Crédito':o.dataNossoCredito})))
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Dados');XLSX.writeFile(wb,filename+'.xlsx')
 }
-function ExportBtn({ops,name}){return<button onClick={()=>exportXlsx(ops,name||'export')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({ops.length})</button>}
+function ExportBtn({ops,name}){return<button onClick={()=>exportXlsx(ops,name||'export')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 ({ops.length})</button>}
 
-/* ═══ HOOK: useOps ═══ */
+function ExportModal({open,onClose,ops}){
+  const[fBanco,sFBanco]=useState(''),[fAgente,sFAgente]=useState(''),[fOp,sFOp]=useState(''),[fSit,sFSit]=useState(''),[fConv,sFConv]=useState('')
+  if(!open)return null
+  const bancos=[...new Set(ops.map(o=>o.banco).filter(Boolean))].sort()
+  const agentes=[...new Set(ops.map(o=>o.agente).filter(Boolean))].sort()
+  const operacoes=[...new Set(ops.map(o=>o.operacao).filter(Boolean))].sort()
+  const situacoes=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
+  const convenios=[...new Set(ops.map(o=>o.convenio).filter(Boolean))].sort()
+  const fd=ops.filter(o=>(!fBanco||o.banco===fBanco)&&(!fAgente||o.agente===fAgente)&&(!fOp||o.operacao===fOp)&&(!fSit||o.situacao===fSit)&&(!fConv||o.convenio===fConv))
+  const sel=s=>({background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11,width:'100%'})
+  return<div style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:18,width:640,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}}>
+      <div style={{padding:'16px 22px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between'}}><h3 style={{fontWeight:700,fontSize:15,margin:0}}>Exportar com Filtros</h3><button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:22,cursor:'pointer'}}>×</button></div>
+      <div style={{padding:'16px 22px',display:'flex',flexDirection:'column',gap:12}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>BANCO</label><select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={sel()}><option value="">Todos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select></div>
+          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>PARCEIRO</label><select value={fAgente} onChange={e=>sFAgente(e.target.value)} style={sel()}><option value="">Todos</option>{agentes.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>OPERAÇÃO</label><select value={fOp} onChange={e=>sFOp(e.target.value)} style={sel()}><option value="">Todas</option>{operacoes.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>SITUAÇÃO</label><select value={fSit} onChange={e=>sFSit(e.target.value)} style={sel()}><option value="">Todas</option>{situacoes.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>CONVÊNIO</label><select value={fConv} onChange={e=>sFConv(e.target.value)} style={sel()}><option value="">Todos</option>{convenios.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+          <div style={{display:'flex',alignItems:'end'}}><button onClick={()=>{sFBanco('');sFAgente('');sFOp('');sFSit('');sFConv('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 12px',fontSize:11,cursor:'pointer',width:'100%'}}>Limpar</button></div>
+        </div>
+        <div style={{background:C.surface,borderRadius:10,padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div><strong style={{color:C.accent}}>{fd.length}</strong> registros — {fmtCur(fd.reduce((s,o)=>s+(o.vrRepasse||0),0))}</div>
+          <button onClick={()=>{exportXlsx(fd,'opsmanager-export');onClose()}} disabled={!fd.length} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'10px 24px',fontWeight:700,fontSize:13,cursor:'pointer',opacity:fd.length?.1:.4}}>📤 Exportar XLSX</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+/* ═══ PARCEIROS ═══ */
+function Parceiros(){
+  const[list,setList]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false),[se,sSe]=useState('')
+  const[nome,setNome]=useState(''),[cpf,setCpf]=useState(''),[tel,setTel]=useState(''),[email,setEmail]=useState(''),[cidade,setCidade]=useState(''),[uf,setUf]=useState(''),[resp,setResp]=useState(''),[obs,setObs]=useState(''),[msg,setMsg]=useState('')
+  const fr=useRef(null)
+  useEffect(()=>{supabase.from('parceiros').select('*').order('nome').then(({data})=>{setList(data||[]);setLoading(false)})},[])
+  const reload=async()=>{const{data}=await supabase.from('parceiros').select('*').order('nome');setList(data||[])}
+  const fd=list.filter(p=>{if(!se)return true;const s=se.toLowerCase();return(p.nome||'').toLowerCase().includes(s)||(p.cpf_cnpj||'').includes(s)||(p.cidade||'').toLowerCase().includes(s)})
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <h2 style={{fontWeight:800,fontSize:20}}>Parceiros ({list.length})</h2>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={()=>fr.current?.click()} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📥 Importar</button>
+        <input ref={fr} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;const rd=new FileReader();rd.onload=async ev=>{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});for(let i=0;i<rows.length;i+=500){const batch=rows.slice(i,i+500).map(r=>({nome:String(r.Nome||r.nome||r.NOME||'').trim(),cpf_cnpj:String(r.CPF||r.CNPJ||r.cpf_cnpj||r['CPF/CNPJ']||'').trim(),telefone:String(r.Telefone||r.telefone||r.Tel||r.tel||'').trim(),email:String(r.Email||r.email||r.EMAIL||'').trim(),cidade:String(r.Cidade||r.cidade||'').trim(),uf:String(r.UF||r.uf||r.Estado||'').trim(),responsavel:String(r.Responsavel||r.responsavel||'').trim(),observacao:String(r.Obs||r.obs||r.Observação||'').trim()})).filter(r=>r.nome);await supabase.from('parceiros').upsert(batch,{onConflict:'nome',ignoreDuplicates:false})}await reload();setMsg(rows.length+' importados!')};rd.readAsArrayBuffer(file)}}/>
+        <button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:600,fontSize:11,cursor:'pointer'}}>+ Novo</button>
+      </div>
+    </div>
+    {msg&&<div style={{background:C.accent2+'22',color:C.accent2,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}</div>}
+    {showNew&&<form onSubmit={async e=>{e.preventDefault();await supabase.from('parceiros').insert({nome,cpf_cnpj:cpf,telefone:tel,email,cidade,uf,responsavel:resp,observacao:obs});setNome('');setCpf('');setTel('');setEmail('');setCidade('');setUf('');setResp('');setObs('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,alignItems:'end'}}>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>CPF/CNPJ</label><input value={cpf} onChange={e=>setCpf(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>TELEFONE</label><input value={tel} onChange={e=>setTel(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>EMAIL</label><input value={email} onChange={e=>setEmail(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>CIDADE</label><input value={cidade} onChange={e=>setCidade(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>UF</label><input value={uf} onChange={e=>setUf(e.target.value)} maxLength={2} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>RESPONSÁVEL</label><input value={resp} onChange={e=>setResp(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <button type="submit" style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button>
+    </form>}
+    <input value={se} onChange={e=>sSe(e.target.value)} placeholder="Buscar parceiro..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none'}}/>
+    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','CPF/CNPJ','Telefone','Email','Cidade','UF','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.map(p=><tr key={p.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:600}}>{p.nome}</td><td style={{padding:'8px 10px'}}>{p.cpf_cnpj}</td><td style={{padding:'8px 10px'}}>{p.telefone}</td><td style={{padding:'8px 10px'}}>{p.email}</td><td style={{padding:'8px 10px'}}>{p.cidade}</td><td style={{padding:'8px 10px'}}>{p.uf}</td><td style={{padding:'8px 10px'}}><Badge text={p.ativo?'Ativo':'Inativo'} color={p.ativo?C.accent2:C.danger}/></td><td style={{padding:'8px 10px'}}><button onClick={async()=>{await supabase.from('parceiros').update({ativo:!p.ativo}).eq('id',p.id);await reload()}} style={{background:p.ativo?'#EF444418':C.accent2+'22',color:p.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{p.ativo?'Desativar':'Ativar'}</button></td></tr>)}</tbody></table></div>}
+  </div>
+}
+
+/* ═══ HOOK: useOps with custom date support ═══ */
 function useOps(defaultPer){
   const[per,setPer]=useState(defaultPer||'mes'),[ops,setOps]=useState([]),[loading,setLoading]=useState(false),[count,setCount]=useState(0)
-  useEffect(()=>{let c=false;setLoading(true);fetchOps(per,n=>{if(!c)setCount(n)}).then(d=>{if(!c){setOps(d);setCount(d.length)}}).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per])
-  return{per,setPer,ops,loading,count}
+  const[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
+  useEffect(()=>{let c=false;setLoading(true);fetchOps(per,n=>{if(!c)setCount(n)},customDf,customDt).then(d=>{if(!c){setOps(d);setCount(d.length)}}).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger])
+  const applyCustom=()=>setTrigger(t=>t+1)
+  return{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}
 }
 
 /* ═══ IMPORT MODAL ═══ */
@@ -142,7 +224,7 @@ function PartnerHealth({name,ops,onClose}){
 
 /* ═══ DASHBOARD ═══ */
 function Dashboard({curOps,prevOps}){
-  const{per,setPer,ops,loading,count}=useOps('mes')
+  const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const est=f.filter(isEst),pend=f.filter(isPend)
@@ -170,8 +252,8 @@ function Dashboard({curOps,prevOps}){
 
   return(
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2><ExportBtn ops={ops} name={'dashboard-'+per}/></div>
-      <PeriodBar per={per} setPer={setPer} loading={loading}/>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>&&false?&lt;ExportBtn/&gt;:'+per}/></div>
+      <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
       <div style={{fontSize:10,color:C.muted}}>{count} digitações no período</div>
 
       {/* COMPARATIVO MÊS ATUAL vs ANTERIOR */}
@@ -245,46 +327,237 @@ function Dashboard({curOps,prevOps}){
 
 /* ═══ OPERAÇÕES ═══ */
 function Operacoes({onImport}){
-  const{per,setPer,ops,loading,count}=useOps('mes')
-  const[io,sio]=useState(false),[se,sse]=useState(''),[fs,sfs]=useState(''),[selP,setSelP]=useState(null)
+  const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+  const[io,sio]=useState(false),[se,sse]=useState(''),[fs,sfs]=useState(''),[selP,setSelP]=useState(null),[showExp,setShowExp]=useState(false)
   const aS=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
   const fd=ops.filter(o=>!fs||o.situacao===fs).filter(o=>{if(!se)return true;const s=se.toLowerCase();return(o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s)}).sort((a,b)=>(b.data||'').localeCompare(a.data||''))
   return(
     <div style={{display:'flex',flexDirection:'column',gap:12}}>
-      <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Operações</h2><div style={{display:'flex',gap:6}}><ExportBtn ops={fd} name={'operacoes-'+per}/><button onClick={()=>sio(true)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontWeight:600,fontSize:12}}>📥 Importar</button></div></div>
-      <PeriodBar per={per} setPer={setPer} loading={loading}/>
+      <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Operações</h2><div style={{display:'flex',gap:6}}><button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button><button onClick={()=>sio(true)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontWeight:600,fontSize:12}}>📥 Importar</button></div></div>
+      <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
       <div style={{display:'flex',gap:6,flexWrap:'wrap'}}><input value={se} onChange={e=>sse(e.target.value)} placeholder="Buscar..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none',flex:1,minWidth:160}}/><select value={fs} onChange={e=>sfs(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:12}}><option value="">— Situação —</option>{aS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
       <div style={{fontSize:10,color:C.muted}}>{fd.length} de {count} — {fmtCur(fd.reduce((s,o)=>s+(o.vrRepasse||0),0))}</div>
       <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Data','Cliente','Banco','Op.','Situação','Agente','Repasse'].map(h=><th key={h} style={{padding:'8px 9px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.slice(0,500).map(o=><tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td><td style={{padding:'7px 9px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente||'—'}</td><td style={{padding:'7px 9px'}}>{o.banco}</td><td style={{padding:'7px 9px'}}>{o.operacao}</td><td style={{padding:'7px 9px'}}><Badge text={o.situacao||'—'} color={sitCol(o.situacao)}/></td><td style={{padding:'7px 9px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer',color:C.accent}} onClick={()=>setSelP(o.agente)}>{o.agente}</td><td style={{padding:'7px 9px',fontWeight:600}}>{fmtCur(o.vrRepasse)}</td></tr>)}</tbody></table></div>
       <ImportModal open={io} onClose={()=>sio(false)} onImport={onImport}/>
+      <ExportModal open={showExp} onClose={()=>setShowExp(false)} ops={ops}/>
       <PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/>
     </div>
   )
 }
 
 /* ═══ PRODUÇÃO ═══ */
-function Producao(){const{per,setPer,ops,loading}=useOps('mes');const[tab,sTab]=useState('banco');const tR=ops.reduce((s,o)=>s+(o.vrRepasse||0),0);const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao;const m={};ops.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0,fc:0,fr:0};m[k].c++;m[k].r+=(o.vrRepasse||0);if(isFin(o)){m[k].fc++;m[k].fr+=(o.vrRepasse||0)}});const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r);return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><ExportBtn ops={ops} name={'producao-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading}/><div style={{display:'flex',gap:4}}>{[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer'}}>{t.n}</button>)}</div><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Dig.','Repasse','%','Pago','Conv.'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,d])=>{const pct=tR?(d.r/tR*100):0,cv=d.c?(d.fc/d.c*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:700}}>{n}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td><td style={{padding:'8px 10px',color:C.accent2,fontWeight:600}}>{fmtCur(d.fr)}</td><td style={{padding:'8px 10px',fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</td></tr>})}</tbody></table></div></div>}
+function Producao(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes');const[tab,sTab]=useState('banco');const tR=ops.reduce((s,o)=>s+(o.vrRepasse||0),0);const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao;const m={};ops.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0,fc:0,fr:0};m[k].c++;m[k].r+=(o.vrRepasse||0);if(isFin(o)){m[k].fc++;m[k].fr+=(o.vrRepasse||0)}});const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r);return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><ExportBtn ops={ops} name={'producao-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{display:'flex',gap:4}}>{[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer'}}>{t.n}</button>)}</div><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Dig.','Repasse','%','Pago','Conv.'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,d])=>{const pct=tR?(d.r/tR*100):0,cv=d.c?(d.fc/d.c*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:700}}>{n}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td><td style={{padding:'8px 10px',color:C.accent2,fontWeight:600}}>{fmtCur(d.fr)}</td><td style={{padding:'8px 10px',fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</td></tr>})}</tbody></table></div></div>}
 
 /* ═══ ESTRATÉGICO ═══ */
-function Estrategico(){const{per,setPer,ops,loading}=useOps('tudo');const[sel,sSel]=useState(null),[selP,setSelP]=useState(null);const list=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrRepasse||0),0),cv=al.length?(fn.length/al.length*100):0,er=al.length?(est.length/al.length*100):0;return{name:a,c:al.length,r,fC:fn.length,cv,estC:est.length,er}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estratégico</h2><ExportBtn ops={ops} name={'estrategico-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Dig.','Repasse','Conv.','Estornos','Health',''].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{list.map(p=>{const h=p.cv>=60?'🟢':p.cv>=40?'🟡':p.cv>=25?'🟠':'🔴';return<tr key={p.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(p.name)}><td style={{padding:'8px 10px',fontWeight:600}}>{p.name}</td><td style={{padding:'8px 10px'}}>{p.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(p.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:p.cv>=50?C.accent2:p.cv>=30?C.warn:C.danger}}>{p.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:p.estC?C.danger:C.muted}}>{p.estC} ({p.er.toFixed(0)}%)</td><td style={{padding:'8px 10px',fontSize:14}}>{h}</td><td style={{color:C.accent}}>→</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
+function Estrategico(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('tudo');const[sel,sSel]=useState(null),[selP,setSelP]=useState(null);const list=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrRepasse||0),0),cv=al.length?(fn.length/al.length*100):0,er=al.length?(est.length/al.length*100):0;return{name:a,c:al.length,r,fC:fn.length,cv,estC:est.length,er}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estratégico</h2><ExportBtn ops={ops} name={'estrategico-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Dig.','Repasse','Conv.','Estornos','Health',''].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{list.map(p=>{const h=p.cv>=60?'🟢':p.cv>=40?'🟡':p.cv>=25?'🟠':'🔴';return<tr key={p.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(p.name)}><td style={{padding:'8px 10px',fontWeight:600}}>{p.name}</td><td style={{padding:'8px 10px'}}>{p.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(p.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:p.cv>=50?C.accent2:p.cv>=30?C.warn:C.danger}}>{p.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:p.estC?C.danger:C.muted}}>{p.estC} ({p.er.toFixed(0)}%)</td><td style={{padding:'8px 10px',fontSize:14}}>{h}</td><td style={{color:C.accent}}>→</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
 
 /* ═══ RANKING ═══ */
-function Ranking(){const{per,setPer,ops,loading}=useOps('mes');const[selP,setSelP]=useState(null);const data=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrRepasse||0),0),cv=al.length?(fn.length/al.length*100):0;return{name:a,c:al.length,r,cv,estC:est.length}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Ranking</h2><ExportBtn ops={ops} name={'ranking-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['#','Parceiro','Dig.','Repasse','Conv.','Est.','Health'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map((d,i)=>{const h=d.cv>=60?'🟢':d.cv>=40?'🟡':d.cv>=25?'🟠':'🔴';return<tr key={d.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(d.name)}><td style={{padding:'8px 10px'}}><span style={{display:'inline-flex',width:22,height:22,borderRadius:6,background:i<3?C.accent:C.surface,alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</span></td><td style={{padding:'8px 10px',fontWeight:600}}>{d.name}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:d.cv>=50?C.accent2:d.cv>=30?C.warn:C.danger}}>{d.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:d.estC?C.danger:C.muted}}>{d.estC}</td><td style={{fontSize:14}}>{h}</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
+function Ranking(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes');const[selP,setSelP]=useState(null);const data=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrRepasse||0),0),cv=al.length?(fn.length/al.length*100):0;return{name:a,c:al.length,r,cv,estC:est.length}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Ranking</h2><ExportBtn ops={ops} name={'ranking-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['#','Parceiro','Dig.','Repasse','Conv.','Est.','Health'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map((d,i)=>{const h=d.cv>=60?'🟢':d.cv>=40?'🟡':d.cv>=25?'🟠':'🔴';return<tr key={d.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(d.name)}><td style={{padding:'8px 10px'}}><span style={{display:'inline-flex',width:22,height:22,borderRadius:6,background:i<3?C.accent:C.surface,alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</span></td><td style={{padding:'8px 10px',fontWeight:600}}>{d.name}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:d.cv>=50?C.accent2:d.cv>=30?C.warn:C.danger}}>{d.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:d.estC?C.danger:C.muted}}>{d.estC}</td><td style={{fontSize:14}}>{h}</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
 
 /* ═══ RECEBIMENTOS ═══ */
-function Recebimentos(){const{per,setPer,ops,loading}=useOps('tudo');const[fB,sFB]=useState('');const pend=ops.filter(o=>o.crcCliente&&!o.dataNossoCredito),rec=ops.filter(o=>o.crcCliente&&o.dataNossoCredito);const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0);const byBanco=(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrRepasse||0);if(o.crcCliente)m[b].ds.push(Math.floor((NOW-new Date(o.crcCliente))/86400000))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,b)=>a+b,0)/d.ds.length):0,mx:d.ds.length?Math.max(...d.ds):0})).sort((a,b)=>b.r-a.r)})();const byAg=(()=>{const m={};pend.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0};m[a].c++;m[a].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)})();const aging=(()=>{const fx={'0-15d':[0,0],'16-30d':[0,0],'31-60d':[0,0],'61-90d':[0,0],'90+d':[0,0]};pend.forEach(o=>{if(!o.crcCliente)return;const d=Math.floor((NOW-new Date(o.crcCliente))/86400000),k=d<=15?'0-15d':d<=30?'16-30d':d<=60?'31-60d':d<=90?'61-90d':'90+d';fx[k][0]++;fx[k][1]+=(o.vrRepasse||0)});return Object.entries(fx)})();const filt=fB?pend.filter(o=>o.banco===fB):pend;return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Recebimentos</h2><ExportBtn ops={pend} name={'recebimentos-pendentes'}/></div><PeriodBar per={per} setPer={setPer} loading={loading}/><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Pendentes" value={pend.length} sub={fmtCur(pR)} color={C.danger}/><Stat label="Recebidas" value={rec.length} sub={fmtCur(rec.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/></div>{pend.length>0&&<><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Aging</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{aging.map(([k,[c,r]])=>{const col=k.includes('90')||k.includes('61')?C.danger:k.includes('31')?C.warn:C.info;return c>0?<div key={k} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:'10px 16px'}}><div style={{fontSize:18,fontWeight:700,color:col}}>{c}</div><div style={{fontSize:10,fontWeight:600,color:col}}>{k}</div><div style={{fontSize:9,color:C.muted}}>{fmtCur(r)}</div></div>:null})}</div></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','Pendente','Média','Máx'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byBanco.map(b=><tr key={b.b} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:700}}>{b.b}</td><td style={{padding:'7px 9px'}}>{b.c}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.danger}}>{fmtCur(b.r)}</td><td style={{padding:'7px 9px',color:b.md>60?C.danger:b.md>30?C.warn:C.text}}>{b.md}d</td><td style={{padding:'7px 9px',color:b.mx>90?C.danger:C.warn}}>{b.mx}d</td></tr>)}</tbody></table></div><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Qtd','Pendente'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byAg.slice(0,20).map(([a,d])=><tr key={a} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{a}</td><td style={{padding:'7px 9px'}}>{d.c}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.danger}}>{fmtCur(d.r)}</td></tr>)}</tbody></table></div></div><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:10,alignItems:'center'}}><span style={{fontSize:12,fontWeight:700}}>Analítico</span><div style={{display:'flex',gap:6}}><select value={fB} onChange={e=>sFB(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'4px 8px',fontSize:10}}><option value="">— Banco —</option>{[...new Set(pend.map(o=>o.banco).filter(Boolean))].sort().map(b=><option key={b} value={b}>{b}</option>)}</select><ExportBtn ops={filt} name={'receb-analitico'}/></div></div><div style={{overflowX:'auto',maxHeight:350,borderRadius:8,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','Banco','Op.','Agente','Repasse','CRC','Dias'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{filt.slice(0,500).map(o=>{const d=o.crcCliente?Math.floor((NOW-new Date(o.crcCliente))/86400000):0;return<tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'5px 8px'}}>{o.cliente}</td><td style={{padding:'5px 8px'}}>{o.banco}</td><td style={{padding:'5px 8px'}}>{o.operacao}</td><td style={{padding:'5px 8px'}}>{o.agente}</td><td style={{padding:'5px 8px',fontWeight:600,color:C.danger}}>{fmtCur(o.vrRepasse)}</td><td style={{padding:'5px 8px'}}>{fmtDate(o.crcCliente)}</td><td style={{padding:'5px 8px',fontWeight:600,color:d>90?C.danger:d>30?C.warn:C.text}}>{d}d</td></tr>})}</tbody></table></div></div></>}</div>}
+function Recebimentos(){
+  const[pend,setPend]=useState([]),[rec,setRec]=useState([]),[loading,setLoading]=useState(true)
+  const[fB,sFB]=useState(''),[fA,sFA]=useState(''),[showExp,setShowExp]=useState(false)
+
+  // Query DIRETA: CRC preenchido + Nosso Crédito vazio = A RECEBER
+  useEffect(()=>{
+    setLoading(true)
+    Promise.all([
+      // Pendentes: CRC preenchido — filtra nosso_credito vazio no JS
+      (async()=>{
+        const PAGE=1000;let all=[],from=0
+        while(true){
+          const{data,error}=await supabase.from('digitacoes').select('*')
+            .not('crc_cliente','is',null).neq('crc_cliente','')
+            .range(from,from+PAGE-1)
+          if(error||!data||!data.length)break
+          all=all.concat(data)
+          if(data.length<PAGE)break;from+=PAGE
+        }
+        const mapped=all.map(fromDb)
+        return mapped.filter(o=>!o.dataNossoCredito)
+      })(),
+      // Recebidas: ambos preenchidos
+      (async()=>{
+        const PAGE=1000;let all=[],from=0
+        while(true){
+          const{data,error}=await supabase.from('digitacoes').select('*')
+            .not('crc_cliente','is',null).neq('crc_cliente','')
+            .not('data_nosso_credito','is',null).neq('data_nosso_credito','')
+            .range(from,from+PAGE-1)
+          if(error||!data||!data.length)break
+          all=all.concat(data)
+          if(data.length<PAGE)break;from+=PAGE
+        }
+        return all.map(fromDb)
+      })()
+    ]).then(([p,r])=>{setPend(p);setRec(r);setLoading(false)}).catch(()=>setLoading(false))
+  },[])
+
+  const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const byBanco=(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrRepasse||0);if(o.crcCliente)m[b].ds.push(Math.floor((NOW-new Date(o.crcCliente))/86400000))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,x)=>a+x,0)/d.ds.length):0,mx:d.ds.length?Math.max(...d.ds):0})).sort((a,b)=>b.r-a.r)})()
+  const byOp=(()=>{const m={};pend.forEach(o=>{const k=o.operacao||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)})()
+  const byAg=(()=>{const m={};pend.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,ds:[]};m[a].c++;m[a].r+=(o.vrRepasse||0);if(o.crcCliente)m[a].ds.push(Math.floor((NOW-new Date(o.crcCliente))/86400000))});return Object.entries(m).map(([a,d])=>({a,c:d.c,r:d.r,md:d.ds.length?Math.round(d.ds.reduce((x,y)=>x+y,0)/d.ds.length):0})).sort((a,b)=>b.r-a.r)})()
+  const aging=(()=>{const fx={'0-5d':[0,0],'5-10d':[0,0],'10-15d':[0,0],'15-30d':[0,0],'30-60d':[0,0],'60-90d':[0,0],'90+d':[0,0]};pend.forEach(o=>{if(!o.crcCliente)return;const d=Math.floor((NOW-new Date(o.crcCliente))/86400000),k=d<=5?'0-5d':d<=10?'5-10d':d<=15?'10-15d':d<=30?'15-30d':d<=60?'30-60d':d<=90?'60-90d':'90+d';fx[k][0]++;fx[k][1]+=(o.vrRepasse||0)});return Object.entries(fx)})()
+  const filt=pend.filter(o=>(!fB||o.banco===fB)&&(!fA||o.agente===fA))
+
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <h2 style={{fontWeight:800,fontSize:20}}>A Receber {loading?'⏳':''}</h2>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button>
+        <ExportBtn ops={pend} name={'a-receber-todos'}/>
+      </div>
+    </div>
+    <div style={{background:C.card,border:'1px solid '+C.warn+'44',borderRadius:12,padding:12,fontSize:11,color:C.warn}}>
+      💡 Mostra <strong>todas</strong> as propostas onde o cliente já recebeu (CRC preenchido) mas você ainda não recebeu (Nosso Crédito vazio) — independente de período.
+    </div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <Stat label="A Receber" value={pend.length} sub={fmtCur(pR)} color={C.danger}/>
+      <Stat label="Já Recebido" value={rec.length} sub={fmtCur(rec.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/>
+      <Stat label="Total CRC" value={pend.length+rec.length}/>
+    </div>
+
+    {pend.length>0&&<>
+      {/* AGING */}
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Aging — Dias desde CRC do cliente</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {aging.map(([k,[c,r]])=>{const col=k.includes('90')?C.danger:k.includes('60')?C.danger:k.includes('30-')?C.warn:k.includes('15-')?C.warn:k.includes('10-')?C.info:k.includes('5-10')?C.accent2:C.accent2;const pct=pend.length?(c/pend.length*100):0;return c>0?<div key={k} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:'10px 16px',minWidth:90}}>
+            <div style={{fontSize:18,fontWeight:700,color:col}}>{c}</div>
+            <div style={{fontSize:10,fontWeight:600,color:col}}>{k}</div>
+            <div style={{fontSize:9,color:C.muted}}>{fmtCur(r)}</div>
+            <div style={{height:3,background:C.border,borderRadius:2,marginTop:4}}><div style={{height:'100%',background:col,borderRadius:2,width:pct+'%'}}/></div>
+          </div>:null})}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+        {/* POR BANCO */}
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','A Receber','Média','Máx'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{byBanco.map(b=><tr key={b.b} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'6px 8px',fontWeight:700}}>{b.b}</td>
+            <td style={{padding:'6px 8px'}}>{b.c}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:C.danger}}>{fmtCur(b.r)}</td>
+            <td style={{padding:'6px 8px',color:b.md>60?C.danger:b.md>30?C.warn:C.text}}>{b.md}d</td>
+            <td style={{padding:'6px 8px',color:b.mx>90?C.danger:C.warn,fontWeight:600}}>{b.mx}d</td>
+          </tr>)}</tbody></table>
+        </div>
+        {/* POR OPERAÇÃO */}
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Operação</div>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Operação','Qtd','A Receber'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{byOp.map(([op,d])=><tr key={op} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'6px 8px',fontWeight:600}}>{op}</td>
+            <td style={{padding:'6px 8px'}}>{d.c}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:C.danger}}>{fmtCur(d.r)}</td>
+          </tr>)}</tbody></table>
+        </div>
+        {/* POR PARCEIRO */}
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Qtd','A Receber','Média'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{byAg.slice(0,20).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'6px 8px',fontWeight:600,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.a}</td>
+            <td style={{padding:'6px 8px'}}>{a.c}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:C.danger}}>{fmtCur(a.r)}</td>
+            <td style={{padding:'6px 8px',color:a.md>60?C.danger:a.md>30?C.warn:C.text}}>{a.md}d</td>
+          </tr>)}</tbody></table>
+        </div>
+      </div>
+
+      {/* ANALÍTICO */}
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,alignItems:'center',flexWrap:'wrap',gap:8}}>
+          <span style={{fontSize:12,fontWeight:700}}>Analítico — {filt.length} pendências ({fmtCur(filt.reduce((s,o)=>s+(o.vrRepasse||0),0))})</span>
+          <div style={{display:'flex',gap:6}}>
+            <select value={fB} onChange={e=>sFB(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'4px 8px',fontSize:10}}>
+              <option value="">— Banco —</option>
+              {[...new Set(pend.map(o=>o.banco).filter(Boolean))].sort().map(b=><option key={b} value={b}>{b}</option>)}
+            </select>
+            <select value={fA} onChange={e=>sFA(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'4px 8px',fontSize:10}}>
+              <option value="">— Parceiro —</option>
+              {[...new Set(pend.map(o=>o.agente).filter(Boolean))].sort().map(a=><option key={a} value={a}>{a}</option>)}
+            </select>
+            {(fB||fA)&&<button onClick={()=>{sFB('');sFA('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'4px 8px',fontSize:10,cursor:'pointer'}}>✕</button>}
+            <ExportBtn ops={filt} name={'a-receber-filtrado'}/>
+          </div>
+        </div>
+        <div style={{overflowX:'auto',maxHeight:400,borderRadius:8,border:'1px solid '+C.border}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+            <thead><tr style={{background:C.surface,position:'sticky',top:0}}>
+              {['Cliente','CPF','Banco','Op.','Agente','Repasse','CRC Cliente','Dias'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}
+            </tr></thead>
+            <tbody>{filt.slice(0,500).map(o=>{
+              const dias=o.crcCliente?Math.floor((NOW-new Date(o.crcCliente))/86400000):0
+              return<tr key={o.id} style={{borderBottom:'1px solid '+C.border}}>
+                <td style={{padding:'5px 8px',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente}</td>
+                <td style={{padding:'5px 8px'}}>{o.cpf}</td>
+                <td style={{padding:'5px 8px'}}>{o.banco}</td>
+                <td style={{padding:'5px 8px'}}>{o.operacao}</td>
+                <td style={{padding:'5px 8px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.agente}</td>
+                <td style={{padding:'5px 8px',fontWeight:600,color:C.danger}}>{fmtCur(o.vrRepasse)}</td>
+                <td style={{padding:'5px 8px'}}>{fmtDate(o.crcCliente)}</td>
+                <td style={{padding:'5px 8px',fontWeight:600,color:dias>90?C.danger:dias>30?C.warn:C.text}}>{dias}d</td>
+              </tr>
+            })}</tbody>
+          </table>
+        </div>
+      </div>
+    </>}
+    <ExportModal open={showExp} onClose={()=>setShowExp(false)} ops={pend}/>
+  </div>
+}
 
 /* ═══ ESTORNOS ═══ */
-function Estornos(){const{per,setPer,ops,loading}=useOps('mes');const est=ops.filter(isEst);const byBanco=(()=>{const m={};est.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0};m[b].c++;m[b].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c)})();const byAg=(()=>{const m={};est.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,t:0};m[a].c++;m[a].r+=(o.vrRepasse||0)});ops.forEach(o=>{const a=o.agente||'?';if(m[a])m[a].t++});return Object.entries(m).map(([a,d])=>({a,...d,pct:d.t?(d.c/d.t*100):0})).sort((a,b)=>b.pct-a.pct)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estornos</h2><ExportBtn ops={est} name={'estornos-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading}/><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Estornos" value={est.length} color={C.danger}/><Stat label="Perda" value={fmtCur(est.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.danger}/></div>{est.length>0&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byBanco.map(([b,d])=><tr key={b} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{b}</td><td style={{padding:'7px 9px',color:C.danger}}>{d.c}</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(d.r)}</td></tr>)}</tbody></table></div><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.danger}}>Top Estornadores</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Est.','%','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byAg.slice(0,15).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{a.a}</td><td style={{padding:'7px 9px',color:C.danger}}>{a.c}</td><td style={{padding:'7px 9px',fontWeight:600,color:a.pct>20?C.danger:a.pct>10?C.warn:C.text}}>{a.pct.toFixed(0)}%</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(a.r)}</td></tr>)}</tbody></table></div></div>}</div>}
+function Estornos(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes');const est=ops.filter(isEst);const byBanco=(()=>{const m={};est.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0};m[b].c++;m[b].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c)})();const byAg=(()=>{const m={};est.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,t:0};m[a].c++;m[a].r+=(o.vrRepasse||0)});ops.forEach(o=>{const a=o.agente||'?';if(m[a])m[a].t++});return Object.entries(m).map(([a,d])=>({a,...d,pct:d.t?(d.c/d.t*100):0})).sort((a,b)=>b.pct-a.pct)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estornos</h2><ExportBtn ops={est} name={'estornos-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Estornos" value={est.length} color={C.danger}/><Stat label="Perda" value={fmtCur(est.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.danger}/></div>{est.length>0&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byBanco.map(([b,d])=><tr key={b} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{b}</td><td style={{padding:'7px 9px',color:C.danger}}>{d.c}</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(d.r)}</td></tr>)}</tbody></table></div><div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.danger}}>Top Estornadores</div><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Est.','%','Perda'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{byAg.slice(0,15).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600}}>{a.a}</td><td style={{padding:'7px 9px',color:C.danger}}>{a.c}</td><td style={{padding:'7px 9px',fontWeight:600,color:a.pct>20?C.danger:a.pct>10?C.warn:C.text}}>{a.pct.toFixed(0)}%</td><td style={{padding:'7px 9px',color:C.danger}}>{fmtCur(a.r)}</td></tr>)}</tbody></table></div></div>}</div>}
 
 /* ═══ ALERTAS ═══ */
 function Alertas({curOps,prevOps}){const ags=[...new Set(curOps.concat(prevOps).map(o=>o.agente).filter(Boolean))];const st=ags.map(a=>{const cu=curOps.filter(o=>o.agente===a),pv=prevOps.filter(o=>o.agente===a),cR=cu.reduce((s,o)=>s+(o.vrRepasse||0),0),pR=pv.reduce((s,o)=>s+(o.vrRepasse||0),0),vr=pR?((cR-pR)/pR*100):(cR>0?100:0);let flag='ok';if(cu.length===0&&pv.length>0)flag='parado';else if(vr<=-30)flag='queda';return{nm:a,cc:cu.length,pc:pv.length,vr,flag}}).sort((a,b)=>{const o={parado:0,queda:1,ok:2};return(o[a.flag]??3)-(o[b.flag]??3)});return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Alertas</h2><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Parados" value={st.filter(s=>s.flag==='parado').length} color={C.danger}/><Stat label="Em Queda" value={st.filter(s=>s.flag==='queda').length} color={C.warn}/></div>{st.filter(s=>s.flag!=='ok').length>0&&<div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:12,padding:14}}><div style={{fontSize:12,fontWeight:700,color:C.danger,marginBottom:6}}>⚠ Ação necessária</div>{st.filter(s=>s.flag!=='ok').map(s=><div key={s.nm} style={{fontSize:11,padding:'3px 0'}}>{s.flag==='parado'?'🔴':'🟡'} <strong>{s.nm}</strong> — {s.flag==='parado'?'Parado no mês':'Queda '+Math.abs(s.vr).toFixed(0)+'%'}</div>)}</div>}<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface}}>{['','Parceiro','Mês','Ant.','Var.'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{st.map(s=><tr key={s.nm} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 8px'}}>{s.flag==='parado'?'🔴':s.flag==='queda'?'🟡':'↗'}</td><td style={{padding:'7px 8px',fontWeight:600}}>{s.nm}</td><td style={{padding:'7px 8px'}}>{s.cc}</td><td style={{padding:'7px 8px'}}>{s.pc}</td><td style={{padding:'7px 8px',fontWeight:600,color:s.vr>0?C.accent2:s.vr<-30?C.danger:C.warn}}>{s.vr>0?'+':''}{s.vr.toFixed(0)}%</td></tr>)}</tbody></table></div></div>}
 
 /* ═══ USUARIOS ═══ */
-function Usuarios({user}){const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false),[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('');useEffect(()=>{supabase.from('usuarios').select('*').order('nome').then(({data})=>{setUsers(data||[]);setLoading(false)})},[]);if(user.perfil!=='admin')return<div style={{padding:28,textAlign:'center',color:C.muted}}>Restrito</div>;return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usuários</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>{msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}</div>}{showNew&&<form onSubmit={async e=>{e.preventDefault();const{error}=await supabase.from('usuarios').insert({nome,email,senha,perfil});if(error){setMsg(error.message);return}setMsg('Criado!');setNome('');setEmail('');setSenha('');setShowNew(false);const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}><div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div><div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div><div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={senha} onChange={e=>setSenha(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div><div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%'}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div><button type="submit" style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Criar</button></form>}{!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','Email','Perfil','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{users.map(u=><tr key={u.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',fontWeight:600}}>{u.nome}</td><td style={{padding:'8px 10px'}}>{u.email}</td><td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></td><td style={{padding:'8px 10px'}}><Badge text={u.ativo?'Ativo':'Inativo'} color={u.ativo?C.accent2:C.danger}/></td><td style={{padding:'8px 10px'}}><button onClick={async()=>{await supabase.from('usuarios').update({ativo:!u.ativo}).eq('id',u.id);const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}} style={{background:u.ativo?'#EF444418':C.accent2+'22',color:u.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'4px 10px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{u.ativo?'Desativar':'Ativar'}</button></td></tr>)}</tbody></table></div>}</div>}
+function Usuarios({user}){
+  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','recebimentos','estornos','alertas','parceiros']
+  const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
+  const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
+  const[editTelas,setEditTelas]=useState(null)
+  useEffect(()=>{supabase.from('usuarios').select('*').order('nome').then(({data})=>{setUsers(data||[]);setLoading(false)})},[])
+  const reload=async()=>{const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}
+  if(user.perfil!=='admin')return<div style={{padding:28,textAlign:'center',color:C.muted}}>Restrito</div>
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usuários</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
+    {msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}</div>}
+    {showNew&&<form onSubmit={async e=>{e.preventDefault();const{error}=await supabase.from('usuarios').insert({nome,email,senha,perfil,telas:ALL_TELAS.slice(0,3)});if(error){setMsg(error.message);return}setMsg('Criado!');setNome('');setEmail('');setSenha('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={senha} onChange={e=>setSenha(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%'}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
+      <button type="submit" style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Criar</button>
+    </form>}
+    {/* TELAS EDIT MODAL */}
+    {editTelas&&<div style={{background:C.card,border:'1px solid '+C.accent+'66',borderRadius:14,padding:16}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Permissões de tela: <strong style={{color:C.accent}}>{editTelas.nome}</strong></div>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+        {ALL_TELAS.map(t=>{const has=(editTelas.telas||[]).includes(t);return<button key={t} onClick={async()=>{const nTelas=has?(editTelas.telas||[]).filter(x=>x!==t):[...(editTelas.telas||[]),t];await supabase.from('usuarios').update({telas:nTelas}).eq('id',editTelas.id);setEditTelas({...editTelas,telas:nTelas});await reload()}} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(has?C.accent2:C.border),background:has?C.accent2+'22':'transparent',color:has?C.accent2:C.muted,fontSize:11,fontWeight:has?600:400,cursor:'pointer'}}>{has?'✓ ':''}{t}</button>})}
+      </div>
+      <button onClick={()=>setEditTelas(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',fontSize:11,cursor:'pointer'}}>Fechar</button>
+    </div>}
+    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','Email','Perfil','Telas','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+      <tbody>{users.map(u=><tr key={u.id} style={{borderBottom:'1px solid '+C.border}}>
+        <td style={{padding:'8px 10px',fontWeight:600}}>{u.nome}</td>
+        <td style={{padding:'8px 10px'}}>{u.email}</td>
+        <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);await reload()}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></td>
+        <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas ✏</button></td>
+        <td style={{padding:'8px 10px'}}><Badge text={u.ativo?'Ativo':'Inativo'} color={u.ativo?C.accent2:C.danger}/></td>
+        <td style={{padding:'8px 10px'}}><button onClick={async()=>{await supabase.from('usuarios').update({ativo:!u.ativo}).eq('id',u.id);await reload()}} style={{background:u.ativo?'#EF444418':C.accent2+'22',color:u.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'4px 10px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{u.ativo?'Desativar':'Ativar'}</button></td>
+      </tr>)}</tbody></table></div>}
+  </div>
+}
 
 /* ═══ NAV ═══ */
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊',min:'operador'},{id:'ops',l:'Operações',i:'💼',min:'operador'},{id:'producao',l:'Produção',i:'🏦',min:'operador'},{id:'estrategico',l:'Estratégico',i:'🤝',min:'gestor'},{id:'ranking',l:'Ranking',i:'🏆',min:'gestor'},{id:'recebimentos',l:'Recebimentos',i:'💰',min:'gestor'},{id:'estornos',l:'Estornos',i:'⚠',min:'gestor'},{id:'alertas',l:'Alertas',i:'📈',min:'gestor'},{id:'usuarios',l:'Usuários',i:'👤',min:'admin'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'estornos',l:'Estornos',i:'⚠'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
@@ -293,12 +566,12 @@ export default function App(){
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return;fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{});fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})},[user])
 
-  async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
+  async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"]};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb))}
 
   if(!user)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg,fontFamily:'Outfit,sans-serif',color:C.text}}><form onSubmit={handleLogin} style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',width:380}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800,margin:0}}>OpsManager</h1></div><p style={{color:C.muted,fontSize:12,marginBottom:24}}>Gestão de Digitações</p>{loginError&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{loginError}</div>}<div style={{marginBottom:8}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input name="email" type="email" required placeholder="seu@email.com" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><div style={{marginBottom:16}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input name="senha" type="password" required placeholder="Sua senha" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><button type="submit" style={{width:'100%',padding:'12px 0',fontSize:14,borderRadius:10,border:'none',background:C.accent,color:'#fff',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>Entrar</button></form></div>
 
-  const levels={operador:1,gestor:2,admin:3},nav=NAV.filter(n=>(levels[n.min]||1)<=(levels[user.perfil]||1))
+  const levels={operador:1,gestor:2,admin:3},nav=NAV.filter(n=>{if(user.perfil==='admin')return true;return(user.telas||['dashboard','ops','producao']).includes(n.id)})
   return<div style={{display:'flex',minHeight:'100vh',fontFamily:'Outfit,sans-serif',color:C.text,background:C.bg}}>
     <div style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
       <div style={{padding:'20px 14px 10px'}}><div style={{display:'flex',alignItems:'center',gap:7}}><div style={{width:26,height:26,borderRadius:7,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:14,fontWeight:800,margin:0}}>OpsManager</h1></div><div style={{fontSize:8,color:C.accent2,marginTop:4,marginLeft:33}}>● Supabase</div></div>
@@ -314,6 +587,7 @@ export default function App(){
       {view==='recebimentos'&&<Recebimentos/>}
       {view==='estornos'&&<Estornos/>}
       {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps}/>}
+      {view==='parceiros'&&<Parceiros/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
