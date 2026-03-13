@@ -101,19 +101,27 @@ function getMonthProjection(ops) {
 }
 
 /* ── DB MAPPING ── */
+function fixDate(v) {
+  if (!v) return ''
+  if (v instanceof Date) return v.toISOString().split('T')[0]
+  const s = String(v).trim()
+  if (s.length >= 10 && s[4] === '-') return s.slice(0, 10)
+  return s
+}
+
 function fromDb(r) {
   return {
     id: r.id, id_ext: r.id_ext || '', banco: r.banco || '', cpf: r.cpf || '',
     cliente: r.cliente || '', proposta: r.proposta || '', contrato: r.contrato || '',
-    data: r.data || '', prazo: r.prazo || '',
+    data: fixDate(r.data), prazo: r.prazo || '',
     vrBruto: Number(r.vr_bruto) || 0, vrParcela: Number(r.vr_parcela) || 0,
     vrLiquido: Number(r.vr_liquido) || 0, vrRepasse: Number(r.vr_repasse) || 0,
     vrSeguro: Number(r.vr_seguro) || 0, taxa: r.taxa || '',
     operacao: r.operacao || '', situacao: r.situacao || '', produto: r.produto || '',
     convenio: r.convenio || '', agente: r.agente || '',
     situacaoBanco: r.situacao_banco || '', obsSituacao: r.obs_situacao || '',
-    usuario: r.usuario || '', crcCliente: r.crc_cliente || '',
-    dataNossoCredito: r.data_nosso_credito || ''
+    usuario: r.usuario || '', crcCliente: fixDate(r.crc_cliente),
+    dataNossoCredito: fixDate(r.data_nosso_credito)
   }
 }
 function toDb(o) {
@@ -1270,8 +1278,18 @@ export default function App() {
     setStatus('saving')
     try {
       for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await supabase.from('digitacoes').insert(rows.slice(i, i + 500).map(toDb))
-        if (error) throw error
+        const batch = rows.slice(i, i + 500).map(toDb)
+        // upsert: if proposta+banco already exists, UPDATE the row instead of duplicating
+        const { error } = await supabase.from('digitacoes').upsert(batch, { 
+          onConflict: 'proposta,banco',
+          ignoreDuplicates: false 
+        })
+        if (error) {
+          // If upsert fails (constraint not yet created), fallback to insert
+          console.warn('Upsert failed, trying insert:', error.message)
+          const { error: err2 } = await supabase.from('digitacoes').insert(batch)
+          if (err2) throw err2
+        }
       }
       const { data } = await supabase.from('digitacoes').select('*').order('data', { ascending: false })
       if (data) setOps(data.map(fromDb))
