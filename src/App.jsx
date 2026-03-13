@@ -149,8 +149,8 @@ function Badge({ text, color }) {
 
 function usePeriod() {
   const [per, setPer] = useState('tudo')
-  const [df, setDf] = useState('2000-01-01')
-  const [dt, setDt] = useState('2099-12-31')
+  const [customDf, setCustomDf] = useState('')
+  const [customDt, setCustomDt] = useState('')
   const y = NOW.getFullYear(), mo = NOW.getMonth()
   const fmt = (d) => d.toISOString().split('T')[0]
   const pr = {
@@ -161,13 +161,12 @@ function usePeriod() {
     ano: { f: y + '-01-01', t: y + '-12-31', n: String(y) },
     tudo: { f: '2000-01-01', t: '2099-12-31', n: 'Tudo' }
   }
-  useEffect(() => {
-    if (per !== 'custom' && pr[per]) { setDf(pr[per].f); setDt(pr[per].t) }
-  }, [per])
+  const df = per === 'custom' ? (customDf || '2000-01-01') : (pr[per] ? pr[per].f : '2000-01-01')
+  const dt = per === 'custom' ? (customDt || '2099-12-31') : (pr[per] ? pr[per].t : '2099-12-31')
   return {
-    per, setPer, df, setDf, dt, setDt, pr,
+    per, setPer, df, dt, setDf: setCustomDf, setDt: setCustomDt, pr,
     filter: (ops) => ops.filter((o) => o.data && o.data >= df && o.data <= dt),
-    label: per === 'custom' ? fmtDate(df) + ' a ' + fmtDate(dt) : (pr[per] ? pr[per].n : '')
+    label: per === 'custom' ? fmtDate(customDf) + ' a ' + fmtDate(customDt) : (pr[per] ? pr[per].n : '')
   }
 }
 
