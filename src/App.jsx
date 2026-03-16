@@ -79,6 +79,8 @@ async function fetchReceb(){
 
 /* ═══ BUSINESS DAYS + PROJECTION by CRC ═══ */
 function countBD(s,e){let c=0;const d=new Date(s);while(d<=e){if(d.getDay()!==0&&d.getDay()!==6)c++;d.setDate(d.getDate()+1)}return c}
+function getBD(dateStr){if(!dateStr)return 0;return countBD(new Date(dateStr),NOW)}
+function getAgingKey(bd){return bd<=5?'0-5':bd<=10?'5-10':bd<=15?'10-15':bd<=30?'15-30':bd<=60?'30-60':bd<=90?'60-90':'90+'}
 function getProj(prodOps){
   const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,1),l=new Date(y,m+1,0),ye=new Date(NOW);ye.setDate(ye.getDate()-1)
   const duT=countBD(f,l),duP=countBD(f,ye<f?f:ye),duR=duT-duP
@@ -268,7 +270,7 @@ function PartnerHealth({name,ops,onClose}){
 }
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({curOps,prevOps,curProd,prevProd}){
+function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0)
@@ -280,16 +282,24 @@ function Dashboard({curOps,prevOps,curProd,prevProd}){
   const topP=Object.entries(topM).sort((a,b)=>b[1].fr-a[1].fr).slice(0,10)
   // PRODUÇÃO = by CRC date
   const curProdR=curProd.reduce((s,o)=>s+(o.vrRepasse||0),0),prevProdR=prevProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
-  const varProd=prevProdR?((curProdR-prevProdR)/prevProdR*100):(curProdR>0?100:0)
+  const prevPropR=(prevProdProp||[]).reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const m2PropR=(m2Prop||[]).reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const m3PropR=(m3Prop||[]).reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const varProp=prevPropR?((curProdR-prevPropR)/prevPropR*100):(curProdR>0?100:0)
+  const varM2=m2PropR?((curProdR-m2PropR)/m2PropR*100):(curProdR>0?100:0)
+  const varM3=m3PropR?((curProdR-m3PropR)/m3PropR*100):(curProdR>0?100:0)
+  const DAY=NOW.getDate()
   const curDig=curOps.length,prevDig=prevOps.length,varDig=prevDig?((curDig-prevDig)/prevDig*100):(curDig>0?100:0)
   // Projeção by CRC
   const proj=getProj(curProd),pctDU=proj.duT?(proj.duP/proj.duT*100):0
-  // Por banco
-  const byBanco={};f.forEach(o=>{const k=o.banco||'?';if(!byBanco[k])byBanco[k]={c:0,r:0,f:0};byBanco[k].c++;byBanco[k].r+=(o.vrRepasse||0);if(isFin(o))byBanco[k].f++})
-  const bancoArr=Object.entries(byBanco).sort((a,b)=>b[1].r-a[1].r).slice(0,8)
+  // Por banco — PRODUÇÃO (finalizados)
+  const byBanco={};curProd.forEach(o=>{const k=o.banco||'?';if(!byBanco[k])byBanco[k]={c:0,r:0};byBanco[k].c++;byBanco[k].r+=(o.vrRepasse||0)})
+  const bancoArr=Object.entries(byBanco).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
   const[selP,setSelP]=useState(null)
   const vc=(v)=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
+  // Nomes dos meses para comparativo
+  const mName=(back)=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-back,1);return d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()}
   // HOJE + ONTEM
   const TODAY_STR=NOW.toISOString().split('T')[0]
   const YESTERDAY=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-1);return d.toISOString().split('T')[0]})()
@@ -342,28 +352,31 @@ function Dashboard({curOps,prevOps,curProd,prevProd}){
         </div>
       </div>}
 
-      {/* COMPARATIVO MÊS ATUAL vs ANTERIOR — PRODUÇÃO pelo CRC */}
+      {/* COMPARATIVO PROPORCIONAL — até dia {DAY} — 3 meses */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📊 Mês Atual vs Anterior (produção por CRC)</div>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>📊 Produção até dia {DAY} — Comparativo</div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:12}}>CRC Cliente até o dia {DAY} de cada mês (dias úteis: {proj.duP}/{proj.duT})</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PRODUÇÃO (CRC)</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(curProdR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varProd)}}>{vc(varProd)}</div><div style={{fontSize:8,color:C.muted}}>ant: {fmtCur(prevProdR)}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>OPS PRODUZIDAS</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{curProd.length}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevProd.length}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITAÇÕES</div><div style={{fontSize:14,fontWeight:700}}>{curDig}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varDig)}}>{vc(varDig)}</div><div style={{fontSize:8,color:C.muted}}>ant: {prevDig}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:14,fontWeight:700}}>{[...new Set(curOps.map(o=>o.agente).filter(Boolean))].length}</div><div style={{fontSize:8,color:C.muted}}>ant: {[...new Set(prevOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
+          <div style={{background:C.surface,borderRadius:10,padding:12,textAlign:'center'}}><div style={{fontSize:8,color:C.accent,fontWeight:700}}>MÊS ATUAL</div><div style={{fontSize:18,fontWeight:700,color:C.accent2}}>{fmtCur(curProdR)}</div><div style={{fontSize:9,color:C.muted}}>{curProd.length} ops</div></div>
+          <div style={{background:C.surface,borderRadius:10,padding:12,textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>{mName(1)} até dia {DAY}</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(prevPropR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varProp)}}>{vc(varProp)}</div></div>
+          <div style={{background:C.surface,borderRadius:10,padding:12,textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>{mName(2)} até dia {DAY}</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(m2PropR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varM2)}}>{vc(varM2)}</div></div>
+          <div style={{background:C.surface,borderRadius:10,padding:12,textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>{mName(3)} até dia {DAY}</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(m3PropR)}</div><div style={{fontSize:10,fontWeight:600,color:vCol(varM3)}}>{vc(varM3)}</div></div>
         </div>
-        {Object.keys(prodBySit).length>0&&<div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>{Object.entries(prodBySit).sort((a,b)=>b[1].r-a[1].r).map(([s,d])=><div key={s} style={{background:C.surface,borderRadius:8,padding:'6px 12px',border:'1px solid '+C.border}}><div style={{fontSize:8,color:C.accent2,fontWeight:600}}>{s}</div><div style={{fontSize:12,fontWeight:700}}>{fmtCur(d.r)}</div><div style={{fontSize:8,color:C.muted}}>{d.c} ops</div></div>)}</div>}
+        <div style={{marginTop:8,fontSize:9,color:C.muted}}>Total {mName(1)}: {fmtCur(prevProdR)} ({prevProd.length} ops) · Digitações mês: {curDig} ({vc(varDig)} vs ant.)</div>
+        {Object.keys(prodBySit).length>0&&<div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>{Object.entries(prodBySit).sort((a,b)=>b[1].r-a[1].r).map(([s,d])=><div key={s} style={{background:C.bg,borderRadius:8,padding:'6px 12px',border:'1px solid '+C.border}}><div style={{fontSize:8,color:C.accent2,fontWeight:600}}>{s}</div><div style={{fontSize:12,fontWeight:700}}>{fmtCur(d.r)}</div><div style={{fontSize:8,color:C.muted}}>{d.c} ops</div></div>)}</div>}
       </div>
 
-      {/* PROJEÇÃO */}
+      {/* PROJEÇÃO — com digitações */}
       <div style={{background:C.card,border:'1px solid '+C.accent+'44',borderRadius:14,padding:16}}>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:13,fontWeight:700,color:C.accent}}>📅 Projeção Mês</span><span style={{fontSize:10,color:C.muted}}>{proj.duP}/{proj.duT} DU · Restam {proj.duR}</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:13,fontWeight:700,color:C.accent}}>📅 Projeção Mês ({proj.duP}/{proj.duT} DU · Restam {proj.duR} DU)</span></div>
         <div style={{height:6,background:C.surface,borderRadius:4,marginBottom:12}}><div style={{height:'100%',background:'linear-gradient(90deg,'+C.accent+','+C.accent2+')',borderRadius:4,width:pctDU+'%'}}/></div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8}}>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PRODUÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{fmtCur(proj.fR)}</div><div style={{fontSize:9,color:C.muted}}>{proj.fC} pagas</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJEÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(proj.pR)}</div><div style={{fontSize:9,color:C.muted}}>~{proj.pD} pagas</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FALTA</div><div style={{fontSize:14,fontWeight:700,color:C.warn}}>{fmtCur(Math.max(0,proj.pR-proj.fR))}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>MÉDIA/DU</div><div style={{fontSize:14,fontWeight:700}}>{fmtCur(proj.mdR)}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:14,fontWeight:700}}>{proj.dig}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:14,fontWeight:700,color:C.info}}>{proj.dig}</div><div style={{fontSize:9,color:C.muted}}>{(proj.duP>0?(proj.dig/proj.duP):0).toFixed(1)}/DU</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJ.DIG.</div><div style={{fontSize:14,fontWeight:700,color:C.info}}>{proj.duP>0?Math.round(proj.dig/proj.duP*proj.duT):0}</div></div>
         </div>
       </div>
 
@@ -402,12 +415,12 @@ function Dashboard({curOps,prevOps,curProd,prevProd}){
           </div>})}
         </div>
 
-        {/* POR BANCO */}
+        {/* POR BANCO — PRODUÇÃO */}
         <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-          <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Por Banco</div>
-          {bancoArr.map(([b,d])=>{const cv=d.c?(d.f/d.c*100):0;return<div key={b} style={{marginBottom:5}}>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{fontWeight:600}}>{b}</span><span style={{color:C.accent}}>{fmtCur(d.r)} <span style={{color:C.muted}}>({d.c})</span></span></div>
-            <div style={{height:4,background:C.surface,borderRadius:2}}><div style={{height:'100%',background:C.accent,borderRadius:2,width:(d.r/(tR||1)*100)+'%'}}/></div>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Produção por Banco (CRC mês)</div>
+          {bancoArr.map(([b,d])=>{const mx=bancoArr[0]?.[1]?.r||1;return<div key={b} style={{marginBottom:5}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{fontWeight:600}}>{b}</span><span style={{color:C.accent2,fontWeight:600}}>{fmtCur(d.r)} <span style={{color:C.muted}}>({d.c} ops)</span></span></div>
+            <div style={{height:4,background:C.surface,borderRadius:2}}><div style={{height:'100%',background:C.accent2,borderRadius:2,width:(d.r/mx*100)+'%'}}/></div>
           </div>})}
         </div>
       </div>
@@ -485,7 +498,7 @@ function Ranking(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,se
 /* ═══ RECEBIMENTOS ═══ */
 function Recebimentos(){
   const[pend,setPend]=useState([]),[rec,setRec]=useState([]),[loading,setLoading]=useState(true)
-  const[fB,sFB]=useState(''),[fA,sFA]=useState(''),[showExp,setShowExp]=useState(false)
+  const[fB,sFB]=useState(''),[fA,sFA]=useState(''),[showExp,setShowExp]=useState(false),[fAging,sFAging]=useState('')
 
   useEffect(()=>{
     setLoading(true)
@@ -498,11 +511,12 @@ function Recebimentos(){
   },[])
 
   const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
-  const byBanco=(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrRepasse||0);if(o.crcCliente)m[b].ds.push(Math.floor((NOW-new Date(o.crcCliente))/86400000))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,x)=>a+x,0)/d.ds.length):0,mx:d.ds.length?Math.max(...d.ds):0})).sort((a,b)=>b.r-a.r)})()
+  const byBanco=(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrRepasse||0);if(o.crcCliente)m[b].ds.push(getBD(o.crcCliente))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,x)=>a+x,0)/d.ds.length):0,mx:d.ds.length?Math.max(...d.ds):0})).sort((a,b)=>b.r-a.r)})()
   const byOp=(()=>{const m={};pend.forEach(o=>{const k=o.operacao||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)})()
-  const byAg=(()=>{const m={};pend.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,ds:[]};m[a].c++;m[a].r+=(o.vrRepasse||0);if(o.crcCliente)m[a].ds.push(Math.floor((NOW-new Date(o.crcCliente))/86400000))});return Object.entries(m).map(([a,d])=>({a,c:d.c,r:d.r,md:d.ds.length?Math.round(d.ds.reduce((x,y)=>x+y,0)/d.ds.length):0})).sort((a,b)=>b.r-a.r)})()
-  const aging=(()=>{const fx={'0-5d':[0,0],'5-10d':[0,0],'10-15d':[0,0],'15-30d':[0,0],'30-60d':[0,0],'60-90d':[0,0],'90+d':[0,0]};pend.forEach(o=>{if(!o.crcCliente)return;const d=Math.floor((NOW-new Date(o.crcCliente))/86400000),k=d<=5?'0-5d':d<=10?'5-10d':d<=15?'10-15d':d<=30?'15-30d':d<=60?'30-60d':d<=90?'60-90d':'90+d';fx[k][0]++;fx[k][1]+=(o.vrRepasse||0)});return Object.entries(fx)})()
-  const filt=pend.filter(o=>(!fB||o.banco===fB)&&(!fA||o.agente===fA))
+  const byAg2=(()=>{const m={};pend.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,ds:[]};m[a].c++;m[a].r+=(o.vrRepasse||0);if(o.crcCliente)m[a].ds.push(getBD(o.crcCliente))});return Object.entries(m).map(([a,d])=>({a,c:d.c,r:d.r,md:d.ds.length?Math.round(d.ds.reduce((x,y)=>x+y,0)/d.ds.length):0})).sort((a,b)=>b.r-a.r)})()
+  const AGING_KEYS=['0-5','5-10','10-15','15-30','30-60','60-90','90+']
+  const aging=(()=>{const fx={};AGING_KEYS.forEach(k=>fx[k]=[0,0]);pend.forEach(o=>{if(!o.crcCliente)return;const bd=getBD(o.crcCliente),k=getAgingKey(bd);fx[k][0]++;fx[k][1]+=(o.vrRepasse||0)});return Object.entries(fx)})()
+  const filt=pend.filter(o=>(!fB||o.banco===fB)&&(!fA||o.agente===fA)&&(!fAging||(o.crcCliente&&getAgingKey(getBD(o.crcCliente))===fAging)))
 
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -522,13 +536,13 @@ function Recebimentos(){
     </div>
 
     {pend.length>0&&<>
-      {/* AGING */}
+      {/* AGING — DIAS ÚTEIS — clicável para filtrar */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Aging — Dias desde CRC do cliente</div>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Aging — Dias Úteis desde CRC {fAging&&<button onClick={()=>sFAging('')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.accent,padding:'2px 8px',fontSize:9,cursor:'pointer',marginLeft:8}}>✕ Limpar</button>}</div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          {aging.map(([k,[c,r]])=>{const col=k.includes('90')?C.danger:k.includes('60')?C.danger:k.includes('30-')?C.warn:k.includes('15-')?C.warn:k.includes('10-')?C.info:k.includes('5-10')?C.accent2:C.accent2;const pct=pend.length?(c/pend.length*100):0;return c>0?<div key={k} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:'10px 16px',minWidth:90}}>
+          {aging.map(([k,[c,r]])=>{const col=k.includes('90')||k.includes('60')?C.danger:k.includes('30')?C.warn:k.includes('15')||k.includes('10')?C.info:C.accent2;const pct=pend.length?(c/pend.length*100):0;const active=fAging===k;return c>0?<div key={k} onClick={()=>sFAging(active?'':k)} style={{background:active?col+'22':C.surface,border:'1px solid '+(active?col:C.border),borderRadius:10,padding:'10px 16px',minWidth:90,cursor:'pointer'}}>
             <div style={{fontSize:18,fontWeight:700,color:col}}>{c}</div>
-            <div style={{fontSize:10,fontWeight:600,color:col}}>{k}</div>
+            <div style={{fontSize:10,fontWeight:600,color:col}}>{k} DU</div>
             <div style={{fontSize:9,color:C.muted}}>{fmtCur(r)}</div>
             <div style={{height:3,background:C.border,borderRadius:2,marginTop:4}}><div style={{height:'100%',background:col,borderRadius:2,width:pct+'%'}}/></div>
           </div>:null})}
@@ -539,7 +553,7 @@ function Recebimentos(){
         {/* POR BANCO */}
         <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','A Receber','Média','Máx'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','A Receber','Média DU','Máx DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
           <tbody>{byBanco.map(b=><tr key={b.b} style={{borderBottom:'1px solid '+C.border}}>
             <td style={{padding:'6px 8px',fontWeight:700}}>{b.b}</td>
             <td style={{padding:'6px 8px'}}>{b.c}</td>
@@ -561,8 +575,8 @@ function Recebimentos(){
         {/* POR PARCEIRO */}
         <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Qtd','A Receber','Média'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
-          <tbody>{byAg.slice(0,20).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Qtd','A Receber','Média DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{byAg2.slice(0,20).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}>
             <td style={{padding:'6px 8px',fontWeight:600,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.a}</td>
             <td style={{padding:'6px 8px'}}>{a.c}</td>
             <td style={{padding:'6px 8px',fontWeight:600,color:C.danger}}>{fmtCur(a.r)}</td>
@@ -573,16 +587,16 @@ function Recebimentos(){
 
       {/* BANCO × DIAS EM ABERTO */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Banco × Dias em Aberto</div>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Banco × Dias Úteis em Aberto</div>
         {(()=>{
           const FAIXAS=['0-5','5-10','10-15','15-30','30-60','60-90','90+']
           const getFaixa=d=>d<=5?'0-5':d<=10?'5-10':d<=15?'10-15':d<=30?'15-30':d<=60?'30-60':d<=90?'60-90':'90+'
-          const mx={};pend.forEach(o=>{const b=o.banco||'?',d=o.crcCliente?Math.floor((NOW-new Date(o.crcCliente))/86400000):0,f=getFaixa(d);if(!mx[b])mx[b]={};if(!mx[b][f])mx[b][f]={c:0,r:0};mx[b][f].c++;mx[b][f].r+=(o.vrRepasse||0)})
+          const mx={};pend.forEach(o=>{const b=o.banco||'?',d=o.crcCliente?getBD(o.crcCliente):0,f=getFaixa(d);if(!mx[b])mx[b]={};if(!mx[b][f])mx[b][f]={c:0,r:0};mx[b][f].c++;mx[b][f].r+=(o.vrRepasse||0)})
           const bancos=Object.keys(mx).sort()
           return<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
             <thead><tr style={{background:C.surface}}>
               <th style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,position:'sticky',left:0,background:C.surface}}>BANCO</th>
-              {FAIXAS.map(f=><th key={f} style={{padding:'6px 8px',textAlign:'center',color:C.muted,fontSize:8,minWidth:70}}>{f}d</th>)}
+              {FAIXAS.map(f=><th key={f} style={{padding:'6px 8px',textAlign:'center',color:C.muted,fontSize:8,minWidth:70}}>{f} DU</th>)}
               <th style={{padding:'6px 8px',textAlign:'center',color:C.muted,fontSize:8,fontWeight:700}}>TOTAL</th>
             </tr></thead>
             <tbody>{bancos.map(b=>{
@@ -610,17 +624,21 @@ function Recebimentos(){
               <option value="">— Parceiro —</option>
               {[...new Set(pend.map(o=>o.agente).filter(Boolean))].sort().map(a=><option key={a} value={a}>{a}</option>)}
             </select>
-            {(fB||fA)&&<button onClick={()=>{sFB('');sFA('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'4px 8px',fontSize:10,cursor:'pointer'}}>✕</button>}
+            <select value={fAging} onChange={e=>sFAging(e.target.value)} style={{background:C.surface,border:'1px solid '+(fAging?C.danger:C.border),borderRadius:6,color:fAging?C.danger:C.text,padding:'4px 8px',fontSize:10}}>
+              <option value="">— Aging DU —</option>
+              {AGING_KEYS.map(k=><option key={k} value={k}>{k} DU</option>)}
+            </select>
+            {(fB||fA||fAging)&&<button onClick={()=>{sFB('');sFA('');sFAging('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'4px 8px',fontSize:10,cursor:'pointer'}}>✕</button>}
             <ExportBtn ops={filt} name={'a-receber-filtrado'}/>
           </div>
         </div>
         <div style={{overflowX:'auto',maxHeight:400,borderRadius:8,border:'1px solid '+C.border}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
             <thead><tr style={{background:C.surface,position:'sticky',top:0}}>
-              {['Cliente','CPF','Banco','Op.','Agente','Repasse','CRC Cliente','Dias'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}
+              {['Cliente','CPF','Banco','Op.','Agente','Repasse','CRC Cliente','DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}
             </tr></thead>
             <tbody>{filt.slice(0,500).map(o=>{
-              const dias=o.crcCliente?Math.floor((NOW-new Date(o.crcCliente))/86400000):0
+              const dias=o.crcCliente?getBD(o.crcCliente):0
               return<tr key={o.id} style={{borderBottom:'1px solid '+C.border}}>
                 <td style={{padding:'5px 8px',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente}</td>
                 <td style={{padding:'5px 8px'}}>{o.cpf}</td>
@@ -659,51 +677,62 @@ function Portabilidade(){
   </div>
 }
 
-function Performance({curProd,prevProd}){
+/* ═══ ALERTAS — digitação + produção ═══ */
+function Alertas({curOps,prevOps,curProd,prevProd}){
   const[selP,setSelP]=useState(null)
   const ags=[...new Set(curOps.concat(prevOps).map(o=>o.agente).filter(Boolean))]
-  const data=ags.map(a=>{
+  const st=ags.map(a=>{
     const cu=curOps.filter(o=>o.agente===a),pv=prevOps.filter(o=>o.agente===a)
-    const cDig=cu.length,pDig=pv.length,cProd=cu.filter(isFin),pProd=pv.filter(isFin)
-    const cR=cProd.reduce((s,o)=>s+(o.vrRepasse||0),0),pR=pProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
-    const cEst=cu.filter(isEst).length,pEst=pv.filter(isEst).length
-    const cv=cDig?(cProd.length/cDig*100):0,pvCv=pDig?(pProd.length/pDig*100):0
-    const varR=pR?((cR-pR)/pR*100):(cR>0?100:0),varDig=pDig?((cDig-pDig)/pDig*100):(cDig>0?100:0)
-    const bB={};cu.forEach(o=>{const b=o.banco||'?';if(!bB[b])bB[b]=0;bB[b]++})
-    const topB=Object.entries(bB).sort((a,b)=>b[1]-a[1])[0]
-    const health=cv>=60?'🟢':cv>=40?'🟡':cv>=25?'🟠':'🔴'
-    return{name:a,cDig,pDig,cProd:cProd.length,pProd:pProd.length,cR,pR,cv,pvCv,varR,varDig,cEst,pEst,topB:topB?topB[0]:'—',health}
-  }).sort((a,b)=>b.cR-a.cR)
-  const totCR=data.reduce((s,d)=>s+d.cR,0),totPR=data.reduce((s,d)=>s+d.pR,0)
+    const cDig=cu.length,pDig=pv.length
+    const cProd=curProd.filter(o=>o.agente===a),pProd=prevProd.filter(o=>o.agente===a)
+    const cProdR=cProd.reduce((s,o)=>s+(o.vrRepasse||0),0),pProdR=pProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
+    const varDig=pDig?((cDig-pDig)/pDig*100):(cDig>0?100:0)
+    const varProd=pProdR?((cProdR-pProdR)/pProdR*100):(cProdR>0?100:0)
+    const cv=cDig?(cProd.length/cDig*100):0
+    let flag='ok',reason=''
+    if(cDig===0&&pDig>0){flag='parado';reason='Sem digitação no mês'}
+    else if(cDig>0&&cProd.length===0){flag='sem_producao';reason='Digitando mas sem produção'}
+    else if(varProd<=-40){flag='queda_prod';reason='Queda de '+Math.abs(varProd).toFixed(0)+'% na produção'}
+    else if(varDig<=-40){flag='queda_dig';reason='Queda de '+Math.abs(varDig).toFixed(0)+'% nas digitações'}
+    else if(cv<20&&cDig>5){flag='baixa_conv';reason='Conversão de apenas '+cv.toFixed(0)+'%'}
+    return{nm:a,cDig,pDig,cProd:cProd.length,pProd:pProd.length,cProdR,pProdR,varDig,varProd,cv,flag,reason}
+  }).sort((a,b)=>{const o={parado:0,sem_producao:1,queda_prod:2,queda_dig:3,baixa_conv:4,ok:5};return(o[a.flag]??9)-(o[b.flag]??9)})
+  const alertas=st.filter(s=>s.flag!=='ok')
+  const ic=f=>f==='parado'?'🔴':f==='sem_producao'?'🟠':f==='queda_prod'?'🔴':f==='queda_dig'?'🟡':f==='baixa_conv'?'🟡':'↗'
   const vc=v=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
   const vC=v=>v>0?C.accent2:v<-10?C.danger:C.warn
   return(
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
-      <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Performance</h2><ExportBtn ops={curOps} name={'performance-mes'}/></div>
+      <h2 style={{fontWeight:800,fontSize:20}}>Alertas — Ação em Parceiros</h2>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <Stat label="Produção Mês" value={fmtCur(totCR)} color={C.accent} sub={data.reduce((s,d)=>s+d.cProd,0)+' ops'}/>
-        <Stat label="Produção Anterior" value={fmtCur(totPR)} sub={data.reduce((s,d)=>s+d.pProd,0)+' ops'}/>
-        <Stat label="Variação" value={(totPR?((totCR-totPR)/totPR*100):0).toFixed(0)+'%'} color={totCR>=totPR?C.accent2:C.danger}/>
-        <Stat label="Parceiros Ativos" value={data.filter(d=>d.cDig>0).length} sub={'de '+ags.length}/>
+        <Stat label="Parados" value={st.filter(s=>s.flag==='parado').length} color={C.danger}/>
+        <Stat label="Sem Produção" value={st.filter(s=>s.flag==='sem_producao').length} color={'#F97316'}/>
+        <Stat label="Queda Produção" value={st.filter(s=>s.flag==='queda_prod').length} color={C.danger}/>
+        <Stat label="Queda Digitação" value={st.filter(s=>s.flag==='queda_dig').length} color={C.warn}/>
+        <Stat label="Baixa Conversão" value={st.filter(s=>s.flag==='baixa_conv').length} color={C.warn}/>
       </div>
+      {alertas.length>0&&<div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:12,padding:14}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.danger,marginBottom:6}}>⚠ {alertas.length} parceiros precisam de ação</div>
+        {alertas.slice(0,15).map(s=><div key={s.nm} style={{fontSize:11,padding:'3px 0',cursor:'pointer'}} onClick={()=>setSelP(s.nm)}>
+          {ic(s.flag)} <strong>{s.nm}</strong> — <span style={{color:C.muted}}>{s.reason}</span>
+        </div>)}
+      </div>}
       <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
           <thead><tr style={{background:C.surface}}>
-            {['','Parceiro','Dig.Mês','Dig.Ant.','Var.','Prod.Mês','Prod.Ant.','Var.Prod.','Conv.','Conv.Ant.','Princ.Banco','Health'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',color:C.muted,fontSize:7,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}
+            {['','Parceiro','Dig.Mês','Dig.Ant.','Var.Dig.','Prod.Mês','Prod.Ant.','Var.Prod.','Conv.','Ação'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',color:C.muted,fontSize:7,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}
           </tr></thead>
-          <tbody>{data.map((d,i)=><tr key={d.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(d.name)}>
-            <td style={{padding:'6px 8px'}}><span style={{display:'inline-flex',width:20,height:20,borderRadius:5,background:i<3?C.accent:C.surface,alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</span></td>
-            <td style={{padding:'6px 8px',fontWeight:600,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</td>
-            <td style={{padding:'6px 8px'}}>{d.cDig}</td>
-            <td style={{padding:'6px 8px',color:C.muted}}>{d.pDig}</td>
-            <td style={{padding:'6px 8px',fontWeight:600,color:vC(d.varDig)}}>{vc(d.varDig)}</td>
-            <td style={{padding:'6px 8px',fontWeight:600,color:C.accent2}}>{fmtCur(d.cR)}</td>
-            <td style={{padding:'6px 8px',color:C.muted}}>{fmtCur(d.pR)}</td>
-            <td style={{padding:'6px 8px',fontWeight:600,color:vC(d.varR)}}>{vc(d.varR)}</td>
-            <td style={{padding:'6px 8px',fontWeight:600,color:d.cv>=50?C.accent2:d.cv>=30?C.warn:C.danger}}>{d.cv.toFixed(0)}%</td>
-            <td style={{padding:'6px 8px',color:C.muted}}>{d.pvCv.toFixed(0)}%</td>
-            <td style={{padding:'6px 8px',fontSize:9}}>{d.topB}</td>
-            <td style={{padding:'6px 8px',fontSize:13}}>{d.health}</td>
+          <tbody>{st.map(s=><tr key={s.nm} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(s.nm)}>
+            <td style={{padding:'6px 8px',fontSize:12}}>{ic(s.flag)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.nm}</td>
+            <td style={{padding:'6px 8px'}}>{s.cDig}</td>
+            <td style={{padding:'6px 8px',color:C.muted}}>{s.pDig}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:vC(s.varDig)}}>{vc(s.varDig)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:C.accent2}}>{fmtCur(s.cProdR)}</td>
+            <td style={{padding:'6px 8px',color:C.muted}}>{fmtCur(s.pProdR)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:vC(s.varProd)}}>{vc(s.varProd)}</td>
+            <td style={{padding:'6px 8px',fontWeight:600,color:s.cv>=50?C.accent2:s.cv>=30?C.warn:C.danger}}>{s.cv.toFixed(0)}%</td>
+            <td style={{padding:'6px 8px',fontSize:9,color:s.flag==='ok'?C.muted:C.danger}}>{s.flag==='ok'?'—':s.reason}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -712,12 +741,9 @@ function Performance({curProd,prevProd}){
   )
 }
 
-/* ═══ ALERTAS ═══ */
-function Alertas({curOps,prevOps}){const ags=[...new Set(curOps.concat(prevOps).map(o=>o.agente).filter(Boolean))];const st=ags.map(a=>{const cu=curOps.filter(o=>o.agente===a),pv=prevOps.filter(o=>o.agente===a),cR=cu.reduce((s,o)=>s+(o.vrRepasse||0),0),pR=pv.reduce((s,o)=>s+(o.vrRepasse||0),0),vr=pR?((cR-pR)/pR*100):(cR>0?100:0);let flag='ok';if(cu.length===0&&pv.length>0)flag='parado';else if(vr<=-30)flag='queda';return{nm:a,cc:cu.length,pc:pv.length,vr,flag}}).sort((a,b)=>{const o={parado:0,queda:1,ok:2};return(o[a.flag]??3)-(o[b.flag]??3)});return<div style={{display:'flex',flexDirection:'column',gap:14}}><h2 style={{fontWeight:800,fontSize:20}}>Alertas</h2><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Parados" value={st.filter(s=>s.flag==='parado').length} color={C.danger}/><Stat label="Em Queda" value={st.filter(s=>s.flag==='queda').length} color={C.warn}/></div>{st.filter(s=>s.flag!=='ok').length>0&&<div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:12,padding:14}}><div style={{fontSize:12,fontWeight:700,color:C.danger,marginBottom:6}}>⚠ Ação necessária</div>{st.filter(s=>s.flag!=='ok').map(s=><div key={s.nm} style={{fontSize:11,padding:'3px 0'}}>{s.flag==='parado'?'🔴':'🟡'} <strong>{s.nm}</strong> — {s.flag==='parado'?'Parado no mês':'Queda '+Math.abs(s.vr).toFixed(0)+'%'}</div>)}</div>}<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface}}>{['','Parceiro','Mês','Ant.','Var.'].map(h=><th key={h} style={{padding:'7px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{st.map(s=><tr key={s.nm} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 8px'}}>{s.flag==='parado'?'🔴':s.flag==='queda'?'🟡':'↗'}</td><td style={{padding:'7px 8px',fontWeight:600}}>{s.nm}</td><td style={{padding:'7px 8px'}}>{s.cc}</td><td style={{padding:'7px 8px'}}>{s.pc}</td><td style={{padding:'7px 8px',fontWeight:600,color:s.vr>0?C.accent2:s.vr<-30?C.danger:C.warn}}>{s.vr>0?'+':''}{s.vr.toFixed(0)}%</td></tr>)}</tbody></table></div></div>}
-
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','portabilidade','performance','recebimentos','alertas','parceiros']
+  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null)
@@ -755,19 +781,27 @@ function Usuarios({user}){
 }
 
 /* ═══ NAV ═══ */
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'performance',l:'Performance',i:'📈'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
   const[user,setUser]=useState(null),[view,setView]=useState('dashboard'),[loginError,setLoginError]=useState('')
   const[curOps,setCurOps]=useState([]),[prevOps,setPrevOps]=useState([])
   const[curProd,setCurProd]=useState([]),[prevProd,setPrevProd]=useState([])
+  const[prevProdProp,setPrevProdProp]=useState([])
+  const[m2Prop,setM2Prop]=useState([]),[m3Prop,setM3Prop]=useState([])
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return
+    const day=NOW.getDate(),y=NOW.getFullYear(),mo=NOW.getMonth()
+    const propRange=(mBack)=>{const f=new Date(y,mo-mBack,1).toISOString().split('T')[0];const t=new Date(y,mo-mBack,day).toISOString().split('T')[0];return[f,t]}
     fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{})
     fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})
     fetchProd('mes').then(d=>setCurProd(d)).catch(()=>{})
     fetchProd('ant').then(d=>setPrevProd(d)).catch(()=>{})
+    // Proporcional até dia X de cada mês
+    const[pf1,pt1]=propRange(1);fetchProd('custom',null,pf1,pt1).then(d=>setPrevProdProp(d)).catch(()=>{})
+    const[pf2,pt2]=propRange(2);fetchProd('custom',null,pf2,pt2).then(d=>setM2Prop(d)).catch(()=>{})
+    const[pf3,pt3]=propRange(3);fetchProd('custom',null,pf3,pt3).then(d=>setM3Prop(d)).catch(()=>{})
   },[user])
 
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"]};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
@@ -783,15 +817,14 @@ export default function App(){
       <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:4}}>{user.perfil}</div><button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
     </div>
     <div style={{flex:1,padding:'20px 24px',overflowY:'auto'}}>
-      {view==='dashboard'&&<Dashboard curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd}/>}
+      {view==='dashboard'&&<Dashboard curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd} prevProdProp={prevProdProp} m2Prop={m2Prop} m3Prop={m3Prop}/>}
       {view==='ops'&&<Operacoes onImport={handleImport}/>}
       {view==='producao'&&<Producao/>}
       {view==='estrategico'&&<Estrategico/>}
       {view==='ranking'&&<Ranking/>}
-      {view==='performance'&&<Performance curProd={curProd} prevProd={prevProd}/>}
       {view==='portabilidade'&&<Portabilidade/>}
       {view==='recebimentos'&&<Recebimentos/>}
-      {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps}/>}
+      {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd}/>}
       {view==='parceiros'&&<Parceiros/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
