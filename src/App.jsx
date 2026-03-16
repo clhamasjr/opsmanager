@@ -157,7 +157,7 @@ function parseParceiros(wb){
     const fIdx={}
     for(let i=0;i<h.length;i+=2){const k=String(h[i]||'').trim().toLowerCase();if(k)fIdx[k]=i+1}
     const g=(row,k)=>{const i=fIdx[k];return(i!=null&&i<row.length&&row[i]!=null)?String(row[i]).trim():''}
-    return rows.map(r=>{
+    const parsed=rows.map(r=>{
       const raw=g(r,'agente')
       if(!raw||raw.toLowerCase()==='agente')return null
       const nm=raw.replace(/^[\d.\/\-]+\s*/,'').trim()
@@ -184,8 +184,11 @@ function parseParceiros(wb){
         gerente:ger?ger.split('|')[1]?.trim()||ger:''
       }
     }).filter(r=>r&&r.nome)
+    // Deduplicar nomes — adiciona código se houver duplicata
+    const nameCount={};parsed.forEach(p=>nameCount[p.nome]=(nameCount[p.nome]||0)+1)
+    parsed.forEach(p=>{if(nameCount[p.nome]>1&&p.cod_agente)p.nome=p.nome+' ('+p.cod_agente+')'})
+    return parsed
   }
-  // Formato normal
   const jsonRows=XLSX.utils.sheet_to_json(ws,{defval:''})
   return jsonRows.map(r=>({
     nome:String(r.Nome||r.nome||r.NOME||r.Agente||r.agente||'').trim(),
