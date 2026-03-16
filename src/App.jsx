@@ -85,7 +85,7 @@ function getProj(prodOps){
   const y=NOW.getFullYear(),m=NOW.getMonth(),f=new Date(y,m,1),l=new Date(y,m+1,0),ye=new Date(NOW);ye.setDate(ye.getDate()-1)
   const duT=countBD(f,l),duP=countBD(f,ye<f?f:ye),duR=duT-duP
   // prodOps already filtered by CRC in current month
-  const fR=prodOps.reduce((s,o)=>s+(o.vrLiquido||0),0),fC=prodOps.length
+  const fR=prodOps.reduce((s,o)=>s+(o.vrRepasse||0),0),fC=prodOps.length
   const mdR=duP>0?fR/duP:0,mdD=duP>0?fC/duP:0
   return{duT,duP,duR,fR,fC,mdR,mdD,pR:mdR*duT,pD:Math.round(mdD*duT)}
 }
@@ -156,9 +156,10 @@ function parseParceiros(wb){
   if(h.length>=20&&String(h[0]||'').toLowerCase().includes('agente')&&String(h[2]||'').toLowerCase().includes('fun')){
     const fIdx={}
     for(let i=0;i<h.length;i+=2){const k=String(h[i]||'').trim().toLowerCase();if(k)fIdx[k]=i+1}
-    const g=(row,k)=>{const i=fIdx[k];return i!=null?String(row[i]||'').trim():''}
-    return rows.slice(1).filter(r=>g(r,'agente')&&g(r,'agente').toLowerCase()!=='agente').map(r=>{
+    const g=(row,k)=>{const i=fIdx[k];return(i!=null&&i<row.length&&row[i]!=null)?String(row[i]).trim():''}
+    return rows.map(r=>{
       const raw=g(r,'agente')
+      if(!raw||raw.toLowerCase()==='agente')return null
       const nm=raw.replace(/^[\d.\/\-]+\s*/,'').trim()
       const cpf=g(r,'cpf/cnpj')
       const sit=g(r,'situação')||g(r,'situacao')
@@ -182,7 +183,7 @@ function parseParceiros(wb){
         supervisor:nomeSup,
         gerente:ger?ger.split('|')[1]?.trim()||ger:''
       }
-    }).filter(r=>r.nome)
+    }).filter(r=>r&&r.nome)
   }
   // Formato normal
   const jsonRows=XLSX.utils.sheet_to_json(ws,{defval:''})
@@ -211,7 +212,7 @@ function Parceiros(){
       <h2 style={{fontWeight:800,fontSize:20}}>Parceiros ({list.length})</h2>
       <div style={{display:'flex',gap:6}}>
         <button onClick={()=>fr.current?.click()} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📥 Importar</button>
-        <input ref={fr} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setMsg('Processando...');const rd=new FileReader();rd.onload=async ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const parsed=parseParceiros(wb);if(!parsed.length){setMsg('Nenhum registro encontrado');return}setMsg('Gravando '+parsed.length+'...');for(let i=0;i<parsed.length;i+=500){const batch=parsed.slice(i,i+500);await supabase.from('parceiros').upsert(batch,{onConflict:'nome',ignoreDuplicates:false})}await reload();setMsg('✓ '+parsed.length+' parceiros importados!')}catch(ex){setMsg('Erro: '+ex.message)}};rd.readAsArrayBuffer(file)}}/>
+        <input ref={fr} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setMsg('Processando...');const rd=new FileReader();rd.onload=async ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const parsed=parseParceiros(wb);if(!parsed.length){setMsg('⚠ Nenhum registro encontrado');return}setMsg('Gravando '+parsed.length+'...');let ok=0;for(let i=0;i<parsed.length;i+=200){const batch=parsed.slice(i,i+200);const{error}=await supabase.from('parceiros').upsert(batch,{onConflict:'nome',ignoreDuplicates:false});if(error){console.error('Upsert error:',error);const basic=batch.map(({cod_agente,funcao,cod_supervisor,supervisor,gerente,...rest})=>rest);const{error:e2}=await supabase.from('parceiros').upsert(basic,{onConflict:'nome',ignoreDuplicates:false});if(e2){setMsg('Erro: '+e2.message);return}ok+=basic.length}else{ok+=batch.length}setMsg('Gravando '+ok+'/'+parsed.length+'...')}await reload();setMsg('✓ '+ok+' parceiros importados!')}catch(ex){setMsg('Erro: '+ex.message)}};rd.readAsArrayBuffer(file)}}/>
         <button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:600,fontSize:11,cursor:'pointer'}}>+ Novo</button>
       </div>
     </div>
@@ -348,11 +349,11 @@ function PartnerHealth({name,ops,onClose}){
   if(!name)return null
   const al=ops.filter(o=>o.agente===name)
   const fin=al.filter(isFin),est=al.filter(isEst),pend=al.filter(isPend)
-  const r=al.reduce((s,o)=>s+(o.vrLiquido||0),0),fR=fin.reduce((s,o)=>s+(o.vrLiquido||0),0),eR=est.reduce((s,o)=>s+(o.vrLiquido||0),0)
+  const r=al.reduce((s,o)=>s+(o.vrRepasse||0),0),fR=fin.reduce((s,o)=>s+(o.vrRepasse||0),0),eR=est.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const cv=al.length?(fin.length/al.length*100):0,estP=al.length?(est.length/al.length*100):0
-  const bB={};al.forEach(o=>{const k=o.banco||'?';if(!bB[k])bB[k]={c:0,r:0,f:0};bB[k].c++;bB[k].r+=(o.vrLiquido||0);if(isFin(o))bB[k].f++})
-  const bO={};al.forEach(o=>{const k=o.operacao||'?';if(!bO[k])bO[k]={c:0,r:0,f:0};bO[k].c++;bO[k].r+=(o.vrLiquido||0);if(isFin(o))bO[k].f++})
-  const bS={};al.forEach(o=>{const k=o.situacao||'?';if(!bS[k])bS[k]={c:0,r:0};bS[k].c++;bS[k].r+=(o.vrLiquido||0)})
+  const bB={};al.forEach(o=>{const k=o.banco||'?';if(!bB[k])bB[k]={c:0,r:0,f:0};bB[k].c++;bB[k].r+=(o.vrRepasse||0);if(isFin(o))bB[k].f++})
+  const bO={};al.forEach(o=>{const k=o.operacao||'?';if(!bO[k])bO[k]={c:0,r:0,f:0};bO[k].c++;bO[k].r+=(o.vrRepasse||0);if(isFin(o))bO[k].f++})
+  const bS={};al.forEach(o=>{const k=o.situacao||'?';if(!bS[k])bS[k]={c:0,r:0};bS[k].c++;bS[k].r+=(o.vrRepasse||0)})
   const health=cv>=60?'🟢 Excelente':cv>=40?'🟡 Bom':cv>=25?'🟠 Regular':'🔴 Crítico'
   const hColor=cv>=60?C.accent2:cv>=40?C.warn:cv>=25?'#F97316':C.danger
   return(
@@ -364,9 +365,9 @@ function PartnerHealth({name,ops,onClose}){
         </div>
         <div style={{padding:'16px 22px',display:'flex',flexDirection:'column',gap:14}}>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            <Stat label="Total" value={al.length} small/><Stat label="Líquido" value={fmtCur(r)} color={C.accent} small/>
+            <Stat label="Total" value={al.length} small/><Stat label="Repasse" value={fmtCur(r)} color={C.accent} small/>
             <Stat label="Pagas" value={fin.length} sub={fmtCur(fR)} color={C.accent2} small/>
-            <Stat label="Em Andamento" value={pend.length} sub={fmtCur(pend.reduce((s,o)=>s+(o.vrLiquido||0),0))} color={C.warn} small/>
+            <Stat label="Em Andamento" value={pend.length} sub={fmtCur(pend.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.warn} small/>
             <Stat label="Estornos" value={est.length} sub={estP.toFixed(0)+'%'} color={C.danger} small/>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
@@ -391,7 +392,7 @@ function PartnerHealth({name,ops,onClose}){
               {cv<40&&al.length>5&&<div style={{color:C.danger}}>🔴 Conversão baixa ({cv.toFixed(0)}%) — AÇÃO URGENTE</div>}
               {estP>25&&<div style={{color:C.danger}}>🔴 {est.length} estornos ({estP.toFixed(0)}%) — investigar</div>}
               {estP<=10&&al.length>5&&<div style={{color:C.accent2}}>✓ Baixo estorno ({estP.toFixed(0)}%)</div>}
-              {pend.length>0&&<div style={{color:C.info}}>📋 {pend.length} propostas em andamento ({fmtCur(pend.reduce((s,o)=>s+(o.vrLiquido||0),0))})</div>}
+              {pend.length>0&&<div style={{color:C.info}}>📋 {pend.length} propostas em andamento ({fmtCur(pend.reduce((s,o)=>s+(o.vrRepasse||0),0))})</div>}
               {Object.entries(bB).length>0&&<div>🏦 Principal: <strong>{Object.entries(bB).sort((a,b)=>b[1].r-a[1].r)[0][0]}</strong></div>}
               {Object.entries(bO).length>0&&<div>⚡ Foco: <strong>{Object.entries(bO).sort((a,b)=>b[1].r-a[1].r)[0][0]}</strong></div>}
             </div>
@@ -411,13 +412,13 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop})
   const ags=[...new Set(f.map(o=>o.agente).filter(Boolean))]
   const bySit={};f.forEach(o=>{const k=o.situacao||'?';if(!bySit[k])bySit[k]={c:0,r:0};bySit[k].c++;bySit[k].r+=(o.vrLiquido||0)})
   const sitArr=Object.entries(bySit).sort((a,b)=>b[1].c-a[1].c)
-  const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0,fr:0};topM[a].r+=(o.vrLiquido||0);topM[a].c++;if(isFin(o)){topM[a].fc++;topM[a].fr+=(o.vrLiquido||0)}})
+  const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0,fr:0};topM[a].r+=(o.vrLiquido||0);topM[a].c++;if(isFin(o)){topM[a].fc++;topM[a].fr+=(o.vrRepasse||0)}})
   const topP=Object.entries(topM).sort((a,b)=>b[1].fr-a[1].fr).slice(0,10)
   // PRODUÇÃO = by CRC date
-  const curProdR=curProd.reduce((s,o)=>s+(o.vrLiquido||0),0),prevProdR=prevProd.reduce((s,o)=>s+(o.vrLiquido||0),0)
-  const prevPropR=(prevProdProp||[]).reduce((s,o)=>s+(o.vrLiquido||0),0)
-  const m2PropR=(m2Prop||[]).reduce((s,o)=>s+(o.vrLiquido||0),0)
-  const m3PropR=(m3Prop||[]).reduce((s,o)=>s+(o.vrLiquido||0),0)
+  const curProdR=curProd.reduce((s,o)=>s+(o.vrRepasse||0),0),prevProdR=prevProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const prevPropR=(prevProdProp||[]).reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const m2PropR=(m2Prop||[]).reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const m3PropR=(m3Prop||[]).reduce((s,o)=>s+(o.vrRepasse||0),0)
   const varProp=prevPropR?((curProdR-prevPropR)/prevPropR*100):(curProdR>0?100:0)
   const varM2=m2PropR?((curProdR-m2PropR)/m2PropR*100):(curProdR>0?100:0)
   const varM3=m3PropR?((curProdR-m3PropR)/m3PropR*100):(curProdR>0?100:0)
@@ -426,7 +427,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop})
   // Projeção by CRC
   const proj=getProj(curProd),pctDU=proj.duT?(proj.duP/proj.duT*100):0
   // Por banco — PRODUÇÃO (finalizados)
-  const byBanco={};curProd.forEach(o=>{const k=o.banco||'?';if(!byBanco[k])byBanco[k]={c:0,r:0};byBanco[k].c++;byBanco[k].r+=(o.vrLiquido||0)})
+  const byBanco={};curProd.forEach(o=>{const k=o.banco||'?';if(!byBanco[k])byBanco[k]={c:0,r:0};byBanco[k].c++;byBanco[k].r+=(o.vrRepasse||0)})
   const bancoArr=Object.entries(byBanco).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
   const[selP,setSelP]=useState(null)
   const vc=(v)=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
@@ -445,7 +446,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop})
   const yBancos={};yOps.forEach(o=>{const b=o.banco||'?';if(!yBancos[b])yBancos[b]={c:0,r:0};yBancos[b].c++;yBancos[b].r+=(o.vrLiquido||0)})
   const yTopB=Object.entries(yBancos).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
   // Prod by situação
-  const prodBySit={};curProd.forEach(o=>{const k=o.situacao||'?';if(!prodBySit[k])prodBySit[k]={c:0,r:0};prodBySit[k].c++;prodBySit[k].r+=(o.vrLiquido||0)})
+  const prodBySit={};curProd.forEach(o=>{const k=o.situacao||'?';if(!prodBySit[k])prodBySit[k]={c:0,r:0};prodBySit[k].c++;prodBySit[k].r+=(o.vrRepasse||0)})
 
   return(
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -588,11 +589,11 @@ function Producao(){
   const[tab,sTab]=useState('banco')
   const fin=ops.filter(isFin)
   const totalDig=ops.length
-  const totalProd=fin.reduce((s,o)=>s+(o.vrLiquido||0),0)
+  const totalProd=fin.reduce((s,o)=>s+(o.vrRepasse||0),0)
   const cv=totalDig?(fin.length/totalDig*100):0
   const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao
   // Agrupa FINALIZADOS por banco/convenio/operacao
-  const m={};fin.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrLiquido||0)})
+  const m={};fin.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrRepasse||0)})
   // Conta digitações totais por grupo pra mostrar conversão
   const md={};ops.forEach(o=>{const k=kFn(o)||'?';md[k]=(md[k]||0)+1})
   const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
@@ -643,12 +644,12 @@ function Recebimentos(){
     }).catch(e=>{console.error('Receb load error:',e);setLoading(false)})
   },[])
 
-  const pR=pend.reduce((s,o)=>s+(o.vrLiquido||0),0)
-  const byBanco=(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrLiquido||0);if(o.crcCliente)m[b].ds.push(getBD(o.crcCliente))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,x)=>a+x,0)/d.ds.length):0,mx:d.ds.length?Math.max(...d.ds):0})).sort((a,b)=>b.r-a.r)})()
-  const byOp=(()=>{const m={};pend.forEach(o=>{const k=o.operacao||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrLiquido||0)});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)})()
-  const byAg2=(()=>{const m={};pend.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,ds:[]};m[a].c++;m[a].r+=(o.vrLiquido||0);if(o.crcCliente)m[a].ds.push(getBD(o.crcCliente))});return Object.entries(m).map(([a,d])=>({a,c:d.c,r:d.r,md:d.ds.length?Math.round(d.ds.reduce((x,y)=>x+y,0)/d.ds.length):0})).sort((a,b)=>b.r-a.r)})()
+  const pR=pend.reduce((s,o)=>s+(o.vrRepasse||0),0)
+  const byBanco=(()=>{const m={};pend.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={c:0,r:0,ds:[]};m[b].c++;m[b].r+=(o.vrRepasse||0);if(o.crcCliente)m[b].ds.push(getBD(o.crcCliente))});return Object.entries(m).map(([b,d])=>({b,...d,md:d.ds.length?Math.round(d.ds.reduce((a,x)=>a+x,0)/d.ds.length):0,mx:d.ds.length?Math.max(...d.ds):0})).sort((a,b)=>b.r-a.r)})()
+  const byOp=(()=>{const m={};pend.forEach(o=>{const k=o.operacao||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrRepasse||0)});return Object.entries(m).sort((a,b)=>b[1].r-a[1].r)})()
+  const byAg2=(()=>{const m={};pend.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={c:0,r:0,ds:[]};m[a].c++;m[a].r+=(o.vrRepasse||0);if(o.crcCliente)m[a].ds.push(getBD(o.crcCliente))});return Object.entries(m).map(([a,d])=>({a,c:d.c,r:d.r,md:d.ds.length?Math.round(d.ds.reduce((x,y)=>x+y,0)/d.ds.length):0})).sort((a,b)=>b.r-a.r)})()
   const AGING_KEYS=['0-5','5-10','10-15','15-30','30-60','60-90','90+']
-  const aging=(()=>{const fx={};AGING_KEYS.forEach(k=>fx[k]=[0,0]);pend.forEach(o=>{if(!o.crcCliente)return;const bd=getBD(o.crcCliente),k=getAgingKey(bd);fx[k][0]++;fx[k][1]+=(o.vrLiquido||0)});return Object.entries(fx)})()
+  const aging=(()=>{const fx={};AGING_KEYS.forEach(k=>fx[k]=[0,0]);pend.forEach(o=>{if(!o.crcCliente)return;const bd=getBD(o.crcCliente),k=getAgingKey(bd);fx[k][0]++;fx[k][1]+=(o.vrRepasse||0)});return Object.entries(fx)})()
   const filt=pend.filter(o=>(!fB||o.banco===fB)&&(!fA||o.agente===fA)&&(!fAging||(o.crcCliente&&getAgingKey(getBD(o.crcCliente))===fAging)))
 
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -664,7 +665,7 @@ function Recebimentos(){
     </div>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Stat label="A Receber" value={pend.length} sub={fmtCur(pR)} color={C.danger}/>
-      <Stat label="Já Recebido" value={rec.length} sub={fmtCur(rec.reduce((s,o)=>s+(o.vrLiquido||0),0))} color={C.accent2}/>
+      <Stat label="Já Recebido" value={rec.length} sub={fmtCur(rec.reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/>
       <Stat label="Total CRC" value={pend.length+rec.length}/>
     </div>
 
@@ -724,7 +725,7 @@ function Recebimentos(){
         {(()=>{
           const FAIXAS=['0-5','5-10','10-15','15-30','30-60','60-90','90+']
           const getFaixa=d=>d<=5?'0-5':d<=10?'5-10':d<=15?'10-15':d<=30?'15-30':d<=60?'30-60':d<=90?'60-90':'90+'
-          const mx={};pend.forEach(o=>{const b=o.banco||'?',d=o.crcCliente?getBD(o.crcCliente):0,f=getFaixa(d);if(!mx[b])mx[b]={};if(!mx[b][f])mx[b][f]={c:0,r:0};mx[b][f].c++;mx[b][f].r+=(o.vrLiquido||0)})
+          const mx={};pend.forEach(o=>{const b=o.banco||'?',d=o.crcCliente?getBD(o.crcCliente):0,f=getFaixa(d);if(!mx[b])mx[b]={};if(!mx[b][f])mx[b][f]={c:0,r:0};mx[b][f].c++;mx[b][f].r+=(o.vrRepasse||0)})
           const bancos=Object.keys(mx).sort()
           return<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
             <thead><tr style={{background:C.surface}}>
@@ -747,7 +748,7 @@ function Recebimentos(){
       {/* ANALÍTICO */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,alignItems:'center',flexWrap:'wrap',gap:8}}>
-          <span style={{fontSize:12,fontWeight:700}}>Analítico — {filt.length} pendências ({fmtCur(filt.reduce((s,o)=>s+(o.vrLiquido||0),0))})</span>
+          <span style={{fontSize:12,fontWeight:700}}>Analítico — {filt.length} pendências ({fmtCur(filt.reduce((s,o)=>s+(o.vrRepasse||0),0))})</span>
           <div style={{display:'flex',gap:6}}>
             <select value={fB} onChange={e=>sFB(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'4px 8px',fontSize:10}}>
               <option value="">— Banco —</option>
@@ -768,7 +769,7 @@ function Recebimentos(){
         <div style={{overflowX:'auto',maxHeight:400,borderRadius:8,border:'1px solid '+C.border}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
             <thead><tr style={{background:C.surface,position:'sticky',top:0}}>
-              {['Cliente','CPF','Banco','Op.','Agente','Líquido','CRC Cliente','DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}
+              {['Cliente','CPF','Banco','Op.','Agente','Repasse','CRC Cliente','DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}
             </tr></thead>
             <tbody>{filt.slice(0,500).map(o=>{
               const dias=o.crcCliente?getBD(o.crcCliente):0
@@ -778,7 +779,7 @@ function Recebimentos(){
                 <td style={{padding:'5px 8px'}}>{o.banco}</td>
                 <td style={{padding:'5px 8px'}}>{o.operacao}</td>
                 <td style={{padding:'5px 8px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.agente}</td>
-                <td style={{padding:'5px 8px',fontWeight:600,color:C.danger}}>{fmtCur(o.vrLiquido)}</td>
+                <td style={{padding:'5px 8px',fontWeight:600,color:C.danger}}>{fmtCur(o.vrRepasse)}</td>
                 <td style={{padding:'5px 8px'}}>{fmtDate(o.crcCliente)}</td>
                 <td style={{padding:'5px 8px',fontWeight:600,color:dias>90?C.danger:dias>30?C.warn:C.text}}>{dias}d</td>
               </tr>
@@ -796,13 +797,13 @@ function Portabilidade(){
   const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
   const port=ops.filter(o=>(o.operacao||'').toUpperCase().includes('PORTAB'))
   const tD=port.length,tP=port.filter(isFin).length,cv=tD?(tP/tD*100):0
-  const byBanco=(()=>{const m={};port.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={d:0,p:0,rd:0,rp:0};m[b].d++;m[b].rd+=(o.vrLiquido||0);if(isFin(o)){m[b].p++;m[b].rp+=(o.vrLiquido||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
-  const byAg=(()=>{const m={};port.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={d:0,p:0,rd:0,rp:0};m[a].d++;m[a].rd+=(o.vrLiquido||0);if(isFin(o)){m[a].p++;m[a].rp+=(o.vrLiquido||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
-  const PT=({data,nl})=><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[nl,'Dig.','Prod.','Conv.','Líq.Dig.','Líq.Prod.'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,x])=>{const r=x.d?(x.p/x.d*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n}</td><td style={{padding:'7px 9px'}}>{x.d}</td><td style={{padding:'7px 9px',color:C.accent2,fontWeight:600}}>{x.p}</td><td style={{padding:'7px 9px',fontWeight:600,color:r>=50?C.accent2:r>=30?C.warn:C.danger}}>{r.toFixed(0)}%</td><td style={{padding:'7px 9px'}}>{fmtCur(x.rd)}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.accent2}}>{fmtCur(x.rp)}</td></tr>})}</tbody></table>
+  const byBanco=(()=>{const m={};port.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={d:0,p:0,rd:0,rp:0};m[b].d++;m[b].rd+=(o.vrLiquido||0);if(isFin(o)){m[b].p++;m[b].rp+=(o.vrRepasse||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
+  const byAg=(()=>{const m={};port.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={d:0,p:0,rd:0,rp:0};m[a].d++;m[a].rd+=(o.vrLiquido||0);if(isFin(o)){m[a].p++;m[a].rp+=(o.vrRepasse||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
+  const PT=({data,nl})=><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[nl,'Dig.','Prod.','Conv.','Vl.Líquido','Vl.Repasse'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,x])=>{const r=x.d?(x.p/x.d*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n}</td><td style={{padding:'7px 9px'}}>{x.d}</td><td style={{padding:'7px 9px',color:C.accent2,fontWeight:600}}>{x.p}</td><td style={{padding:'7px 9px',fontWeight:600,color:r>=50?C.accent2:r>=30?C.warn:C.danger}}>{r.toFixed(0)}%</td><td style={{padding:'7px 9px'}}>{fmtCur(x.rd)}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.accent2}}>{fmtCur(x.rp)}</td></tr>})}</tbody></table>
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Portabilidade</h2><ExportBtn ops={port} name={'portabilidade-'+per}/></div>
     <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s,o)=>s+(o.vrLiquido||0),0))}/><Stat label="Produção" value={tP} sub={fmtCur(port.filter(isFin).reduce((s,o)=>s+(o.vrLiquido||0),0))} color={C.accent2}/><Stat label="Conv." value={cv.toFixed(1)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/></div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s,o)=>s+(o.vrLiquido||0),0))}/><Stat label="Produção" value={tP} sub={fmtCur(port.filter(isFin).reduce((s,o)=>s+(o.vrRepasse||0),0))} color={C.accent2}/><Stat label="Conv." value={cv.toFixed(1)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/></div>
     {!port.length?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:'center',color:C.muted}}>Nenhuma portabilidade no período</div>:<>
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><PT data={byBanco} nl="Banco"/></div>
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><PT data={byAg} nl="Parceiro"/></div>
@@ -818,7 +819,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
     const cu=curOps.filter(o=>o.agente===a),pv=prevOps.filter(o=>o.agente===a)
     const cDig=cu.length,pDig=pv.length
     const cProd=curProd.filter(o=>o.agente===a),pProd=prevProd.filter(o=>o.agente===a)
-    const cProdR=cProd.reduce((s,o)=>s+(o.vrLiquido||0),0),pProdR=pProd.reduce((s,o)=>s+(o.vrLiquido||0),0)
+    const cProdR=cProd.reduce((s,o)=>s+(o.vrRepasse||0),0),pProdR=pProd.reduce((s,o)=>s+(o.vrRepasse||0),0)
     const varDig=pDig?((cDig-pDig)/pDig*100):(cDig>0?100:0)
     const varProd=pProdR?((cProdR-pProdR)/pProdR*100):(cProdR>0?100:0)
     const cv=cDig?(cProd.length/cDig*100):0
