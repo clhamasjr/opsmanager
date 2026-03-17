@@ -202,7 +202,7 @@ function parseParceiros(wb){
   })).filter(r=>r.nome)
 }
 
-function Parceiros({curOps,curProd}){
+function Parceiros({curOps,curProd,myAgents}){
   // Mapear produção por agente
   const prodByAg={};(curOps||[]).forEach(o=>{const a=o.agente||'?';if(!prodByAg[a])prodByAg[a]={dig:0,vl:0,prod:0,vr:0};prodByAg[a].dig++;prodByAg[a].vl+=(o.vrLiquido||0)})
   ;(curProd||[]).forEach(o=>{const a=o.agente||'?';if(!prodByAg[a])prodByAg[a]={dig:0,vl:0,prod:0,vr:0};prodByAg[a].prod++;prodByAg[a].vr+=(o.vrRepasse||0)})
@@ -213,7 +213,7 @@ function Parceiros({curOps,curProd}){
   const fr=useRef(null)
   useEffect(()=>{supabase.from('parceiros').select('*').order('nome').then(({data})=>{setList(data||[]);setLoading(false)})},[])
   const reload=async()=>{const{data}=await supabase.from('parceiros').select('*').order('nome');setList(data||[])}
-  const fd=list.filter(p=>{if(!se)return true;const s=se.toLowerCase();return(p.nome||'').toLowerCase().includes(s)||(p.cpf_cnpj||'').includes(s)||(p.cidade||'').toLowerCase().includes(s)||(p.supervisor||'').toLowerCase().includes(s)})
+  const fd=(myAgents?list.filter(p=>myAgents.has(p.nome)):list).filter(p=>{if(!se)return true;const s=se.toLowerCase();return(p.nome||'').toLowerCase().includes(s)||(p.cpf_cnpj||'').includes(s)||(p.cidade||'').toLowerCase().includes(s)||(p.supervisor||'').toLowerCase().includes(s)})
   const exportParceiros=()=>{
     const rows=fd.map(p=>{const pr=getProd(p.nome);const cv=pr.dig?(pr.prod/pr.dig*100):0;return{Código:p.cod_agente||'',Nome:p.nome,Função:p.funcao||'','CPF/CNPJ':p.cpf_cnpj||'',Telefone:p.telefone||'',Email:p.email||'',Cidade:p.cidade||'',UF:p.uf||'',Supervisor:p.supervisor||'',Status:p.ativo?'ATIVO':'INATIVO','Dig.Mês':pr.dig,'Vl.Líquido':pr.vl,'Prod.Mês':pr.prod,'Vl.Repasse':pr.vr,'Conversão':cv?cv.toFixed(1)+'%':''}})
     const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Parceiros');XLSX.writeFile(wb,'parceiros-'+new Date().toISOString().slice(0,10)+'.xlsx')
@@ -334,10 +334,10 @@ function Parceiros({curOps,curProd}){
 }
 
 /* ═══ HOOK: useOps with custom date support ═══ */
-function useOps(defaultPer){
+function useOps(defaultPer,myAgents){
   const[per,setPer]=useState(defaultPer||'mes'),[ops,setOps]=useState([]),[loading,setLoading]=useState(false),[count,setCount]=useState(0)
   const[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
-  useEffect(()=>{let c=false;setLoading(true);fetchOps(per,n=>{if(!c)setCount(n)},customDf,customDt).then(d=>{if(!c){setOps(d);setCount(d.length)}}).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger])
+  useEffect(()=>{let c=false;setLoading(true);fetchOps(per,n=>{if(!c)setCount(n)},customDf,customDt).then(d=>{if(!c){const fd=myAgents?d.filter(o=>myAgents.has(o.agente)):d;setOps(fd);setCount(fd.length)}}).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger])
   const applyCustom=()=>setTrigger(t=>t+1)
   return{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}
 }
@@ -424,8 +424,8 @@ function PartnerHealth({name,ops,onClose}){
 }
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop}){
-  const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents}){
+  const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrLiquido||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrLiquido||0),0)
   const est=f.filter(isEst),pend=f.filter(isPend)
@@ -584,8 +584,8 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop})
 }
 
 /* ═══ OPERAÇÕES ═══ */
-function Operacoes({onImport}){
-  const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+function Operacoes({onImport,myAgents}){
+  const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[io,sio]=useState(false),[se,sse]=useState(''),[fs,sfs]=useState(''),[selP,setSelP]=useState(null),[showExp,setShowExp]=useState(false)
   const aS=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
   const fd=ops.filter(o=>!fs||o.situacao===fs).filter(o=>{if(!se)return true;const s=se.toLowerCase();return(o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s)}).sort((a,b)=>(b.data||'').localeCompare(a.data||''))
@@ -604,8 +604,8 @@ function Operacoes({onImport}){
 }
 
 /* ═══ PRODUÇÃO — somente FINALIZADOS ═══ */
-function Producao(){
-  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+function Producao({myAgents}){
+  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[tab,sTab]=useState('banco')
   const fin=ops.filter(isFin)
   const totalDig=ops.length
@@ -644,13 +644,13 @@ function Producao(){
 }
 
 /* ═══ ESTRATÉGICO ═══ */
-function Estrategico(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('tudo');const[sel,sSel]=useState(null),[selP,setSelP]=useState(null);const list=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrLiquido||0),0),cv=al.length?(fn.length/al.length*100):0,er=al.length?(est.length/al.length*100):0;return{name:a,c:al.length,r,fC:fn.length,cv,estC:est.length,er}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estratégico</h2><ExportBtn ops={ops} name={'estrategico-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Dig.','Líquido','Conv.','Estornos','Health',''].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{list.map(p=>{const h=p.cv>=60?'🟢':p.cv>=40?'🟡':p.cv>=25?'🟠':'🔴';return<tr key={p.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(p.name)}><td style={{padding:'8px 10px',fontWeight:600}}>{p.name}</td><td style={{padding:'8px 10px'}}>{p.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(p.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:p.cv>=50?C.accent2:p.cv>=30?C.warn:C.danger}}>{p.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:p.estC?C.danger:C.muted}}>{p.estC} ({p.er.toFixed(0)}%)</td><td style={{padding:'8px 10px',fontSize:14}}>{h}</td><td style={{color:C.accent}}>→</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
+function Estrategico({myAgents}){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('tudo',myAgents);const[sel,sSel]=useState(null),[selP,setSelP]=useState(null);const list=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrLiquido||0),0),cv=al.length?(fn.length/al.length*100):0,er=al.length?(est.length/al.length*100):0;return{name:a,c:al.length,r,fC:fn.length,cv,estC:est.length,er}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Estratégico</h2><ExportBtn ops={ops} name={'estrategico-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Dig.','Líquido','Conv.','Estornos','Health',''].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{list.map(p=>{const h=p.cv>=60?'🟢':p.cv>=40?'🟡':p.cv>=25?'🟠':'🔴';return<tr key={p.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(p.name)}><td style={{padding:'8px 10px',fontWeight:600}}>{p.name}</td><td style={{padding:'8px 10px'}}>{p.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(p.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:p.cv>=50?C.accent2:p.cv>=30?C.warn:C.danger}}>{p.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:p.estC?C.danger:C.muted}}>{p.estC} ({p.er.toFixed(0)}%)</td><td style={{padding:'8px 10px',fontSize:14}}>{h}</td><td style={{color:C.accent}}>→</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
 
 /* ═══ RANKING ═══ */
-function Ranking(){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes');const[selP,setSelP]=useState(null);const data=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrLiquido||0),0),cv=al.length?(fn.length/al.length*100):0;return{name:a,c:al.length,r,cv,estC:est.length}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Ranking</h2><ExportBtn ops={ops} name={'ranking-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['#','Parceiro','Dig.','Líquido','Conv.','Est.','Health'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map((d,i)=>{const h=d.cv>=60?'🟢':d.cv>=40?'🟡':d.cv>=25?'🟠':'🔴';return<tr key={d.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(d.name)}><td style={{padding:'8px 10px'}}><span style={{display:'inline-flex',width:22,height:22,borderRadius:6,background:i<3?C.accent:C.surface,alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</span></td><td style={{padding:'8px 10px',fontWeight:600}}>{d.name}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:d.cv>=50?C.accent2:d.cv>=30?C.warn:C.danger}}>{d.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:d.estC?C.danger:C.muted}}>{d.estC}</td><td style={{fontSize:14}}>{h}</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
+function Ranking({myAgents}){const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents);const[selP,setSelP]=useState(null);const data=(()=>{const ags=[...new Set(ops.map(o=>o.agente).filter(Boolean))];return ags.map(a=>{const al=ops.filter(o=>o.agente===a),fn=al.filter(isFin),est=al.filter(isEst),r=al.reduce((s,o)=>s+(o.vrLiquido||0),0),cv=al.length?(fn.length/al.length*100):0;return{name:a,c:al.length,r,cv,estC:est.length}}).sort((a,b)=>b.r-a.r)})();return<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Ranking</h2><ExportBtn ops={ops} name={'ranking-'+per}/></div><PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['#','Parceiro','Dig.','Líquido','Conv.','Est.','Health'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{data.map((d,i)=>{const h=d.cv>=60?'🟢':d.cv>=40?'🟡':d.cv>=25?'🟠':'🔴';return<tr key={d.name} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}} onClick={()=>setSelP(d.name)}><td style={{padding:'8px 10px'}}><span style={{display:'inline-flex',width:22,height:22,borderRadius:6,background:i<3?C.accent:C.surface,alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:i<3?'#fff':C.muted}}>{i+1}</span></td><td style={{padding:'8px 10px',fontWeight:600}}>{d.name}</td><td style={{padding:'8px 10px'}}>{d.c}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</td><td style={{padding:'8px 10px',fontWeight:600,color:d.cv>=50?C.accent2:d.cv>=30?C.warn:C.danger}}>{d.cv.toFixed(0)}%</td><td style={{padding:'8px 10px',color:d.estC?C.danger:C.muted}}>{d.estC}</td><td style={{fontSize:14}}>{h}</td></tr>})}</tbody></table></div><PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/></div>}
 
 /* ═══ RECEBIMENTOS ═══ */
-function Recebimentos(){
+function Recebimentos({myAgents}){
   const[pend,setPend]=useState([]),[rec,setRec]=useState([]),[loading,setLoading]=useState(true)
   const[fB,sFB]=useState(''),[fA,sFA]=useState(''),[showExp,setShowExp]=useState(false),[fAging,sFAging]=useState('')
 
@@ -658,8 +658,9 @@ function Recebimentos(){
     setLoading(true)
     fetchReceb().then(all=>{
       const comCrc=all.filter(o=>o.crcCliente&&o.crcCliente.length>=8)
-      setPend(comCrc.filter(o=>!o.dataNossoCredito||o.dataNossoCredito.length<8))
-      setRec(comCrc.filter(o=>o.dataNossoCredito&&o.dataNossoCredito.length>=8))
+      const filtered=myAgents?comCrc.filter(o=>myAgents.has(o.agente)):comCrc
+      setPend(filtered.filter(o=>!o.dataNossoCredito||o.dataNossoCredito.length<8))
+      setRec(filtered.filter(o=>o.dataNossoCredito&&o.dataNossoCredito.length>=8))
       setLoading(false)
     }).catch(e=>{console.error('Receb load error:',e);setLoading(false)})
   },[])
@@ -813,8 +814,8 @@ function Recebimentos(){
 }
 
 /* ═══ ESTORNOS ═══ */
-function Portabilidade(){
-  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes')
+function Portabilidade({myAgents}){
+  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const port=ops.filter(o=>(o.operacao||'').toUpperCase().includes('PORTAB'))
   const tD=port.length,tP=port.filter(isFin).length,cv=tD?(tP/tD*100):0
   const byBanco=(()=>{const m={};port.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={d:0,p:0,rd:0,rp:0};m[b].d++;m[b].rd+=(o.vrLiquido||0);if(isFin(o)){m[b].p++;m[b].rp+=(o.vrRepasse||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
@@ -901,8 +902,20 @@ function Usuarios({user}){
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null)
-  useEffect(()=>{supabase.from('usuarios').select('*').order('nome').then(({data})=>{setUsers(data||[]);setLoading(false)})},[])
+  const[sups,setSups]=useState([]) // lista de supervisores para dropdown
+  useEffect(()=>{
+    supabase.from('usuarios').select('*').order('nome').then(({data})=>{setUsers(data||[]);setLoading(false)})
+    supabase.from('parceiros').select('cod_agente,nome,cod_supervisor').then(({data})=>{
+      if(!data)return
+      // Pegar supervisores únicos (quem tem agentes apontando)
+      const supCods=new Set(data.map(p=>p.cod_supervisor).filter(Boolean))
+      const supList=data.filter(p=>supCods.has(p.cod_agente)).map(p=>({cod:p.cod_agente,nome:p.nome}))
+      // Também incluir quem tem função de supervisor/gerente na lista
+      setSups(supList.length?supList:[...supCods].map(c=>({cod:c,nome:c})))
+    })
+  },[])
   const reload=async()=>{const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}
+  const getSupNome=cod=>{const s=sups.find(x=>x.cod===cod);return s?s.nome:cod}
   if(user.perfil!=='admin')return<div style={{padding:28,textAlign:'center',color:C.muted}}>Restrito</div>
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usuários</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
@@ -914,7 +927,6 @@ function Usuarios({user}){
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%'}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
       <button type="submit" style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Criar</button>
     </form>}
-    {/* TELAS EDIT MODAL */}
     {editTelas&&<div style={{background:C.card,border:'1px solid '+C.accent+'66',borderRadius:14,padding:16}}>
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Permissões de tela: <strong style={{color:C.accent}}>{editTelas.nome}</strong></div>
       <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
@@ -922,11 +934,12 @@ function Usuarios({user}){
       </div>
       <button onClick={()=>setEditTelas(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',fontSize:11,cursor:'pointer'}}>Fechar</button>
     </div>}
-    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','Email','Perfil','Telas','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','Email','Perfil','Carteira','Telas','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
       <tbody>{users.map(u=><tr key={u.id} style={{borderBottom:'1px solid '+C.border}}>
         <td style={{padding:'8px 10px',fontWeight:600}}>{u.nome}</td>
         <td style={{padding:'8px 10px'}}>{u.email}</td>
         <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);await reload()}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></td>
+        <td style={{padding:'8px 10px'}}><select value={u.cod_supervisor||''} onChange={async e=>{await supabase.from('usuarios').update({cod_supervisor:e.target.value||null}).eq('id',u.id);await reload()}} style={{background:C.surface,border:'1px solid '+(u.cod_supervisor?C.accent2:C.border),borderRadius:4,color:u.cod_supervisor?C.accent2:C.text,padding:'2px 6px',fontSize:10,minWidth:100}}><option value="">Todos (admin)</option>{sups.map(s=><option key={s.cod} value={s.cod}>{s.nome} ({s.cod})</option>)}</select></td>
         <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas ✏</button></td>
         <td style={{padding:'8px 10px'}}><Badge text={u.ativo?'Ativo':'Inativo'} color={u.ativo?C.accent2:C.danger}/></td>
         <td style={{padding:'8px 10px'}}><button onClick={async()=>{await supabase.from('usuarios').update({ativo:!u.ativo}).eq('id',u.id);await reload()}} style={{background:u.ativo?'#EF444418':C.accent2+'22',color:u.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'4px 10px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{u.ativo?'Desativar':'Ativar'}</button></td>
@@ -944,21 +957,32 @@ export default function App(){
   const[curProd,setCurProd]=useState([]),[prevProd,setPrevProd]=useState([])
   const[prevProdProp,setPrevProdProp]=useState([])
   const[m2Prop,setM2Prop]=useState([]),[m3Prop,setM3Prop]=useState([])
+  const[myAgents,setMyAgents]=useState(null) // null=admin(all), Set=filtered
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return
+    // Se tem cod_supervisor, carregar nomes dos agentes vinculados
+    if(user.cod_supervisor){
+      supabase.from('parceiros').select('nome').eq('cod_supervisor',user.cod_supervisor).then(({data})=>{
+        if(data)setMyAgents(new Set(data.map(p=>p.nome)))
+      })
+    }else{setMyAgents(null)}
     const day=NOW.getDate(),y=NOW.getFullYear(),mo=NOW.getMonth()
     const propRange=(mBack)=>{const f=new Date(y,mo-mBack,1).toISOString().split('T')[0];const t=new Date(y,mo-mBack,day).toISOString().split('T')[0];return[f,t]}
     fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{})
     fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})
     fetchProd('mes').then(d=>setCurProd(d)).catch(()=>{})
     fetchProd('ant').then(d=>setPrevProd(d)).catch(()=>{})
-    // Proporcional até dia X de cada mês
     const[pf1,pt1]=propRange(1);fetchProd('custom',null,pf1,pt1).then(d=>setPrevProdProp(d)).catch(()=>{})
     const[pf2,pt2]=propRange(2);fetchProd('custom',null,pf2,pt2).then(d=>setM2Prop(d)).catch(()=>{})
     const[pf3,pt3]=propRange(3);fetchProd('custom',null,pf3,pt3).then(d=>setM3Prop(d)).catch(()=>{})
   },[user])
+  // Filtro de equipe — admin vê tudo, supervisor vê só seus agentes
+  const fTeam=ops=>myAgents?ops.filter(o=>myAgents.has(o.agente)):ops
+  const tCurOps=fTeam(curOps),tPrevOps=fTeam(prevOps)
+  const tCurProd=fTeam(curProd),tPrevProd=fTeam(prevProd)
+  const tPrevProdProp=fTeam(prevProdProp),tM2Prop=fTeam(m2Prop),tM3Prop=fTeam(m3Prop)
 
-  async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"]};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
+  async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||''};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb))}
 
   if(!user)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg,fontFamily:'Outfit,sans-serif',color:C.text}}><form onSubmit={handleLogin} style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',width:380}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800,margin:0}}>OpsManager</h1></div><p style={{color:C.muted,fontSize:12,marginBottom:24}}>Gestão de Digitações</p>{loginError&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{loginError}</div>}<div style={{marginBottom:8}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input name="email" type="email" required placeholder="seu@email.com" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><div style={{marginBottom:16}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input name="senha" type="password" required placeholder="Sua senha" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><button type="submit" style={{width:'100%',padding:'12px 0',fontSize:14,borderRadius:10,border:'none',background:C.accent,color:'#fff',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>Entrar</button></form></div>
@@ -968,18 +992,18 @@ export default function App(){
     <div style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
       <div style={{padding:'20px 14px 10px'}}><div style={{display:'flex',alignItems:'center',gap:7}}><div style={{width:26,height:26,borderRadius:7,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:14,fontWeight:800,margin:0}}>OpsManager</h1></div><div style={{fontSize:8,color:C.accent2,marginTop:4,marginLeft:33}}>● Supabase</div></div>
       <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>{nav.map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}</nav>
-      <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:4}}>{user.perfil}</div><button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
+      <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:2}}>{user.perfil}{user.cod_supervisor?' · Equipe':''}</div>{myAgents&&<div style={{fontSize:8,color:C.accent,marginBottom:2}}>👥 {myAgents.size} parceiros</div>}<button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
     </div>
     <div style={{flex:1,padding:'20px 24px',overflowY:'auto'}}>
-      {view==='dashboard'&&<Dashboard curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd} prevProdProp={prevProdProp} m2Prop={m2Prop} m3Prop={m3Prop}/>}
-      {view==='ops'&&<Operacoes onImport={handleImport}/>}
-      {view==='producao'&&<Producao/>}
-      {view==='estrategico'&&<Estrategico/>}
-      {view==='ranking'&&<Ranking/>}
-      {view==='portabilidade'&&<Portabilidade/>}
-      {view==='recebimentos'&&<Recebimentos/>}
-      {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd}/>}
-      {view==='parceiros'&&<Parceiros curOps={curOps} curProd={curProd}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents}/>}
+      {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents}/>}
+      {view==='producao'&&<Producao myAgents={myAgents}/>}
+      {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
+      {view==='ranking'&&<Ranking myAgents={myAgents}/>}
+      {view==='portabilidade'&&<Portabilidade myAgents={myAgents}/>}
+      {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
+      {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
+      {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
