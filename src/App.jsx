@@ -202,20 +202,29 @@ function parseParceiros(wb){
   })).filter(r=>r.nome)
 }
 
-function Parceiros(){
+function Parceiros({curOps,curProd}){
+  // Mapear produção por agente
+  const prodByAg={};(curOps||[]).forEach(o=>{const a=o.agente||'?';if(!prodByAg[a])prodByAg[a]={dig:0,vl:0,prod:0,vr:0};prodByAg[a].dig++;prodByAg[a].vl+=(o.vrLiquido||0)})
+  ;(curProd||[]).forEach(o=>{const a=o.agente||'?';if(!prodByAg[a])prodByAg[a]={dig:0,vl:0,prod:0,vr:0};prodByAg[a].prod++;prodByAg[a].vr+=(o.vrRepasse||0)})
+  const getProd=name=>(prodByAg[name]||{dig:0,vl:0,prod:0,vr:0})
   const[list,setList]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false),[se,sSe]=useState('')
   const[nome,setNome]=useState(''),[cpf,setCpf]=useState(''),[tel,setTel]=useState(''),[email,setEmail]=useState(''),[cidade,setCidade]=useState(''),[uf,setUf]=useState(''),[resp,setResp]=useState(''),[obs,setObs]=useState(''),[msg,setMsg]=useState('')
   const[tab,sTab]=useState('lista'),[openSup,setOpenSup]=useState({})
   const fr=useRef(null)
   useEffect(()=>{supabase.from('parceiros').select('*').order('nome').then(({data})=>{setList(data||[]);setLoading(false)})},[])
   const reload=async()=>{const{data}=await supabase.from('parceiros').select('*').order('nome');setList(data||[])}
-  const fd=list.filter(p=>{if(!se)return true;const s=se.toLowerCase();return(p.nome||'').toLowerCase().includes(s)||(p.cpf_cnpj||'').includes(s)||(p.cidade||'').toLowerCase().includes(s)})
+  const fd=list.filter(p=>{if(!se)return true;const s=se.toLowerCase();return(p.nome||'').toLowerCase().includes(s)||(p.cpf_cnpj||'').includes(s)||(p.cidade||'').toLowerCase().includes(s)||(p.supervisor||'').toLowerCase().includes(s)})
+  const exportParceiros=()=>{
+    const rows=fd.map(p=>{const pr=getProd(p.nome);const cv=pr.dig?(pr.prod/pr.dig*100):0;return{Código:p.cod_agente||'',Nome:p.nome,Função:p.funcao||'','CPF/CNPJ':p.cpf_cnpj||'',Telefone:p.telefone||'',Email:p.email||'',Cidade:p.cidade||'',UF:p.uf||'',Supervisor:p.supervisor||'',Status:p.ativo?'ATIVO':'INATIVO','Dig.Mês':pr.dig,'Vl.Líquido':pr.vl,'Prod.Mês':pr.prod,'Vl.Repasse':pr.vr,'Conversão':cv?cv.toFixed(1)+'%':''}})
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Parceiros');XLSX.writeFile(wb,'parceiros-'+new Date().toISOString().slice(0,10)+'.xlsx')
+  }
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
       <h2 style={{fontWeight:800,fontSize:20}}>Parceiros ({list.length})</h2>
       <div style={{display:'flex',gap:6}}>
-        <button onClick={()=>fr.current?.click()} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📥 Importar</button>
-        <input ref={fr} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setMsg('Processando...');const rd=new FileReader();rd.onload=async ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const parsed=parseParceiros(wb);if(!parsed.length){setMsg('⚠ Nenhum registro encontrado');return}setMsg('Gravando '+parsed.length+'...');let ok=0;for(let i=0;i<parsed.length;i+=200){const batch=parsed.slice(i,i+200);const{error}=await supabase.from('parceiros').upsert(batch,{onConflict:'nome',ignoreDuplicates:false});if(error){console.error('Upsert error:',error);const basic=batch.map(({cod_agente,funcao,cod_supervisor,supervisor,gerente,...rest})=>rest);const{error:e2}=await supabase.from('parceiros').upsert(basic,{onConflict:'nome',ignoreDuplicates:false});if(e2){setMsg('Erro: '+e2.message);return}ok+=basic.length}else{ok+=batch.length}setMsg('Gravando '+ok+'/'+parsed.length+'...')}await reload();setMsg('✓ '+ok+' parceiros importados!')}catch(ex){setMsg('Erro: '+ex.message)}};rd.readAsArrayBuffer(file)}}/>
+        <button onClick={exportParceiros} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
+        <button onClick={()=>fr.current?.click()} style={{background:C.surface,border:'1px solid '+C.accent,borderRadius:8,color:C.accent,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>🔄 Atualizar Base</button>
+        <input ref={fr} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setMsg('Processando...');const rd=new FileReader();rd.onload=async ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const parsed=parseParceiros(wb);if(!parsed.length){setMsg('⚠ Nenhum registro encontrado');return}setMsg('Gravando '+parsed.length+'...');let ok=0;for(let i=0;i<parsed.length;i+=200){const batch=parsed.slice(i,i+200);const{error}=await supabase.from('parceiros').upsert(batch,{onConflict:'nome',ignoreDuplicates:false});if(error){console.error('Upsert error:',error);const basic=batch.map(({cod_agente,funcao,cod_supervisor,supervisor,gerente,...rest})=>rest);const{error:e2}=await supabase.from('parceiros').upsert(basic,{onConflict:'nome',ignoreDuplicates:false});if(e2){setMsg('Erro: '+e2.message);return}ok+=basic.length}else{ok+=batch.length}setMsg('Gravando '+ok+'/'+parsed.length+'...')}await reload();setMsg('✓ '+ok+' parceiros atualizados! ('+new Date().toLocaleDateString('pt-BR')+')')}catch(ex){setMsg('Erro: '+ex.message)}};rd.readAsArrayBuffer(file)}}/>
         <button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:600,fontSize:11,cursor:'pointer'}}>+ Novo</button>
       </div>
     </div>
@@ -236,78 +245,86 @@ function Parceiros(){
     </div>
     {tab==='lista'&&<>
     <input value={se} onChange={e=>sSe(e.target.value)} placeholder="Buscar parceiro..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none'}}/>
-    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Cód','Nome','Função','CPF/CNPJ','Telefone','Email','Supervisor','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.map(p=><tr key={p.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',color:C.muted,fontSize:10}}>{p.cod_agente||'—'}</td><td style={{padding:'8px 10px',fontWeight:600}}>{p.nome}</td><td style={{padding:'8px 10px',fontSize:10}}><Badge text={p.funcao||'AGENTE'} color={p.funcao==='GERENTE COMERCIAL'?C.accent:p.funcao==='INDICADO'?C.info:C.muted}/></td><td style={{padding:'8px 10px'}}>{p.cpf_cnpj}</td><td style={{padding:'8px 10px'}}>{p.telefone}</td><td style={{padding:'8px 10px'}}>{p.email}</td><td style={{padding:'8px 10px',fontSize:10}}>{p.supervisor||'—'}</td><td style={{padding:'8px 10px'}}><Badge text={p.ativo?'Ativo':'Inativo'} color={p.ativo?C.accent2:C.danger}/></td><td style={{padding:'8px 10px'}}><button onClick={async()=>{await supabase.from('parceiros').update({ativo:!p.ativo}).eq('id',p.id);await reload()}} style={{background:p.ativo?'#EF444418':C.accent2+'22',color:p.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{p.ativo?'Desativar':'Ativar'}</button></td></tr>)}</tbody></table></div>}
+    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Cód','Nome','Função','Telefone','Email','Dig.','Produção','Conv.','Supervisor','Status'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:7,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.map(p=>{const pr=getProd(p.nome);const cv=pr.dig?(pr.prod/pr.dig*100):0;return<tr key={p.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'8px 10px',color:C.muted,fontSize:9}}>{p.cod_agente||'—'}</td><td style={{padding:'8px 10px',fontWeight:600}}>{p.nome}</td><td style={{padding:'8px 10px',fontSize:10}}><Badge text={p.funcao||'AGENTE'} color={p.funcao==='GERENTE COMERCIAL'?C.accent:p.funcao==='INDICADO'?C.info:C.muted}/></td><td style={{padding:'8px 10px',fontSize:10}}>{p.telefone||'—'}</td><td style={{padding:'8px 10px',fontSize:10}}>{p.email||'—'}</td><td style={{padding:'8px 10px',textAlign:'center'}}>{pr.dig||'—'}</td><td style={{padding:'8px 10px',fontWeight:600,color:C.accent2}}>{pr.prod?fmtCur(pr.vr):'—'}</td><td style={{padding:'8px 10px',fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:cv>0?C.danger:C.muted}}>{cv?cv.toFixed(0)+'%':'—'}</td><td style={{padding:'8px 10px',fontSize:9}}>{p.supervisor||'—'}</td><td style={{padding:'8px 10px'}}><Badge text={p.ativo?'Ativo':'Inativo'} color={p.ativo?C.accent2:C.danger}/></td></tr>})}</tbody></table></div>}
     </>}
     {tab==='arvore'&&!loading&&(()=>{
-      // Montar árvore: Supervisores → Agentes
-      const bySup={}
-      const semSup=[]
+      const bySup={},semSup=[]
       list.forEach(p=>{
         const sup=p.cod_supervisor||p.supervisor
         if(sup){
           if(!bySup[sup])bySup[sup]={nome:p.supervisor||sup,cod:p.cod_supervisor||'',members:[]}
           bySup[sup].members.push(p)
         }else{
-          // Checar se é supervisor (alguém aponta pra ele)
           const isSup=list.some(x=>x.cod_supervisor===p.cod_agente)
           if(!isSup)semSup.push(p)
         }
       })
-      const supArr=Object.entries(bySup).sort((a,b)=>b[1].members.length-a[1].members.length)
-      const ativos=n=>n.filter(p=>p.ativo).length
+      // Calcular produção por supervisor
+      const supProd=(members)=>{let d=0,vl=0,pr=0,vr=0;members.forEach(m=>{const p=getProd(m.nome);d+=p.dig;vl+=p.vl;pr+=p.prod;vr+=p.vr});return{d,vl,pr,vr}}
+      const supArr=Object.entries(bySup).map(([k,s])=>({...s,key:k,sp:supProd(s.members)})).sort((a,b)=>b.sp.vr-a.sp.vr)
       const toggleSup=k=>setOpenSup(p=>({...p,[k]:!p[k]}))
+      const AgRow=({m})=>{const p=getProd(m.nome);const cv=p.dig?(p.prod/p.dig*100):0;return<tr style={{borderBottom:'1px solid '+C.border}}>
+        <td style={{padding:'5px 8px',color:C.muted,fontSize:9}}>{m.cod_agente}</td>
+        <td style={{padding:'5px 8px',fontWeight:600,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.nome}</td>
+        <td style={{padding:'5px 8px'}}><Badge text={m.funcao||'AGENTE'} color={m.funcao==='INDICADO'?C.info:m.funcao==='GERENTE COMERCIAL'?C.accent:C.muted}/></td>
+        <td style={{padding:'5px 8px',fontSize:10}}>{m.telefone||'—'}</td>
+        <td style={{padding:'5px 8px',fontSize:10,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.email||'—'}</td>
+        <td style={{padding:'5px 8px',textAlign:'center'}}>{p.dig||<span style={{color:C.border}}>—</span>}</td>
+        <td style={{padding:'5px 8px',textAlign:'center',color:C.accent}}>{p.dig?fmtCur(p.vl):<span style={{color:C.border}}>—</span>}</td>
+        <td style={{padding:'5px 8px',textAlign:'center',fontWeight:600,color:C.accent2}}>{p.prod||<span style={{color:C.border}}>—</span>}</td>
+        <td style={{padding:'5px 8px',textAlign:'center',fontWeight:600,color:C.accent2}}>{p.prod?fmtCur(p.vr):<span style={{color:C.border}}>—</span>}</td>
+        <td style={{padding:'5px 8px',textAlign:'center',fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:cv>0?C.danger:C.border}}>{cv?cv.toFixed(0)+'%':'—'}</td>
+        <td style={{padding:'5px 8px'}}><Badge text={m.ativo?'Ativo':'Inativo'} color={m.ativo?C.accent2:C.danger}/></td>
+      </tr>}
+      const TH=['Cód','Nome','Função','Telefone','Email','Dig.','Vl.Líquido','Prod.','Vl.Repasse','Conv.','Status']
+      // Totais gerais
+      const allP={d:0,vl:0,pr:0,vr:0};list.forEach(m=>{const p=getProd(m.nome);allP.d+=p.dig;allP.vl+=p.vl;allP.pr+=p.prod;allP.vr+=p.vr})
       return<div style={{display:'flex',flexDirection:'column',gap:8}}>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:4}}>
           <Stat label="Supervisores" value={supArr.length} small/>
-          <Stat label="Com Supervisor" value={supArr.reduce((s,x)=>s+x[1].members.length,0)} small/>
-          <Stat label="Sem Supervisor" value={semSup.length} small/>
-          <Stat label="Total Ativos" value={list.filter(p=>p.ativo).length} color={C.accent2} small/>
-          <Stat label="Inativos" value={list.filter(p=>!p.ativo).length} color={C.danger} small/>
+          <Stat label="Ativos" value={list.filter(p=>p.ativo).length} color={C.accent2} small/>
+          <Stat label="Digitações" value={allP.d} sub={fmtCur(allP.vl)} color={C.accent} small/>
+          <Stat label="Produção" value={allP.pr} sub={fmtCur(allP.vr)} color={C.accent2} small/>
+          <Stat label="Conv." value={allP.d?(allP.pr/allP.d*100).toFixed(0)+'%':'—'} color={allP.d&&(allP.pr/allP.d)>=.5?C.accent2:C.warn} small/>
         </div>
-        {supArr.map(([k,sup])=>{
-          const isOpen=openSup[k]!==false
-          const active=ativos(sup.members)
-          return<div key={k} style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,overflow:'hidden'}}>
-            <div onClick={()=>toggleSup(k)} style={{padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:C.surface}}>
+        {supArr.map(s=>{
+          const isOpen=openSup[s.key]!==false
+          const active=s.members.filter(p=>p.ativo).length
+          const cv=s.sp.d?(s.sp.pr/s.sp.d*100):0
+          return<div key={s.key} style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,overflow:'hidden'}}>
+            <div onClick={()=>toggleSup(s.key)} style={{padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:C.surface}}>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <span style={{fontSize:14}}>{isOpen?'▾':'▸'}</span>
                 <span style={{fontSize:14}}>👤</span>
-                <div><div style={{fontSize:12,fontWeight:700}}>{sup.nome}</div><div style={{fontSize:9,color:C.muted}}>Cód: {sup.cod} · Supervisor</div></div>
+                <div><div style={{fontSize:12,fontWeight:700}}>{s.nome}</div><div style={{fontSize:9,color:C.muted}}>Cód: {s.cod} · {active}/{s.members.length} ativos</div></div>
               </div>
-              <div style={{display:'flex',gap:12,alignItems:'center'}}>
-                <div style={{textAlign:'center'}}><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{sup.members.length}</div><div style={{fontSize:8,color:C.muted}}>total</div></div>
-                <div style={{textAlign:'center'}}><div style={{fontSize:14,fontWeight:700,color:C.accent2}}>{active}</div><div style={{fontSize:8,color:C.muted}}>ativos</div></div>
-                {sup.members.length-active>0&&<div style={{textAlign:'center'}}><div style={{fontSize:14,fontWeight:700,color:C.danger}}>{sup.members.length-active}</div><div style={{fontSize:8,color:C.muted}}>inativos</div></div>}
+              <div style={{display:'flex',gap:14,alignItems:'center'}}>
+                <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:C.accent}}>{s.sp.d}</div><div style={{fontSize:7,color:C.muted}}>DIG</div></div>
+                <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:C.accent2}}>{s.sp.pr}</div><div style={{fontSize:7,color:C.muted}}>PROD</div></div>
+                <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:C.accent2}}>{fmtCur(s.sp.vr)}</div><div style={{fontSize:7,color:C.muted}}>REPASSE</div></div>
+                <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:cv>=50?C.accent2:cv>=30?C.warn:cv>0?C.danger:C.muted}}>{cv?cv.toFixed(0)+'%':'—'}</div><div style={{fontSize:7,color:C.muted}}>CONV</div></div>
               </div>
             </div>
             {isOpen&&<div style={{padding:'0 16px 12px'}}>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,marginTop:8}}>
-                <thead><tr>{['Cód','Nome','Função','Telefone','Email','Status'].map(h=><th key={h} style={{padding:'4px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
-                <tbody>{sup.members.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(m=><tr key={m.id} style={{borderBottom:'1px solid '+C.border}}>
-                  <td style={{padding:'4px 8px',color:C.muted}}>{m.cod_agente}</td>
-                  <td style={{padding:'4px 8px',fontWeight:600}}>{m.nome}</td>
-                  <td style={{padding:'4px 8px'}}><Badge text={m.funcao||'AGENTE'} color={m.funcao==='INDICADO'?C.info:C.muted}/></td>
-                  <td style={{padding:'4px 8px'}}>{m.telefone}</td>
-                  <td style={{padding:'4px 8px'}}>{m.email}</td>
-                  <td style={{padding:'4px 8px'}}><Badge text={m.ativo?'Ativo':'Inativo'} color={m.ativo?C.accent2:C.danger}/></td>
-                </tr>)}</tbody>
+                <thead><tr>{TH.map(h=><th key={h} style={{padding:'4px 8px',textAlign:'left',color:C.muted,fontSize:7,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+                <tbody>{s.members.sort((a,b)=>(getProd(b.nome).vr)-(getProd(a.nome).vr)).map(m=><AgRow key={m.id} m={m}/>)}</tbody>
               </table>
             </div>}
           </div>})}
         {semSup.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,overflow:'hidden'}}>
           <div onClick={()=>toggleSup('__sem__')} style={{padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:C.surface}}>
-            <div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:14}}>{openSup['__sem__']!==false?'▾':'▸'}</span><span style={{fontSize:14}}>📋</span><div style={{fontSize:12,fontWeight:700}}>Sem Supervisor</div></div>
-            <div style={{fontSize:14,fontWeight:700,color:C.muted}}>{semSup.length}</div>
+            <div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:14}}>{openSup['__sem__']!==false?'▾':'▸'}</span><span style={{fontSize:14}}>📋</span><div style={{fontSize:12,fontWeight:700}}>Sem Supervisor ({semSup.length})</div></div>
+            {(()=>{const sp=supProd(semSup);return<div style={{display:'flex',gap:14,alignItems:'center'}}>
+              <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:C.accent}}>{sp.d}</div><div style={{fontSize:7,color:C.muted}}>DIG</div></div>
+              <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:C.accent2}}>{sp.pr}</div><div style={{fontSize:7,color:C.muted}}>PROD</div></div>
+              <div style={{textAlign:'center'}}><div style={{fontSize:12,fontWeight:700,color:C.accent2}}>{fmtCur(sp.vr)}</div><div style={{fontSize:7,color:C.muted}}>REPASSE</div></div>
+            </div>})()}
           </div>
           {openSup['__sem__']!==false&&<div style={{padding:'0 16px 12px'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,marginTop:8}}>
-              <thead><tr>{['Cód','Nome','Função','Status'].map(h=><th key={h} style={{padding:'4px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
-              <tbody>{semSup.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(m=><tr key={m.id} style={{borderBottom:'1px solid '+C.border}}>
-                <td style={{padding:'4px 8px',color:C.muted}}>{m.cod_agente}</td>
-                <td style={{padding:'4px 8px',fontWeight:600}}>{m.nome}</td>
-                <td style={{padding:'4px 8px'}}><Badge text={m.funcao||'AGENTE'} color={m.funcao==='GERENTE COMERCIAL'?C.accent:C.muted}/></td>
-                <td style={{padding:'4px 8px'}}><Badge text={m.ativo?'Ativo':'Inativo'} color={m.ativo?C.accent2:C.danger}/></td>
-              </tr>)}</tbody>
+              <thead><tr>{TH.map(h=><th key={h} style={{padding:'4px 8px',textAlign:'left',color:C.muted,fontSize:7,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+              <tbody>{semSup.sort((a,b)=>(getProd(b.nome).vr)-(getProd(a.nome).vr)).map(m=><AgRow key={m.id} m={m}/>)}</tbody>
             </table>
           </div>}
         </div>}
@@ -962,7 +979,7 @@ export default function App(){
       {view==='portabilidade'&&<Portabilidade/>}
       {view==='recebimentos'&&<Recebimentos/>}
       {view==='alertas'&&<Alertas curOps={curOps} prevOps={prevOps} curProd={curProd} prevProd={prevProd}/>}
-      {view==='parceiros'&&<Parceiros/>}
+      {view==='parceiros'&&<Parceiros curOps={curOps} curProd={curProd}/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
