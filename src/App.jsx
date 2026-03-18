@@ -462,6 +462,12 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const tOps=curOps.filter(o=>o.data===TODAY_STR),yOps=curOps.filter(o=>o.data===YESTERDAY),aaOps=curOps.filter(o=>o.data===ANTEONTEM)
   const tR2=tOps.reduce((s,o)=>s+(o.vrBruto||0),0),yR=yOps.reduce((s,o)=>s+(o.vrBruto||0),0),aaR=aaOps.reduce((s,o)=>s+(o.vrBruto||0),0)
   const yFin=yOps.filter(isFin),yEst=yOps.filter(isEst)
+  // Top parceiros/bancos HOJE
+  const tAgs={};tOps.forEach(o=>{const a=o.agente||'?';if(!tAgs[a])tAgs[a]={c:0,r:0};tAgs[a].c++;tAgs[a].r+=(o.vrBruto||0)})
+  const tTopP=Object.entries(tAgs).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
+  const tBancos={};tOps.forEach(o=>{const b=o.banco||'?';if(!tBancos[b])tBancos[b]={c:0,r:0};tBancos[b].c++;tBancos[b].r+=(o.vrBruto||0)})
+  const tTopB=Object.entries(tBancos).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
+  // Top parceiros/bancos ONTEM
   const yAgs={};yOps.forEach(o=>{const a=o.agente||'?';if(!yAgs[a])yAgs[a]={c:0,r:0};yAgs[a].c++;yAgs[a].r+=(o.vrBruto||0)})
   const yTopP=Object.entries(yAgs).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
   const yBancos={};yOps.forEach(o=>{const b=o.banco||'?';if(!yBancos[b])yBancos[b]={c:0,r:0};yBancos[b].c++;yBancos[b].r+=(o.vrBruto||0)})
@@ -481,7 +487,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
           <div style={{fontSize:13,fontWeight:700,color:C.accent2,marginBottom:10}}>🟢 Hoje — {fmtDate(TODAY_STR)}</div>
           <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
             <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{tOps.length}</div></div>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>REPASSE</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{fmtCur(tR2)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>VL.BASE</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{fmtCur(tR2)}</div></div>
             <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:18,fontWeight:700}}>{[...new Set(tOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
           </div>
         </div>
@@ -492,20 +498,37 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
           </div>
           <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
             <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700}}>{yOps.length}</div><div style={{fontSize:9,color:yOps.length>=aaOps.length?C.accent2:C.danger}}>{yOps.length>=aaOps.length?'↑':'↓'} vs {aaOps.length}</div></div>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>REPASSE</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(yR)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>VL.BASE</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(yR)}</div></div>
             <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FINALIZADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent2}}>{yFin.length}</div></div>
           </div>
         </div>
       </div>
 
-      {/* DETALHAMENTO ONTEM */}
-      {yOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Detalhamento Ontem</div>
-        <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-          <div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>{yTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}</div>
-          <div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>{yTopB.map(([b,d])=><div key={b} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b} ({d.c})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</span></div>)}</div>
-        </div>
-      </div>}
+      {/* DETALHAMENTO HOJE + ONTEM */}
+      <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        {tOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.accent2+'33',borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.accent2,marginBottom:10}}>🟢 Hoje — {fmtDate(TODAY_STR)}</div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>
+            {tTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>
+            {tTopB.map(([b,d])=><div key={b} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b} ({d.c})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</span></div>)}
+          </div>
+        </div>}
+        {yOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.info+'33',borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.info,marginBottom:10}}>📋 Ontem — {fmtDate(YESTERDAY)}</div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>
+            {yTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>
+            {yTopB.map(([b,d])=><div key={b} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b} ({d.c})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</span></div>)}
+          </div>
+        </div>}
+      </div>
 
       {/* COMPARATIVO PROPORCIONAL — até dia {DAY} — 3 meses */}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
