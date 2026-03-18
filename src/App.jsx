@@ -427,6 +427,8 @@ function PartnerHealth({name,ops,onClose}){
 /* ═══ DASHBOARD ═══ */
 function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
+  const[selP,setSelP]=useState(null)
+  // Computações
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrBruto||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrBruto||0),0)
   const est=f.filter(isEst),pend=f.filter(isPend)
@@ -450,7 +452,6 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   // Por banco — PRODUÇÃO (finalizados)
   const byBanco={};curProd.forEach(o=>{const k=o.banco||'?';if(!byBanco[k])byBanco[k]={c:0,r:0};byBanco[k].c++;byBanco[k].r+=(o.vrBruto||0)})
   const bancoArr=Object.entries(byBanco).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
-  const[selP,setSelP]=useState(null)
   const vc=(v)=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
   // Nomes dos meses para comparativo
