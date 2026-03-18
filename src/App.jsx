@@ -213,7 +213,6 @@ function Parceiros({curOps,curProd,myAgents}){
   const prodByAg={};(curOps||[]).forEach(o=>{const a=o.agente||'?';if(!prodByAg[a])prodByAg[a]={dig:0,vl:0,prod:0,vr:0};prodByAg[a].dig++;prodByAg[a].vl+=(o.vrBruto||0)})
   ;(curProd||[]).forEach(o=>{const a=o.agente||'?';if(!prodByAg[a])prodByAg[a]={dig:0,vl:0,prod:0,vr:0};prodByAg[a].prod++;prodByAg[a].vr+=(o.vrBruto||0)})
   const getProd=name=>(prodByAg[name]||{dig:0,vl:0,prod:0,vr:0})
-  const reload=async()=>{const{data}=await supabase.from('parceiros').select('*').order('nome');setList(data||[])}
   const fd=(myAgents?list.filter(p=>myAgents.has(p.nome)):list).filter(p=>{if(!se)return true;const s=se.toLowerCase();return(p.nome||'').toLowerCase().includes(s)||(p.cpf_cnpj||'').includes(s)||(p.cidade||'').toLowerCase().includes(s)||(p.supervisor||'').toLowerCase().includes(s)})
   const exportParceiros=()=>{
     const rows=fd.map(p=>{const pr=getProd(p.nome);const cv=pr.dig?(pr.prod/pr.dig*100):0;return{Código:p.cod_agente||'',Nome:p.nome,Função:p.funcao||'','CPF/CNPJ':p.cpf_cnpj||'',Telefone:p.telefone||'',Email:p.email||'',Cidade:p.cidade||'',UF:p.uf||'',Supervisor:p.supervisor||'',Status:p.ativo?'ATIVO':'INATIVO','Dig.Mês':pr.dig,'Base Dig.':pr.vl,'Prod.Mês':pr.prod,'Base Prod.':pr.vr,'Conversão':cv?cv.toFixed(1)+'%':''}})
