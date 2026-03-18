@@ -7,11 +7,46 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{background:#0A0E17;color:#DAE0ED;font-family:'Outfit',sans-serif}
+    body{background:#F5F7FA;color:#1E293B;font-family:'Outfit',sans-serif}
     ::-webkit-scrollbar{width:5px;height:5px}
-    ::-webkit-scrollbar-track{background:#0A0E17}
-    ::-webkit-scrollbar-thumb{background:#1C2538;border-radius:3px}
-    select option{background:#0F1520;color:#DAE0ED}
+    ::-webkit-scrollbar-track{background:#F5F7FA}
+    ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+    select option{background:#FFFFFF;color:#1E293B}
+    /* RESPONSIVE */
+    @media(max-width:768px){
+      .sidebar{position:fixed!important;left:-260px;top:0;bottom:0;z-index:201;transition:left .2s;width:240px!important}
+      .sidebar.open{left:0!important}
+      .mob-overlay{display:block!important}
+      .mob-close{display:block!important}
+      .mob-menu{display:flex!important}
+      .main-content{padding:12px 10px!important}
+      .rg3{grid-template-columns:1fr!important}
+      .rg2{grid-template-columns:1fr!important}
+      .rg4{grid-template-columns:1fr 1fr!important}
+      .rg5{grid-template-columns:1fr 1fr!important}
+      .rg6{grid-template-columns:1fr 1fr 1fr!important}
+      .rflex{flex-wrap:wrap!important}
+      .rflex>*{min-width:calc(50% - 4px)!important}
+      form[style*="grid"]{grid-template-columns:1fr 1fr!important}
+      table{font-size:9px!important}
+      table th,table td{padding:4px 6px!important}
+      h2{font-size:16px!important}
+    }
+    @media(max-width:480px){
+      .rg4{grid-template-columns:1fr!important}
+      .rg5{grid-template-columns:1fr!important}
+      .rg6{grid-template-columns:1fr 1fr!important}
+      .rflex>*{min-width:100%!important}
+      table{font-size:8px!important}
+      form[style*="grid"]{grid-template-columns:1fr!important}
+      button{min-height:36px}
+      select{min-height:32px}
+      input{min-height:36px}
+    }
+    @media(min-width:769px) and (max-width:1024px){
+      .sidebar{width:170px!important}
+      .rg3{grid-template-columns:1fr 1fr!important}
+    }
   </style>
 </head>
 <body>
