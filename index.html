@@ -14,18 +14,14 @@
     select option{background:#FFFFFF;color:#1E293B}
     /* RESPONSIVE */
     @media(max-width:768px){
-      .sidebar{position:fixed!important;left:-260px;top:0;bottom:0;z-index:201;transition:left .2s;width:240px!important}
-      .sidebar.open{left:0!important}
-      .mob-overlay{display:block!important}
-      .mob-close{display:block!important}
-      .mob-menu{display:flex!important}
+      .sidebar{width:60px!important;overflow:hidden}
+      .sidebar h1,.sidebar div>div:not(:first-child),.sidebar nav button span:last-child{display:none!important}
+      .sidebar nav button{justify-content:center;padding:8px!important}
       .main-content{padding:12px 10px!important}
       .rg3{grid-template-columns:1fr!important}
       .rg2{grid-template-columns:1fr!important}
       .rg4{grid-template-columns:1fr 1fr!important}
-      .rg5{grid-template-columns:1fr 1fr!important}
       .rg6{grid-template-columns:1fr 1fr 1fr!important}
-      .rflex{flex-wrap:wrap!important}
       .rflex>*{min-width:calc(50% - 4px)!important}
       form[style*="grid"]{grid-template-columns:1fr 1fr!important}
       table{font-size:9px!important}
@@ -34,14 +30,9 @@
     }
     @media(max-width:480px){
       .rg4{grid-template-columns:1fr!important}
-      .rg5{grid-template-columns:1fr!important}
       .rg6{grid-template-columns:1fr 1fr!important}
       .rflex>*{min-width:100%!important}
-      table{font-size:8px!important}
       form[style*="grid"]{grid-template-columns:1fr!important}
-      button{min-height:36px}
-      select{min-height:32px}
-      input{min-height:36px}
     }
     @media(min-width:769px) and (max-width:1024px){
       .sidebar{width:170px!important}
