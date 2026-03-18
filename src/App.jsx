@@ -3,7 +3,7 @@ import { supabase } from './supabase.js'
 import * as XLSX from 'xlsx'
 
 /* ═══ THEME ═══ */
-const C={bg:'#0A0E17',surface:'#0F1520',card:'#141B2B',border:'#1C2538',text:'#DAE0ED',muted:'#5B6B85',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#38BDF8',abg:'#3B82F622'}
+const C={bg:'#F5F7FA',surface:'#FFFFFF',card:'#FFFFFF',border:'#E2E8F0',text:'#1E293B',muted:'#94A3B8',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#0EA5E9',abg:'#3B82F611'}
 const NOW=new Date(),CUR_M=NOW.toISOString().slice(0,7),PREV_M=new Date(NOW.getFullYear(),NOW.getMonth()-1,1).toISOString().slice(0,7)
 
 /* ═══ UTILS ═══ */
@@ -90,11 +90,8 @@ function getProj(prodOps){
   return{duT,duP,duR,fR,fC,mdR,mdD,pR:mdR*duT,pD:Math.round(mdD*duT)}
 }
 
-/* ═══ RESPONSIVE HOOK ═══ */
-function useScreen(){const[w,setW]=useState(typeof window!=='undefined'?window.innerWidth:1200);useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h)},[]);return{mob:w<768,tab:w>=768&&w<1024,desk:w>=1024,w}}
-
 /* ═══ UI ATOMS ═══ */
-function Stat({label,value,sub,color,small}){return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:small?'10px 12px':'14px 16px',flex:1,minWidth:small?90:120}}><div style={{fontSize:small?8:9,color:C.muted,marginBottom:3,fontWeight:600,textTransform:'uppercase'}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:700,color:color||C.text}}>{value}</div>{sub&&<div style={{fontSize:small?9:10,color:C.muted,marginTop:2}}>{sub}</div>}</div>}
+function Stat({label,value,sub,color,small}){return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,boxShadow:'0 1px 3px #0001',padding:small?'10px 12px':'14px 16px',flex:1,minWidth:small?90:120}}><div style={{fontSize:small?8:9,color:C.muted,marginBottom:3,fontWeight:600,textTransform:'uppercase'}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:700,color:color||C.text}}>{value}</div>{sub&&<div style={{fontSize:small?9:10,color:C.muted,marginTop:2}}>{sub}</div>}</div>}
 function Badge({text,color}){return<span style={{fontSize:10,padding:'2px 8px',borderRadius:6,background:color+'22',color,fontWeight:600}}>{text}</span>}
 function PeriodBar({per,setPer,loading,customDf,customDt,setCustomDf,setCustomDt,onApplyCustom}){
   return<div style={{display:'flex',flexDirection:'column',gap:6}}>
@@ -232,7 +229,7 @@ function Parceiros({curOps,curProd,myAgents}){
       </div>
     </div>
     {msg&&<div style={{background:C.accent2+'22',color:C.accent2,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}</div>}
-    {showNew&&<form onSubmit={async e=>{e.preventDefault();await supabase.from('parceiros').insert({nome,cpf_cnpj:cpf,telefone:tel,email,cidade,uf,responsavel:resp,observacao:obs});setNome('');setCpf('');setTel('');setEmail('');setCidade('');setUf('');setResp('');setObs('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,alignItems:'end'}}>
+    {showNew&&<form onSubmit={async e=>{e.preventDefault();await supabase.from('parceiros').insert({nome,cpf_cnpj:cpf,telefone:tel,email,cidade,uf,responsavel:resp,observacao:obs});setNome('');setCpf('');setTel('');setEmail('');setCidade('');setUf('');setResp('');setObs('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,alignItems:'end'}}>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>CPF/CNPJ</label><input value={cpf} onChange={e=>setCpf(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>TELEFONE</label><input value={tel} onChange={e=>setTel(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
@@ -294,7 +291,7 @@ function Parceiros({curOps,curProd,myAgents}){
           const isOpen=openSup[s.key]!==false
           const active=s.members.filter(p=>p.ativo).length
           const cv=s.sp.d?(s.sp.pr/s.sp.d*100):0
-          return<div key={s.key} style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,overflow:'hidden'}}>
+          return<div key={s.key} style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,boxShadow:'0 1px 3px #0001',overflow:'hidden'}}>
             <div onClick={()=>toggleSup(s.key)} style={{padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:C.surface}}>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <span style={{fontSize:14}}>{isOpen?'▾':'▸'}</span>
@@ -315,7 +312,7 @@ function Parceiros({curOps,curProd,myAgents}){
               </table>
             </div>}
           </div>})}
-        {semSup.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,overflow:'hidden'}}>
+        {semSup.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,boxShadow:'0 1px 3px #0001',overflow:'hidden'}}>
           <div onClick={()=>toggleSup('__sem__')} style={{padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',background:C.surface}}>
             <div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:14}}>{openSup['__sem__']!==false?'▾':'▸'}</span><span style={{fontSize:14}}>📋</span><div style={{fontSize:12,fontWeight:700}}>Sem Supervisor ({semSup.length})</div></div>
             {(()=>{const sp=supProd(semSup);return<div style={{display:'flex',gap:14,alignItems:'center'}}>
@@ -501,7 +498,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       </div>
 
       {/* DETALHAMENTO ONTEM */}
-      {yOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+      {yOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Detalhamento Ontem</div>
         <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
           <div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>{yTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}</div>
@@ -510,7 +507,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       </div>}
 
       {/* COMPARATIVO PROPORCIONAL — até dia {DAY} — 3 meses */}
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>📊 Produção até dia {DAY} — Comparativo</div>
         <div style={{fontSize:10,color:C.muted,marginBottom:12}}>CRC Cliente até o dia {DAY} de cada mês (dias úteis: {proj.duP}/{proj.duT})</div>
         <div className="rg4" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
@@ -548,7 +545,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
 
       <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
         {/* SITUAÇÕES COM VALORES */}
-        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
           <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Situações</div>
           {sitArr.slice(0,10).map(([s,d])=><div key={s} style={{marginBottom:5}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{color:sitCol(s),fontWeight:600}}>{s}</span><span style={{color:C.muted}}>{d.c} · {fmtCur(d.r)}</span></div>
@@ -557,7 +554,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
         </div>
 
         {/* TOP PARCEIROS — clicável */}
-        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
           <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Top Parceiros <span style={{fontSize:9,color:C.muted}}>(clique p/ health)</span></div>
           {topP.map(([ag,d],i)=>{const cv=d.c?(d.fc/d.c*100):0;return<div key={ag} onClick={()=>setSelP(ag)} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <span style={{fontSize:10,fontWeight:700,color:i<3?C.accent:C.muted,width:16}}>{i+1}</span>
@@ -573,7 +570,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
         </div>
 
         {/* POR BANCO — PRODUÇÃO */}
-        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
           <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Produção por Banco (CRC mês)</div>
           {bancoArr.map(([b,d])=>{const mx=bancoArr[0]?.[1]?.r||1;return<div key={b} style={{marginBottom:5}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}><span style={{fontWeight:600}}>{b}</span><span style={{color:C.accent2,fontWeight:600}}>{fmtCur(d.r)} <span style={{color:C.muted}}>({d.c} ops)</span></span></div>
@@ -695,7 +692,7 @@ function Recebimentos({myAgents}){
 
     {pend.length>0&&<>
       {/* AGING — DIAS ÚTEIS — clicável para filtrar */}
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Aging — Dias Úteis desde CRC {fAging&&<button onClick={()=>sFAging('')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.accent,padding:'2px 8px',fontSize:9,cursor:'pointer',marginLeft:8}}>✕ Limpar</button>}</div>
         <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           {aging.map(([k,[c,r]])=>{const col=k.includes('90')||k.includes('60')?C.danger:k.includes('30')?C.warn:k.includes('15')||k.includes('10')?C.info:C.accent2;const pct=pend.length?(c/pend.length*100):0;const active=fAging===k;return c>0?<div key={k} onClick={()=>sFAging(active?'':k)} style={{background:active?col+'22':C.surface,border:'1px solid '+(active?col:C.border),borderRadius:10,padding:'10px 16px',minWidth:90,cursor:'pointer'}}>
@@ -709,7 +706,7 @@ function Recebimentos({myAgents}){
 
       <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
         {/* POR BANCO */}
-        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Banco','Qtd','A Receber','Média DU','Máx DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
           <tbody>{byBanco.map(b=><tr key={b.b} style={{borderBottom:'1px solid '+C.border}}>
@@ -721,7 +718,7 @@ function Recebimentos({myAgents}){
           </tr>)}</tbody></table>
         </div>
         {/* POR OPERAÇÃO */}
-        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Operação</div>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Operação','Qtd','A Receber'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
           <tbody>{byOp.map(([op,d])=><tr key={op} style={{borderBottom:'1px solid '+C.border}}>
@@ -731,7 +728,7 @@ function Recebimentos({myAgents}){
           </tr>)}</tbody></table>
         </div>
         {/* POR PARCEIRO */}
-        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Parceiro','Qtd','A Receber','Média DU'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
           <tbody>{byAg2.slice(0,20).map(a=><tr key={a.a} style={{borderBottom:'1px solid '+C.border}}>
@@ -744,7 +741,7 @@ function Recebimentos({myAgents}){
       </div>
 
       {/* BANCO × DIAS EM ABERTO */}
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Banco × Dias Úteis em Aberto</div>
         {(()=>{
           const FAIXAS=['0-5','5-10','10-15','15-30','30-60','60-90','90+']
@@ -770,7 +767,7 @@ function Recebimentos({myAgents}){
       </div>
 
       {/* ANALÍTICO */}
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,alignItems:'center',flexWrap:'wrap',gap:8}}>
           <span style={{fontSize:12,fontWeight:700}}>Analítico — {filt.length} pendências ({fmtCur(filt.reduce((s,o)=>s+(o.vrBruto||0),0))})</span>
           <div style={{display:'flex',gap:6}}>
@@ -829,8 +826,8 @@ function Portabilidade({myAgents}){
     <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
     <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s,o)=>s+(o.vrBruto||0),0))}/><Stat label="Produção" value={tP} sub={fmtCur(port.filter(isFin).reduce((s,o)=>s+(o.vrBruto||0),0))} color={C.accent2}/><Stat label="Conv." value={cv.toFixed(1)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/></div>
     {!port.length?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:'center',color:C.muted}}>Nenhuma portabilidade no período</div>:<>
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><PT data={byBanco} nl="Banco"/></div>
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><PT data={byAg} nl="Parceiro"/></div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><PT data={byBanco} nl="Banco"/></div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><PT data={byAg} nl="Parceiro"/></div>
     </>}
   </div>
 }
@@ -935,7 +932,7 @@ function Usuarios({user}){
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usuários</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
     {msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:C.muted,cursor:'pointer'}}>×</button></div>}
-    {showNew&&<form onSubmit={async e=>{e.preventDefault();const{error}=await supabase.from('usuarios').insert({nome,email,senha,perfil,telas:ALL_TELAS.slice(0,3)});if(error){setMsg(error.message);return}setMsg('Criado!');setNome('');setEmail('');setSenha('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
+    {showNew&&<form onSubmit={async e=>{e.preventDefault();const{error}=await supabase.from('usuarios').insert({nome,email,senha,perfil,telas:ALL_TELAS.slice(0,3)});if(error){setMsg(error.message);return}setMsg('Criado!');setNome('');setEmail('');setSenha('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,boxShadow:'0 1px 3px #0001',padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={senha} onChange={e=>setSenha(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
@@ -1014,31 +1011,29 @@ export default function App(){
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||''};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb))}
 
-  if(!user)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:C.bg,fontFamily:'Outfit,sans-serif',color:C.text}}><form onSubmit={handleLogin} style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',width:'95%',maxWidth:380}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800,margin:0}}>OpsManager</h1></div><p style={{color:C.muted,fontSize:12,marginBottom:24}}>Gestão de Digitações</p>{loginError&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{loginError}</div>}<div style={{marginBottom:8}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input name="email" type="email" required placeholder="seu@email.com" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><div style={{marginBottom:16}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input name="senha" type="password" required placeholder="Sua senha" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><button type="submit" style={{width:'100%',padding:'12px 0',fontSize:14,borderRadius:10,border:'none',background:C.accent,color:'#fff',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>Entrar</button></form></div>
+  if(!user)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:C.bg,fontFamily:'Outfit,sans-serif',color:C.text}}><form onSubmit={handleLogin} style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',boxShadow:'0 8px 30px #0001',width:'95%',maxWidth:380}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800,margin:0}}>OpsManager</h1></div><p style={{color:C.muted,fontSize:12,marginBottom:24}}>Gestão de Digitações</p>{loginError&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{loginError}</div>}<div style={{marginBottom:8}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input name="email" type="email" required placeholder="seu@email.com" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><div style={{marginBottom:16}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input name="senha" type="password" required placeholder="Sua senha" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><button type="submit" style={{width:'100%',padding:'12px 0',fontSize:14,borderRadius:10,border:'none',background:C.accent,color:'#fff',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>Entrar</button></form></div>
 
   const levels={operador:1,gestor:2,admin:3},nav=NAV.filter(n=>{if(user.perfil==='admin')return true;return(user.telas||['dashboard','ops','producao']).includes(n.id)})
-  const scr=useScreen()
   const[menuOpen,setMenuOpen]=useState(false)
-  const sideW=scr.mob?240:scr.tab?180:195
   return<div style={{display:'flex',minHeight:'100vh',fontFamily:'Outfit,sans-serif',color:C.text,background:C.bg}}>
     {/* MOBILE OVERLAY */}
-    {scr.mob&&menuOpen&&<div onClick={()=>setMenuOpen(false)} style={{position:'fixed',inset:0,background:'#000a',zIndex:200}}/>}
+    {menuOpen&&<div className="mob-overlay" onClick={()=>setMenuOpen(false)} style={{position:'fixed',inset:0,background:'#000a',zIndex:200,display:'none'}}/>}
     {/* SIDEBAR */}
-    <div style={{width:sideW,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0,...(scr.mob?{position:'fixed',left:menuOpen?0:-260,top:0,bottom:0,zIndex:201,transition:'left .2s'}:{})}}>
+    <div className={'sidebar'+(menuOpen?' open':'')} style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
       <div style={{padding:'20px 14px 10px'}}>
         <div style={{display:'flex',alignItems:'center',gap:7}}>
           <div style={{width:26,height:26,borderRadius:7,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>O</div>
           <h1 style={{fontSize:14,fontWeight:800,margin:0}}>OpsManager</h1>
-          {scr.mob&&<button onClick={()=>setMenuOpen(false)} style={{marginLeft:'auto',background:'none',border:'none',color:C.muted,fontSize:18,cursor:'pointer'}}>✕</button>}
+          <button className="mob-close" onClick={()=>setMenuOpen(false)} style={{marginLeft:'auto',background:'none',border:'none',color:C.muted,fontSize:18,cursor:'pointer',display:'none'}}>✕</button>
         </div>
         <div style={{fontSize:8,color:C.accent2,marginTop:4,marginLeft:33}}>● Supabase</div>
       </div>
-      <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>{nav.map(n=><button key={n.id} onClick={()=>{setView(n.id);if(scr.mob)setMenuOpen(false)}} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}</nav>
+      <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>{nav.map(n=><button key={n.id} onClick={()=>{setView(n.id);setMenuOpen(false)}} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}</nav>
       <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:2}}>{user.perfil}{user.cod_supervisor?' · Equipe':''}</div>{myAgents&&<div style={{fontSize:8,color:C.accent,marginBottom:2}}>👥 {myAgents.size} parceiros</div>}<button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
     </div>
     {/* CONTENT */}
-    <div style={{flex:1,padding:scr.mob?'12px 10px':'20px 24px',overflowY:'auto',overflowX:'hidden',marginLeft:scr.mob?0:0}}>
-      {scr.mob&&<button onClick={()=>setMenuOpen(true)} style={{background:C.card,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 12px',marginBottom:12,cursor:'pointer',display:'flex',alignItems:'center',gap:8,fontSize:12,fontWeight:600}}><span style={{fontSize:16}}>☰</span> Menu</button>}
+    <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
+      <button className="mob-menu" onClick={()=>setMenuOpen(true)} style={{background:C.card,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 12px',marginBottom:12,cursor:'pointer',alignItems:'center',gap:8,fontSize:12,fontWeight:600,display:'none'}}><span style={{fontSize:16}}>☰</span> Menu</button>
       {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
