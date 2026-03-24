@@ -553,14 +553,14 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJEÇÃO</div><div style={{fontSize:14,fontWeight:700,color:C.accent}}>{fmtCur(proj.pR)}</div><div style={{fontSize:9,color:C.muted}}>~{proj.pD} pagas</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FALTA</div><div style={{fontSize:14,fontWeight:700,color:C.warn}}>{fmtCur(Math.max(0,proj.pR-proj.fR))}</div></div>
           <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>MÉDIA/DU</div><div style={{fontSize:14,fontWeight:700}}>{fmtCur(proj.mdR)}</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:14,fontWeight:700,color:C.info}}>{proj.dig}</div><div style={{fontSize:9,color:C.muted}}>{(proj.duP>0?(proj.dig/proj.duP):0).toFixed(1)}/DU</div></div>
-          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJ.DIG.</div><div style={{fontSize:14,fontWeight:700,color:C.info}}>{proj.duP>0?Math.round(proj.dig/proj.duP*proj.duT):0}</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:14,fontWeight:700,color:C.info}}>{curDig}</div><div style={{fontSize:9,color:C.muted}}>{(proj.duP>0?(curDig/proj.duP):0).toFixed(1)}/DU</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PROJ.DIG.</div><div style={{fontSize:14,fontWeight:700,color:C.info}}>{proj.duP>0?Math.round(curDig/proj.duP*proj.duT):0}</div></div>
         </div>
       </div>
 
       {/* CARDS PERÍODO */}
       <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <Stat label="Produção (Pago)" value={fmtCur(fR)} color={C.accent2} sub={fin.length+' finalizadas'}/>
+        <Stat label="Produção (Pago)" value={fmtCur(curProdR)} color={C.accent2} sub={curProd.length+' finalizadas'}/>
         <Stat label="Digitações" value={f.length} sub={fmtCur(tR)+' digitado'}/>
         <Stat label="Em Andamento" value={pend.length} sub={fmtCur(pend.reduce((s,o)=>s+(o.vrBruto||0),0))} color={C.warn}/>
         <Stat label="Estornos" value={est.length} sub={fmtCur(est.reduce((s,o)=>s+(o.vrBruto||0),0))} color={C.danger}/>
