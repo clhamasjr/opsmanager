@@ -619,17 +619,21 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       {curOps.length>0&&(()=>{
         const days=[];for(let i=30;i>=0;i--){const d=new Date(NOW);d.setDate(d.getDate()-i);days.push(localDate(d))}
         const byDay=days.map(d=>{const dOps=curOps.filter(o=>o.data===d);const dt=new Date(d+'T12:00:00');const dow=dt.getDay();const isWe=dow===0||dow===6;return{d,dow,isWe,c:dOps.length,r:dOps.reduce((s,o)=>s+(o.vrBruto||0),0),label:dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),wd:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][dow]}})
-        const maxR=Math.max(...byDay.map(x=>x.r),1)
+        const maxC=Math.max(...byDay.map(x=>x.c),1)
         return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:20}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>📅 Digitações Diárias — Últimos 30 dias</div>
-          <div style={{display:'flex',gap:2,alignItems:'end',height:200}}>
-            {byDay.map(x=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?4:0):0;return<div key={x.d} style={{flex:x.isWe?'0 0 8px':'1',display:'flex',flexDirection:'column',alignItems:'center',gap:2,minWidth:0}}>
-              <div style={{fontSize:7,color:C.muted,whiteSpace:'nowrap',overflow:'hidden'}}>{x.c>0&&!x.isWe?fmtCur(x.r).replace('R$ ',''):''}</div>
-              <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:x.isWe?(x.c?C.border+'88':'transparent'):x.d===TODAY_STR?C.accent2:C.accent,borderRadius:3,opacity:x.isWe?.3:1}}/>
-              <div style={{fontSize:8,fontWeight:x.d===TODAY_STR?700:400,color:x.isWe?C.border:x.d===TODAY_STR?C.accent2:C.muted}}>{x.c||''}</div>
-              <div style={{fontSize:7,color:x.isWe?C.border:C.muted}}>{x.label}</div>
-              <div style={{fontSize:6,color:x.isWe?C.border:C.muted,fontWeight:!x.isWe?600:400}}>{x.wd}</div>
-            </div>})}
+          <div style={{overflowX:'auto'}}>
+            <div style={{display:'flex',gap:3,alignItems:'end',minWidth:700,height:220,padding:'0 4px'}}>
+              {byDay.map(x=>{const h=maxC>0?(x.c/maxC*100):0;const isToday=x.d===TODAY_STR;return<div key={x.d} style={{flex:x.isWe?'0 0 14px':'1',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'end',height:'100%',minWidth:0}}>
+                <div style={{fontSize:8,fontWeight:600,color:isToday?C.accent2:C.accent,marginBottom:2}}>{x.c>0&&!x.isWe?fmtCur(x.r).replace('R$ ',''):''}</div>
+                <div style={{fontSize:10,fontWeight:700,color:isToday?C.accent2:x.isWe?C.border:C.text,marginBottom:2}}>{x.c||''}</div>
+                <div style={{width:x.isWe?10:'85%',height:Math.max(h,x.c?2:0)+'%',background:isToday?C.accent2:x.isWe?'#E2E8F0':C.accent,borderRadius:'4px 4px 0 0',opacity:x.isWe?.4:1,minHeight:x.c?4:0}}/>
+                <div style={{borderTop:'1px solid '+C.border,width:'100%',textAlign:'center',paddingTop:4}}>
+                  <div style={{fontSize:8,fontWeight:isToday?700:400,color:x.isWe?'#CBD5E1':isToday?C.accent2:C.muted}}>{x.label}</div>
+                  <div style={{fontSize:7,color:x.isWe?'#CBD5E1':C.muted}}>{x.wd}</div>
+                </div>
+              </div>})}
+            </div>
           </div>
         </div>
       })()}
@@ -644,19 +648,21 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
         const totalR=data.reduce((s,x)=>s+x.r,0),totalC=data.reduce((s,x)=>s+x.c,0)
         const avgR=totalR/12
         return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:20}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
             <span style={{fontSize:13,fontWeight:700}}>📊 Produção — 12 Meses (CRC)</span>
             <div style={{display:'flex',gap:16}}>
               <span style={{fontSize:10,color:C.muted}}>Total: <strong style={{color:C.accent2}}>{fmtCur(totalR)}</strong> ({totalC} ops)</span>
               <span style={{fontSize:10,color:C.muted}}>Média: <strong style={{color:C.accent}}>{fmtCur(avgR)}</strong>/mês</span>
             </div>
           </div>
-          <div style={{display:'flex',gap:4,alignItems:'end',height:240}}>
-            {data.map((x,i)=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?3:0):0;const isCur=i===data.length-1;return<div key={x.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-              <div style={{fontSize:8,fontWeight:600,color:isCur?C.accent2:C.accent}}>{x.r>0?fmtCur(x.r).replace('R$ ',''):''}</div>
-              <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:isCur?'linear-gradient(180deg,'+C.accent2+','+C.accent+')':C.accent,borderRadius:4,opacity:isCur?1:.7}}/>
-              <div style={{fontSize:10,fontWeight:700,color:isCur?C.accent2:C.text}}>{x.c||'—'}</div>
-              <div style={{fontSize:8,color:isCur?C.accent2:C.muted,fontWeight:isCur?700:400,textTransform:'uppercase'}}>{x.label}</div>
+          <div style={{display:'flex',gap:6,alignItems:'end',height:280}}>
+            {data.map((x,i)=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?2:0):0;const isCur=i===data.length-1;return<div key={x.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'end',height:'100%'}}>
+              <div style={{fontSize:9,fontWeight:700,color:isCur?C.accent2:C.accent,marginBottom:2}}>{x.r>0?fmtCur(x.r).replace('R$ ',''):''}</div>
+              <div style={{fontSize:11,fontWeight:800,color:isCur?C.accent2:C.text,marginBottom:3}}>{x.c||''}</div>
+              <div style={{width:'70%',height:Math.max(h,x.c?2:0)+'%',background:isCur?'linear-gradient(180deg,'+C.accent2+','+C.accent+')':C.accent,borderRadius:'5px 5px 0 0',opacity:isCur?1:.75,minHeight:x.c?6:0}}/>
+              <div style={{borderTop:'2px solid '+(isCur?C.accent2:C.border),width:'100%',textAlign:'center',paddingTop:6}}>
+                <div style={{fontSize:9,color:isCur?C.accent2:C.muted,fontWeight:isCur?700:500,textTransform:'uppercase'}}>{x.label}</div>
+              </div>
             </div>})}
           </div>
         </div>
