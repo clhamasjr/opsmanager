@@ -341,6 +341,16 @@ function useOps(defaultPer,myAgents){
   const applyCustom=()=>setTrigger(t=>t+1)
   return{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}
 }
+function useProd(defaultPer,myAgents){
+  const[per,setPer]=useState(defaultPer||'mes'),[ops,setOps]=useState([]),[digOps,setDigOps]=useState([]),[loading,setLoading]=useState(false)
+  const[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
+  useEffect(()=>{let c=false;setLoading(true)
+    Promise.all([fetchProd(per,null,customDf,customDt),fetchOps(per,null,customDf,customDt)]).then(([p,d])=>{
+      if(!c){const fp=myAgents?p.filter(o=>myAgents.has(o.agente)):p;const fd=myAgents?d.filter(o=>myAgents.has(o.agente)):d;setOps(fp);setDigOps(fd)}
+    }).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger])
+  const applyCustom=()=>setTrigger(t=>t+1)
+  return{per,setPer,ops,digOps,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}
+}
 
 /* ═══ IMPORT MODAL ═══ */
 const IMP={id_ext:{l:'ID',a:['id']},banco:{l:'Banco',a:['banco']},cpf:{l:'CPF',a:['cpf']},cliente:{l:'Cliente',a:['cliente','nome']},proposta:{l:'Proposta',a:['proposta']},contrato:{l:'Contrato',a:['contrato','nº contrato']},data:{l:'Data',a:['data']},prazo:{l:'Prazo',a:['prazo']},vrBruto:{l:'Bruto',a:['vr. bruto','bruto']},vrParcela:{l:'Parcela',a:['vr. parcela']},vrLiquido:{l:'Vl.Base',a:['vr. líquido','vr liquido']},vrRepasse:{l:'Repasse',a:['vr. repasse','repasse']},vrSeguro:{l:'Seguro',a:['vr. seguro']},taxa:{l:'Taxa',a:['taxa']},operacao:{l:'Operação',a:['operação','operacao']},situacao:{l:'Situação',a:['situação','situacao','status']},produto:{l:'Produto',a:['produto']},convenio:{l:'Convênio',a:['convênio','convenio']},agente:{l:'Agente',a:['agente']},situacaoBanco:{l:'Sit.Banco',a:['situação banco','sit. banco']},obsSituacao:{l:'Obs.',a:['obs. situação','obs. situação banco','obs situação banco']},usuario:{l:'Usuário',a:['usuário','usuario']},crcCliente:{l:'CRC',a:['cr cliente','crc cliente','crc','data crc']},dataNossoCredito:{l:'N.Crédito',a:['nosso cr','nosso crédito','nosso credito']}}
@@ -424,7 +434,7 @@ function PartnerHealth({name,ops,onClose}){
 }
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents}){
+function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[selP,setSelP]=useState(null)
   // Computações
@@ -602,6 +612,46 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
           </div>})}
         </div>
       </div>
+
+      {/* VISÃO DIÁRIA — últimos 15 dias úteis */}
+      {curOps.length>0&&(()=>{
+        const days=[];for(let i=20;i>=0;i--){const d=new Date(NOW);d.setDate(d.getDate()-i);days.push(d.toISOString().split('T')[0])}
+        const byDay=days.map(d=>{const dOps=curOps.filter(o=>o.data===d);const dt=new Date(d+'T12:00:00');const dow=dt.getDay();const isWe=dow===0||dow===6;const isBD=!isWe;return{d,dow,isWe,isBD,c:dOps.length,r:dOps.reduce((s,o)=>s+(o.vrBruto||0),0),label:dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),wd:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][dow]}}).filter(x=>x.c>0||!x.isWe||x.d>=curOps[0]?.data)
+        const maxR=Math.max(...byDay.map(x=>x.r),1)
+        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📅 Digitações Diárias</div>
+          <div style={{display:'flex',gap:2,alignItems:'end',height:120}}>
+            {byDay.map(x=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?4:0):0;return<div key={x.d} style={{flex:x.isWe?'0 0 12px':'1',display:'flex',flexDirection:'column',alignItems:'center',gap:2,minWidth:0}}>
+              <div style={{fontSize:7,color:C.muted,whiteSpace:'nowrap'}}>{x.c>0?fmtCur(x.r).replace('R$ ',''):''}</div>
+              <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:x.isWe?C.border:x.d===TODAY_STR?C.accent2:C.accent,borderRadius:3,opacity:x.isWe?.4:1}}/>
+              <div style={{fontSize:7,fontWeight:x.d===TODAY_STR?700:400,color:x.isWe?C.border:x.d===TODAY_STR?C.accent2:C.muted}}>{x.c||''}</div>
+              <div style={{fontSize:6,color:x.isWe?C.border:C.muted}}>{x.label}</div>
+              <div style={{fontSize:6,color:x.isWe?C.border:C.muted,fontWeight:x.isBD?600:400}}>{x.wd}</div>
+            </div>})}
+          </div>
+        </div>
+      })()}
+
+      {/* PRODUÇÃO 12 MESES */}
+      {prodYear.length>0&&(()=>{
+        const y=NOW.getFullYear(),mo=NOW.getMonth()
+        const months=[];for(let i=11;i>=0;i--){const d=new Date(y,mo-i,1);months.push({key:d.toISOString().slice(0,7),label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',''),m:d.getMonth(),y:d.getFullYear()})}
+        const byMonth={};prodYear.forEach(o=>{const k=(o.crcCliente||'').slice(0,7);if(!byMonth[k])byMonth[k]={c:0,r:0};byMonth[k].c++;byMonth[k].r+=(o.vrBruto||0)})
+        const data=months.map(m=>({...m,...(byMonth[m.key]||{c:0,r:0})}))
+        const maxR=Math.max(...data.map(x=>x.r),1)
+        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📊 Produção — 12 Meses (CRC)</div>
+          <div style={{display:'flex',gap:4,alignItems:'end',height:160}}>
+            {data.map((x,i)=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?3:0):0;const isCur=i===data.length-1;return<div key={x.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+              <div style={{fontSize:8,fontWeight:600,color:isCur?C.accent2:C.accent}}>{x.r>0?fmtCur(x.r).replace('R$ ',''):''}</div>
+              <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:isCur?'linear-gradient(180deg,'+C.accent2+','+C.accent+')':C.accent,borderRadius:4,opacity:isCur?1:.7}}/>
+              <div style={{fontSize:9,fontWeight:700,color:isCur?C.accent2:C.text}}>{x.c||'—'}</div>
+              <div style={{fontSize:7,color:isCur?C.accent2:C.muted,fontWeight:isCur?700:400,textTransform:'uppercase'}}>{x.label}</div>
+            </div>})}
+          </div>
+        </div>
+      })()}
+
       <PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/>
     </div>
   )
@@ -629,17 +679,15 @@ function Operacoes({onImport,myAgents}){
 
 /* ═══ PRODUÇÃO — somente FINALIZADOS ═══ */
 function Producao({myAgents}){
-  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
+  const{per,setPer,ops,digOps,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useProd('mes',myAgents)
   const[tab,sTab]=useState('banco')
-  const fin=ops.filter(isFin)
-  const totalDig=ops.length
+  const fin=ops
+  const totalDig=digOps.length
   const totalProd=fin.reduce((s,o)=>s+(o.vrBruto||0),0)
   const cv=totalDig?(fin.length/totalDig*100):0
   const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao
-  // Agrupa FINALIZADOS por banco/convenio/operacao
   const m={};fin.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrBruto||0)})
-  // Conta digitações totais por grupo pra mostrar conversão
-  const md={};ops.forEach(o=>{const k=kFn(o)||'?';md[k]=(md[k]||0)+1})
+  const md={};digOps.forEach(o=>{const k=kFn(o)||'?';md[k]=(md[k]||0)+1})
   const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
   const finOps=fin
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -1007,6 +1055,7 @@ export default function App(){
   const[curProd,setCurProd]=useState([]),[prevProd,setPrevProd]=useState([])
   const[prevProdProp,setPrevProdProp]=useState([])
   const[m2Prop,setM2Prop]=useState([]),[m3Prop,setM3Prop]=useState([])
+  const[prodYear,setProdYear]=useState([])
   const[myAgents,setMyAgents]=useState(null)
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return
@@ -1025,6 +1074,10 @@ export default function App(){
     const[pf1,pt1]=propRange(1);fetchProd('custom',null,pf1,pt1).then(d=>setPrevProdProp(d)).catch(()=>{})
     const[pf2,pt2]=propRange(2);fetchProd('custom',null,pf2,pt2).then(d=>setM2Prop(d)).catch(()=>{})
     const[pf3,pt3]=propRange(3);fetchProd('custom',null,pf3,pt3).then(d=>setM3Prop(d)).catch(()=>{})
+    // 12 meses de produção
+    const y12f=new Date(y,mo-11,1).toISOString().split('T')[0]
+    const y12t=new Date(y,mo+1,0).toISOString().split('T')[0]
+    fetchProd('custom',null,y12f,y12t).then(d=>setProdYear(d)).catch(()=>{})
   },[user])
   // Filter by team - stable refs when no filter
   const tCurOps=myAgents?curOps.filter(o=>myAgents.has(o.agente)):curOps
@@ -1034,6 +1087,7 @@ export default function App(){
   const tPrevProdProp=myAgents?prevProdProp.filter(o=>myAgents.has(o.agente)):prevProdProp
   const tM2Prop=myAgents?m2Prop.filter(o=>myAgents.has(o.agente)):m2Prop
   const tM3Prop=myAgents?m3Prop.filter(o=>myAgents.has(o.agente)):m3Prop
+  const tProdYear=myAgents?prodYear.filter(o=>myAgents.has(o.agente)):prodYear
 
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||''};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb))}
@@ -1056,7 +1110,7 @@ export default function App(){
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
-      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
