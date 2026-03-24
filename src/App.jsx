@@ -4,7 +4,9 @@ import * as XLSX from 'xlsx'
 
 /* ═══ THEME ═══ */
 const C={bg:'#F5F7FA',surface:'#FFFFFF',card:'#FFFFFF',border:'#E2E8F0',text:'#1E293B',muted:'#94A3B8',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#0EA5E9',abg:'#3B82F611'}
-const NOW=new Date(),CUR_M=NOW.toISOString().slice(0,7),PREV_M=new Date(NOW.getFullYear(),NOW.getMonth()-1,1).toISOString().slice(0,7)
+const NOW=new Date()
+const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return`${y}-${m}-${dd}`}
+const CUR_M=localDate(NOW).slice(0,7),PREV_M=(()=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-1,1);return localDate(d).slice(0,7)})()
 
 /* ═══ UTILS ═══ */
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
@@ -15,14 +17,14 @@ const isFin=o=>PROD_SIT.includes((o.situacao||'').toUpperCase())||PROD_SITB.incl
 const isEst=o=>{const s=(o.situacao||'').toUpperCase(),sb=(o.situacaoBanco||'').toUpperCase();return['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA','CANCELADO PELO CLIENTE'].includes(s)||['CANCELADO','CANCELADA','REPROVADA','REPROVADO','NEGADA','REPROVADA - FINALIZADA','REPROVADO CRÉDITO'].includes(sb)}
 const isPend=o=>!isFin(o)&&!isEst(o)
 const sitCol=s=>{s=(s||'').toUpperCase();if(['FINALIZADO','PAGO','AVERBADO','APROVADO','CONCRETIZADO','INTEGRADA','INTEGRADO','CRC CLIENTE','PAGA','PAGAMENTO REALIZADO'].includes(s))return C.accent2;if(['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA'].includes(s))return C.danger;if(['EM ANÁLISE','EM ANALISE','PENDENTE','ANALISE BANCO','ANDAMENTO','AGUARDANDO RETORNO CIP','PROPOSTA CADASTRADA','ASSINADO CCB'].includes(s))return C.warn;return C.info}
-function nDate(v){if(!v)return'';if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400*1000));return!isNaN(d.getTime())?d.toISOString().split('T')[0]:''}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);return''}
+function nDate(v){if(!v)return'';if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400*1000));return!isNaN(d.getTime())?localDate(d):''}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);return''}
 function pNum(v){if(v==null||v==='')return 0;if(typeof v==='number')return v;return parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.'))||0}
 const fixDate=v=>{if(!v)return'';const s=String(v).trim();return s.length>=10&&s[4]==='-'?s.slice(0,10):s}
 const fromDb=r=>({id:r.id,id_ext:r.id_ext||'',banco:r.banco||'',cpf:r.cpf||'',cliente:r.cliente||'',proposta:r.proposta||'',contrato:r.contrato||'',data:fixDate(r.data),prazo:r.prazo||'',vrBruto:Number(r.vr_bruto)||0,vrParcela:Number(r.vr_parcela)||0,vrLiquido:Number(r.vr_liquido)||0,vrRepasse:Number(r.vr_repasse)||0,vrSeguro:Number(r.vr_seguro)||0,taxa:r.taxa||'',operacao:r.operacao||'',situacao:r.situacao||'',produto:r.produto||'',convenio:r.convenio||'',agente:r.agente||'',situacaoBanco:r.situacao_banco||'',obsSituacao:r.obs_situacao||'',usuario:r.usuario||'',crcCliente:fixDate(r.crc_cliente),dataNossoCredito:fixDate(r.data_nosso_credito)})
 const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cliente||'',proposta:o.proposta||'',contrato:o.contrato||'',data:o.data||null,prazo:o.prazo||'',vr_bruto:o.vrBruto||0,vr_parcela:o.vrParcela||0,vr_liquido:o.vrBruto||0,vr_repasse:o.vrBruto||0,vr_seguro:o.vrSeguro||0,taxa:o.taxa||'',operacao:o.operacao||'',situacao:o.situacao||'',produto:o.produto||'',convenio:o.convenio||'',agente:o.agente||'',situacao_banco:o.situacaoBanco||'',obs_situacao:o.obsSituacao||'',usuario:o.usuario||'',crc_cliente:o.crcCliente||null,data_nosso_credito:o.dataNossoCredito||null})
 
 /* ═══ PERIODS ═══ */
-const PERIODS=(()=>{const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>new Date(a,b,1).toISOString().split('T')[0],e=(a,b)=>new Date(a,b+1,0).toISOString().split('T')[0];return{mes:{n:'Mês Atual',f:d(y,m),t:e(y,m)},ant:{n:'Mês Anterior',f:d(y,m-1),t:e(y,m-1)},tri:{n:'Trimestre',f:d(y,m-2),t:e(y,m)},sem:{n:'Semestre',f:d(y,m-5),t:e(y,m)},ano:{n:String(y),f:y+'-01-01',t:y+'-12-31'},tudo:{n:'Tudo',f:'2000-01-01',t:'2099-12-31'}}})()
+const PERIODS=(()=>{const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>localDate(new Date(a,b,1)),e=(a,b)=>localDate(new Date(a,b+1,0));return{mes:{n:'Mês Atual',f:d(y,m),t:e(y,m)},ant:{n:'Mês Anterior',f:d(y,m-1),t:e(y,m-1)},tri:{n:'Trimestre',f:d(y,m-2),t:e(y,m)},sem:{n:'Semestre',f:d(y,m-5),t:e(y,m)},ano:{n:String(y),f:y+'-01-01',t:y+'-12-31'},tudo:{n:'Tudo',f:'2000-01-01',t:'2099-12-31'}}})()
 
 /* ═══ SERVER-SIDE FETCH ═══ */
 async function fetchOps(per,onProgress,customDf,customDt){
@@ -466,9 +468,9 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   // Nomes dos meses para comparativo
   const mName=(back)=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-back,1);return d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()}
   // HOJE + ONTEM
-  const TODAY_STR=NOW.toISOString().split('T')[0]
-  const YESTERDAY=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-1);return d.toISOString().split('T')[0]})()
-  const ANTEONTEM=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-2);return d.toISOString().split('T')[0]})()
+  const TODAY_STR=localDate(NOW)
+  const YESTERDAY=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-1);return localDate(d)})()
+  const ANTEONTEM=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-2);return localDate(d)})()
   const tOps=curOps.filter(o=>o.data===TODAY_STR),yOps=curOps.filter(o=>o.data===YESTERDAY),aaOps=curOps.filter(o=>o.data===ANTEONTEM)
   const tR2=tOps.reduce((s,o)=>s+(o.vrBruto||0),0),yR=yOps.reduce((s,o)=>s+(o.vrBruto||0),0),aaR=aaOps.reduce((s,o)=>s+(o.vrBruto||0),0)
   const yFin=yOps.filter(isFin),yEst=yOps.filter(isEst)
@@ -613,20 +615,20 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
         </div>
       </div>
 
-      {/* VISÃO DIÁRIA — últimos 15 dias úteis */}
+      {/* VISÃO DIÁRIA — últimos 30 dias */}
       {curOps.length>0&&(()=>{
-        const days=[];for(let i=20;i>=0;i--){const d=new Date(NOW);d.setDate(d.getDate()-i);days.push(d.toISOString().split('T')[0])}
-        const byDay=days.map(d=>{const dOps=curOps.filter(o=>o.data===d);const dt=new Date(d+'T12:00:00');const dow=dt.getDay();const isWe=dow===0||dow===6;const isBD=!isWe;return{d,dow,isWe,isBD,c:dOps.length,r:dOps.reduce((s,o)=>s+(o.vrBruto||0),0),label:dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),wd:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][dow]}}).filter(x=>x.c>0||!x.isWe||x.d>=curOps[0]?.data)
+        const days=[];for(let i=30;i>=0;i--){const d=new Date(NOW);d.setDate(d.getDate()-i);days.push(localDate(d))}
+        const byDay=days.map(d=>{const dOps=curOps.filter(o=>o.data===d);const dt=new Date(d+'T12:00:00');const dow=dt.getDay();const isWe=dow===0||dow===6;return{d,dow,isWe,c:dOps.length,r:dOps.reduce((s,o)=>s+(o.vrBruto||0),0),label:dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),wd:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][dow]}})
         const maxR=Math.max(...byDay.map(x=>x.r),1)
-        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📅 Digitações Diárias</div>
-          <div style={{display:'flex',gap:2,alignItems:'end',height:120}}>
-            {byDay.map(x=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?4:0):0;return<div key={x.d} style={{flex:x.isWe?'0 0 12px':'1',display:'flex',flexDirection:'column',alignItems:'center',gap:2,minWidth:0}}>
-              <div style={{fontSize:7,color:C.muted,whiteSpace:'nowrap'}}>{x.c>0?fmtCur(x.r).replace('R$ ',''):''}</div>
-              <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:x.isWe?C.border:x.d===TODAY_STR?C.accent2:C.accent,borderRadius:3,opacity:x.isWe?.4:1}}/>
-              <div style={{fontSize:7,fontWeight:x.d===TODAY_STR?700:400,color:x.isWe?C.border:x.d===TODAY_STR?C.accent2:C.muted}}>{x.c||''}</div>
-              <div style={{fontSize:6,color:x.isWe?C.border:C.muted}}>{x.label}</div>
-              <div style={{fontSize:6,color:x.isWe?C.border:C.muted,fontWeight:x.isBD?600:400}}>{x.wd}</div>
+        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:20}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>📅 Digitações Diárias — Últimos 30 dias</div>
+          <div style={{display:'flex',gap:2,alignItems:'end',height:200}}>
+            {byDay.map(x=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?4:0):0;return<div key={x.d} style={{flex:x.isWe?'0 0 8px':'1',display:'flex',flexDirection:'column',alignItems:'center',gap:2,minWidth:0}}>
+              <div style={{fontSize:7,color:C.muted,whiteSpace:'nowrap',overflow:'hidden'}}>{x.c>0&&!x.isWe?fmtCur(x.r).replace('R$ ',''):''}</div>
+              <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:x.isWe?(x.c?C.border+'88':'transparent'):x.d===TODAY_STR?C.accent2:C.accent,borderRadius:3,opacity:x.isWe?.3:1}}/>
+              <div style={{fontSize:8,fontWeight:x.d===TODAY_STR?700:400,color:x.isWe?C.border:x.d===TODAY_STR?C.accent2:C.muted}}>{x.c||''}</div>
+              <div style={{fontSize:7,color:x.isWe?C.border:C.muted}}>{x.label}</div>
+              <div style={{fontSize:6,color:x.isWe?C.border:C.muted,fontWeight:!x.isWe?600:400}}>{x.wd}</div>
             </div>})}
           </div>
         </div>
@@ -635,18 +637,26 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       {/* PRODUÇÃO 12 MESES */}
       {prodYear.length>0&&(()=>{
         const y=NOW.getFullYear(),mo=NOW.getMonth()
-        const months=[];for(let i=11;i>=0;i--){const d=new Date(y,mo-i,1);months.push({key:d.toISOString().slice(0,7),label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',''),m:d.getMonth(),y:d.getFullYear()})}
+        const months=[];for(let i=11;i>=0;i--){const d=new Date(y,mo-i,1);months.push({key:localDate(d).slice(0,7),label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',''),m:d.getMonth(),y:d.getFullYear()})}
         const byMonth={};prodYear.forEach(o=>{const k=(o.crcCliente||'').slice(0,7);if(!byMonth[k])byMonth[k]={c:0,r:0};byMonth[k].c++;byMonth[k].r+=(o.vrBruto||0)})
         const data=months.map(m=>({...m,...(byMonth[m.key]||{c:0,r:0})}))
         const maxR=Math.max(...data.map(x=>x.r),1)
-        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
-          <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📊 Produção — 12 Meses (CRC)</div>
-          <div style={{display:'flex',gap:4,alignItems:'end',height:160}}>
-            {data.map((x,i)=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?3:0):0;const isCur=i===data.length-1;return<div key={x.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+        const totalR=data.reduce((s,x)=>s+x.r,0),totalC=data.reduce((s,x)=>s+x.c,0)
+        const avgR=totalR/12
+        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:20}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <span style={{fontSize:13,fontWeight:700}}>📊 Produção — 12 Meses (CRC)</span>
+            <div style={{display:'flex',gap:16}}>
+              <span style={{fontSize:10,color:C.muted}}>Total: <strong style={{color:C.accent2}}>{fmtCur(totalR)}</strong> ({totalC} ops)</span>
+              <span style={{fontSize:10,color:C.muted}}>Média: <strong style={{color:C.accent}}>{fmtCur(avgR)}</strong>/mês</span>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:4,alignItems:'end',height:240}}>
+            {data.map((x,i)=>{const h=maxR>0?Math.max(x.r/maxR*100,x.c?3:0):0;const isCur=i===data.length-1;return<div key={x.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
               <div style={{fontSize:8,fontWeight:600,color:isCur?C.accent2:C.accent}}>{x.r>0?fmtCur(x.r).replace('R$ ',''):''}</div>
               <div style={{width:'100%',height:h+'%',minHeight:x.c?3:0,background:isCur?'linear-gradient(180deg,'+C.accent2+','+C.accent+')':C.accent,borderRadius:4,opacity:isCur?1:.7}}/>
-              <div style={{fontSize:9,fontWeight:700,color:isCur?C.accent2:C.text}}>{x.c||'—'}</div>
-              <div style={{fontSize:7,color:isCur?C.accent2:C.muted,fontWeight:isCur?700:400,textTransform:'uppercase'}}>{x.label}</div>
+              <div style={{fontSize:10,fontWeight:700,color:isCur?C.accent2:C.text}}>{x.c||'—'}</div>
+              <div style={{fontSize:8,color:isCur?C.accent2:C.muted,fontWeight:isCur?700:400,textTransform:'uppercase'}}>{x.label}</div>
             </div>})}
           </div>
         </div>
@@ -1066,7 +1076,7 @@ export default function App(){
       })
     }
     const day=NOW.getDate(),y=NOW.getFullYear(),mo=NOW.getMonth()
-    const propRange=(mBack)=>{const f=new Date(y,mo-mBack,1).toISOString().split('T')[0];const t=new Date(y,mo-mBack,day).toISOString().split('T')[0];return[f,t]}
+    const propRange=(mBack)=>{const f=localDate(new Date(y,mo-mBack,1));const t=localDate(new Date(y,mo-mBack,day));return[f,t]}
     fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{})
     fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})
     fetchProd('mes').then(d=>setCurProd(d)).catch(()=>{})
@@ -1075,8 +1085,8 @@ export default function App(){
     const[pf2,pt2]=propRange(2);fetchProd('custom',null,pf2,pt2).then(d=>setM2Prop(d)).catch(()=>{})
     const[pf3,pt3]=propRange(3);fetchProd('custom',null,pf3,pt3).then(d=>setM3Prop(d)).catch(()=>{})
     // 12 meses de produção
-    const y12f=new Date(y,mo-11,1).toISOString().split('T')[0]
-    const y12t=new Date(y,mo+1,0).toISOString().split('T')[0]
+    const y12f=localDate(new Date(y,mo-11,1))
+    const y12t=localDate(new Date(y,mo+1,0))
     fetchProd('custom',null,y12f,y12t).then(d=>setProdYear(d)).catch(()=>{})
   },[user])
   // Filter by team - stable refs when no filter
