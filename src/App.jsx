@@ -27,13 +27,14 @@ const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cl
 const PERIODS=(()=>{const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>localDate(new Date(a,b,1)),e=(a,b)=>localDate(new Date(a,b+1,0));return{mes:{n:'Mês Atual',f:d(y,m),t:e(y,m)},ant:{n:'Mês Anterior',f:d(y,m-1),t:e(y,m-1)},tri:{n:'Trimestre',f:d(y,m-2),t:e(y,m)},sem:{n:'Semestre',f:d(y,m-5),t:e(y,m)},ano:{n:String(y),f:y+'-01-01',t:y+'-12-31'},tudo:{n:'Tudo',f:'2000-01-01',t:'2099-12-31'}}})()
 
 /* ═══ SERVER-SIDE FETCH ═══ */
+const SEL='id,banco,cpf,cliente,proposta,data,vr_bruto,vr_liquido,vr_repasse,vr_parcela,operacao,situacao,situacao_banco,convenio,agente,crc_cliente,data_nosso_credito'
 async function fetchOps(per,onProgress,customDf,customDt){
   let df,dt
   if(per==='custom'){df=customDf||'2000-01-01';dt=customDt||'2099-12-31'}
   else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
-  const PAGE=1000;let all=[],from=0
+  const PAGE=5000;let all=[],from=0
   while(true){
-    let q=supabase.from('digitacoes').select('*').range(from,from+PAGE-1)
+    let q=supabase.from('digitacoes').select(SEL).range(from,from+PAGE-1)
     if(per!=='tudo')q=q.gte('data',df).lte('data',dt)
     const{data,error}=await q
     if(error||!data||data.length===0)break
@@ -48,9 +49,9 @@ async function fetchProd(per,onProgress,customDf,customDt){
   let df,dt
   if(per==='custom'){df=customDf||'2000-01-01';dt=customDt||'2099-12-31'}
   else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
-  const PAGE=1000;let all=[],from=0
+  const PAGE=5000;let all=[],from=0
   while(true){
-    let q=supabase.from('digitacoes').select('*')
+    let q=supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
       .range(from,from+PAGE-1)
     if(per!=='tudo')q=q.gte('crc_cliente',df).lte('crc_cliente',dt)
@@ -65,9 +66,9 @@ async function fetchProd(per,onProgress,customDf,customDt){
 
 /* ═══ FETCH RECEIVABLES — all with CRC filled ═══ */
 async function fetchReceb(){
-  const PAGE=1000;let all=[],from=0
+  const PAGE=5000;let all=[],from=0
   while(true){
-    const{data,error}=await supabase.from('digitacoes').select('*')
+    const{data,error}=await supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
       .not('crc_cliente','is',null)
       .range(from,from+PAGE-1)
@@ -1073,6 +1074,8 @@ export default function App(){
   const[m2Prop,setM2Prop]=useState([]),[m3Prop,setM3Prop]=useState([])
   const[prodYear,setProdYear]=useState([])
   const[myAgents,setMyAgents]=useState(null)
+  const[refreshKey,setRefreshKey]=useState(0)
+  const refreshAll=()=>setRefreshKey(k=>k+1)
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return
     // Load agent list for supervisor
@@ -1094,7 +1097,7 @@ export default function App(){
     const y12f=localDate(new Date(y,mo-11,1))
     const y12t=localDate(new Date(y,mo+1,0))
     fetchProd('custom',null,y12f,y12t).then(d=>setProdYear(d)).catch(()=>{})
-  },[user])
+  },[user,refreshKey])
   // Filter by team - stable refs when no filter
   const tCurOps=myAgents?curOps.filter(o=>myAgents.has(o.agente)):curOps
   const tPrevOps=myAgents?prevOps.filter(o=>myAgents.has(o.agente)):prevOps
@@ -1106,7 +1109,7 @@ export default function App(){
   const tProdYear=myAgents?prodYear.filter(o=>myAgents.has(o.agente)):prodYear
 
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||''};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
-  async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb))}
+  async function handleImport(batch){const{error}=await supabase.from('digitacoes').upsert(batch.map(toDb),{onConflict:'proposta,banco',ignoreDuplicates:false});if(error)await supabase.from('digitacoes').insert(batch.map(toDb));refreshAll()}
 
   if(!user)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:C.bg,fontFamily:'Outfit,sans-serif',color:C.text}}><form onSubmit={handleLogin} style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',width:'95%',maxWidth:380}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800,margin:0}}>OpsManager</h1></div><p style={{color:C.muted,fontSize:12,marginBottom:24}}>Gestão de Digitações</p>{loginError&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{loginError}</div>}<div style={{marginBottom:8}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input name="email" type="email" required placeholder="seu@email.com" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><div style={{marginBottom:16}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input name="senha" type="password" required placeholder="Sua senha" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><button type="submit" style={{width:'100%',padding:'12px 0',fontSize:14,borderRadius:10,border:'none',background:C.accent,color:'#fff',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>Entrar</button></form></div>
 
@@ -1122,7 +1125,7 @@ export default function App(){
         <div style={{fontSize:8,color:C.accent2,marginTop:4,marginLeft:33}}>● Supabase</div>
       </div>
       <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>{nav.map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}</nav>
-      <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:2}}>{user.perfil}{user.cod_supervisor?' · Equipe':''}</div>{myAgents&&<div style={{fontSize:8,color:C.accent,marginBottom:2}}>👥 {myAgents.size} parceiros</div>}<button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div>
+      <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:2}}>{user.perfil}{user.cod_supervisor?' · Equipe':''}</div>{myAgents&&<div style={{fontSize:8,color:C.accent,marginBottom:2}}>👥 {myAgents.size} parceiros</div>}<div style={{display:'flex',gap:8}}><button onClick={refreshAll} style={{fontSize:9,color:C.accent,background:'none',border:'none',cursor:'pointer',padding:0}}>🔄 Atualizar</button><button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div></div>
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
