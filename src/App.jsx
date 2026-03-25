@@ -34,13 +34,15 @@ async function fetchOps(per,onProgress,customDf,customDt){
   else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
   const PAGE=1000;let all=[],from=0
   while(true){
-    let q=supabase.from('digitacoes').select(SEL).range(from,from+PAGE-1)
+    let q=supabase.from('digitacoes').select(SEL).order('id').range(from,from+PAGE-1)
     if(per!=='tudo')q=q.gte('data',df).lte('data',dt)
     const{data,error}=await q
-    if(error||!data||data.length===0)break
+    if(error){console.error('fetchOps err:',error);break}
+    if(!data||data.length===0)break
     all=all.concat(data);if(onProgress)onProgress(all.length)
     if(data.length<PAGE)break;from+=PAGE
   }
+  console.log(`fetchOps(${per}) ${df}→${dt}: ${all.length} rows`)
   return all.map(fromDb)
 }
 
@@ -53,7 +55,7 @@ async function fetchProd(per,onProgress,customDf,customDt){
   while(true){
     let q=supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
-      .range(from,from+PAGE-1)
+      .order('id').range(from,from+PAGE-1)
     if(per!=='tudo')q=q.gte('crc_cliente',df).lte('crc_cliente',dt)
     const{data,error}=await q
     if(error){console.error('fetchProd err:',error);break}
@@ -61,6 +63,7 @@ async function fetchProd(per,onProgress,customDf,customDt){
     all=all.concat(data);if(onProgress)onProgress(all.length)
     if(data.length<PAGE)break;from+=PAGE
   }
+  console.log(`fetchProd(${per}) ${df}→${dt}: ${all.length} rows`)
   return all.map(fromDb)
 }
 
@@ -71,12 +74,13 @@ async function fetchReceb(){
     const{data,error}=await supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
       .not('crc_cliente','is',null)
-      .range(from,from+PAGE-1)
+      .order('id').range(from,from+PAGE-1)
     if(error){console.error('fetchReceb err:',error);break}
     if(!data||!data.length)break
     all=all.concat(data)
     if(data.length<PAGE)break;from+=PAGE
   }
+  console.log(`fetchReceb: ${all.length} rows`)
   return all.map(fromDb)
 }
 
@@ -468,11 +472,19 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
   // Nomes dos meses para comparativo
   const mName=(back)=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-back,1);return d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()}
-  // HOJE + ONTEM
-  const TODAY_STR=localDate(NOW)
-  const YESTERDAY=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-1);return localDate(d)})()
-  const ANTEONTEM=(()=>{const d=new Date(NOW);d.setDate(d.getDate()-2);return localDate(d)})()
+  // HOJE + ONTEM — use fresh date (not module-level NOW)
+  const now=new Date()
+  const TODAY_STR=localDate(now)
+  const YESTERDAY=(()=>{const d=new Date(now);d.setDate(d.getDate()-1);return localDate(d)})()
+  const ANTEONTEM=(()=>{const d=new Date(now);d.setDate(d.getDate()-2);return localDate(d)})()
   const tOps=curOps.filter(o=>o.data===TODAY_STR),yOps=curOps.filter(o=>o.data===YESTERDAY),aaOps=curOps.filter(o=>o.data===ANTEONTEM)
+  // Diagnostic — check in browser DevTools console
+  if(curOps.length>0){
+    const dates=[...new Set(curOps.map(o=>o.data))].sort()
+    console.log('📊 DIAG: TODAY='+TODAY_STR+' YESTERDAY='+YESTERDAY+' curOps='+curOps.length+' today='+tOps.length+' yesterday='+yOps.length)
+    console.log('📊 DIAG: Datas no curOps:',dates.slice(-5).join(', '),'(últimas 5)')
+    if(tOps.length===0)console.log('📊 DIAG: Amostra curOps[0].data=',curOps[0]?.data,'tipo=',typeof curOps[0]?.data)
+  }
   const tR2=tOps.reduce((s,o)=>s+(o.vrBruto||0),0),yR=yOps.reduce((s,o)=>s+(o.vrBruto||0),0),aaR=aaOps.reduce((s,o)=>s+(o.vrBruto||0),0)
   const yFin=yOps.filter(isFin),yEst=yOps.filter(isEst)
   // Top parceiros/bancos HOJE
@@ -492,7 +504,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       <h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
-      <div style={{fontSize:10,color:C.muted}}>{count} digitações no período</div>
+      <div style={{fontSize:10,color:C.muted}}>{count} digitações no período · curOps: {curOps.length} · curProd: {curProd.length} · hoje({TODAY_STR}): {tOps.length} · ontem({YESTERDAY}): {yOps.length}</div>
 
       {/* HOJE + ONTEM */}
       <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
