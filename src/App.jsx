@@ -32,7 +32,7 @@ async function fetchOps(per,onProgress,customDf,customDt){
   let df,dt
   if(per==='custom'){df=customDf||'2000-01-01';dt=customDt||'2099-12-31'}
   else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
-  const PAGE=5000;let all=[],from=0
+  const PAGE=1000;let all=[],from=0
   while(true){
     let q=supabase.from('digitacoes').select(SEL).range(from,from+PAGE-1)
     if(per!=='tudo')q=q.gte('data',df).lte('data',dt)
@@ -49,7 +49,7 @@ async function fetchProd(per,onProgress,customDf,customDt){
   let df,dt
   if(per==='custom'){df=customDf||'2000-01-01';dt=customDt||'2099-12-31'}
   else{const r=PERIODS[per]||PERIODS.tudo;df=r.f;dt=r.t}
-  const PAGE=5000;let all=[],from=0
+  const PAGE=1000;let all=[],from=0
   while(true){
     let q=supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
@@ -66,7 +66,7 @@ async function fetchProd(per,onProgress,customDf,customDt){
 
 /* ═══ FETCH RECEIVABLES — all with CRC filled ═══ */
 async function fetchReceb(){
-  const PAGE=5000;let all=[],from=0
+  const PAGE=1000;let all=[],from=0
   while(true){
     const{data,error}=await supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
