@@ -249,6 +249,7 @@ function Parceiros({curOps,curProd,myAgents}){
     <div style={{display:'flex',gap:6,marginBottom:4}}>
       <button onClick={()=>sTab('lista')} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab==='lista'?C.accent:C.border),background:tab==='lista'?C.abg:'transparent',color:tab==='lista'?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:tab==='lista'?600:400}}>📋 Lista</button>
       <button onClick={()=>sTab('arvore')} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab==='arvore'?C.accent:C.border),background:tab==='arvore'?C.abg:'transparent',color:tab==='arvore'?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:tab==='arvore'?600:400}}>🌳 Árvore de Gestão</button>
+      <button onClick={()=>sTab('analise')} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab==='analise'?C.accent:C.border),background:tab==='analise'?C.abg:'transparent',color:tab==='analise'?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:tab==='analise'?600:400}}>📊 Análise</button>
     </div>
     {tab==='lista'&&<>
     <input value={se} onChange={e=>sSe(e.target.value)} placeholder="Buscar parceiro..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none'}}/>
@@ -337,8 +338,135 @@ function Parceiros({curOps,curProd,myAgents}){
         </div>}
       </div>
     })()}
+
+    {/* ABA ANÁLISE */}
+    {tab==='analise'&&!loading&&(()=>{
+      const ativos=list.filter(p=>p.ativo),inativos=list.filter(p=>!p.ativo)
+      // Classificar por atividade
+      const comDig=[],semDig=[],comProd=[],semProd=[]
+      const semTel=[],semEmail=[],semSup=[],cadIncompleto=[]
+      const acao=[]
+      ativos.forEach(p=>{
+        const pr=getProd(p.nome)
+        if(pr.dig>0)comDig.push({...p,pr});else semDig.push({...p,pr})
+        if(pr.prod>0)comProd.push({...p,pr});else semProd.push({...p,pr})
+        if(!p.telefone)semTel.push(p)
+        if(!p.email)semEmail.push(p)
+        if(!p.supervisor&&!p.cod_supervisor)semSup.push(p)
+        if(!p.telefone||!p.email)cadIncompleto.push(p)
+        // Sugestões de ação
+        if(pr.dig===0&&pr.prod===0)acao.push({...p,pr,tipo:'🔴 Sem Atividade',msg:'Nenhuma digitação ou produção no mês. Contatar para verificar interesse.'})
+        else if(pr.dig>0&&pr.prod===0)acao.push({...p,pr,tipo:'🟡 Sem Conversão',msg:`${pr.dig} digitações sem produção. Acompanhar status das propostas.`})
+        else if(pr.dig>0&&pr.prod>0){const cv=pr.prod/pr.dig*100;if(cv<25)acao.push({...p,pr,tipo:'🟠 Baixa Conversão',msg:`Conversão ${cv.toFixed(0)}% — verificar qualidade das digitações.`})}
+      })
+      // Inativos com potencial
+      const inativosPot=inativos.filter(p=>{const pr=getProd(p.nome);return pr.dig>0||pr.prod>0}).map(p=>({...p,pr:getProd(p.nome)}))
+      // Totals
+      const totalBase=ativos.reduce((s,p)=>s+getProd(p.nome).vl,0)
+      const totalProd=ativos.reduce((s,p)=>s+getProd(p.nome).vr,0)
+      const cvGeral=comDig.length?((comProd.length/comDig.length)*100):0
+
+      return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        {/* RESUMO */}
+        <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Stat label="Total Cadastrados" value={list.length} sub={`${ativos.length} ativos · ${inativos.length} inativos`}/>
+          <Stat label="Com Digitação" value={comDig.length} sub={fmtCur(totalBase)} color={C.accent}/>
+          <Stat label="Com Produção" value={comProd.length} sub={fmtCur(totalProd)} color={C.accent2}/>
+          <Stat label="Sem Atividade" value={semDig.length} color={C.danger} sub={`${ativos.length?((semDig.length/ativos.length)*100).toFixed(0):0}% dos ativos`}/>
+          <Stat label="Cadastro Incompleto" value={cadIncompleto.length} color={C.warn}/>
+        </div>
+
+        {/* INDICADORES */}
+        <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📊 Funil do Mês</div>
+            {[{l:'Cadastrados Ativos',v:ativos.length,c:C.text,pct:100},
+              {l:'Com Digitação',v:comDig.length,c:C.accent,pct:ativos.length?(comDig.length/ativos.length*100):0},
+              {l:'Com Produção',v:comProd.length,c:C.accent2,pct:ativos.length?(comProd.length/ativos.length*100):0}
+            ].map(x=><div key={x.l} style={{marginBottom:8}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,marginBottom:2}}><span>{x.l}</span><span style={{fontWeight:700,color:x.c}}>{x.v} ({x.pct.toFixed(0)}%)</span></div>
+              <div style={{height:6,background:C.bg,borderRadius:3}}><div style={{height:'100%',background:x.c,borderRadius:3,width:x.pct+'%'}}/></div>
+            </div>)}
+          </div>
+
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>⚠ Pendências Cadastrais</div>
+            {[{l:'Sem Telefone',v:semTel.length,c:C.danger},
+              {l:'Sem Email',v:semEmail.length,c:C.warn},
+              {l:'Sem Supervisor',v:semSup.length,c:C.info},
+              {l:'Inativos',v:inativos.length,c:C.muted}
+            ].map(x=><div key={x.l} style={{display:'flex',justifyContent:'space-between',fontSize:11,padding:'5px 0',borderBottom:'1px solid '+C.border}}>
+              <span>{x.l}</span><span style={{fontWeight:700,color:x.c}}>{x.v}</span>
+            </div>)}
+          </div>
+
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>🏆 Top Produtores</div>
+            {ativos.sort((a,b)=>getProd(b.nome).vr-getProd(a.nome).vr).slice(0,7).map((p,i)=>{const pr=getProd(p.nome);return pr.prod?<div key={p.id} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'3px 0'}}>
+              <span style={{color:i<3?C.accent2:C.text}}>{i+1}. {p.nome}</span>
+              <span style={{fontWeight:600,color:C.accent2}}>{fmtCur(pr.vr)}</span>
+            </div>:null}).filter(Boolean)}
+          </div>
+        </div>
+
+        {/* SUGESTÕES DE AÇÃO */}
+        <div style={{background:C.card,border:'1px solid '+C.danger+'33',borderRadius:14,padding:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
+            <span style={{fontSize:13,fontWeight:700}}>🎯 Sugestões de Ação — {acao.length} parceiros</span>
+            <span style={{fontSize:10,color:C.muted}}>Ativos sem resultado ou com baixa performance</span>
+          </div>
+          <div style={{overflowX:'auto',maxHeight:300}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+            <thead><tr style={{background:C.surface}}>{['Status','Parceiro','Telefone','Supervisor','Dig.','Prod.','Ação Sugerida'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+            <tbody>{acao.sort((a,b)=>{const ord={'🔴 Sem Atividade':0,'🟡 Sem Conversão':1,'🟠 Baixa Conversão':2};return(ord[a.tipo]||9)-(ord[b.tipo]||9)}).slice(0,50).map(a=><tr key={a.id} style={{borderBottom:'1px solid '+C.border}}>
+              <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{a.tipo}</td>
+              <td style={{padding:'5px 8px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.nome}</td>
+              <td style={{padding:'5px 8px'}}>{a.telefone||<span style={{color:C.danger}}>sem tel</span>}</td>
+              <td style={{padding:'5px 8px',fontSize:9}}>{a.supervisor||'—'}</td>
+              <td style={{padding:'5px 8px',textAlign:'center'}}>{a.pr.dig}</td>
+              <td style={{padding:'5px 8px',textAlign:'center',color:a.pr.prod?C.accent2:C.danger}}>{a.pr.prod}</td>
+              <td style={{padding:'5px 8px',fontSize:9,color:C.muted,maxWidth:200}}>{a.msg}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </div>
+
+        {/* INATIVOS COM POTENCIAL */}
+        {inativosPot.length>0&&<div style={{background:C.card,border:'1px solid '+C.warn+'33',borderRadius:14,padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>♻ Inativos com Produção Recente — Reativar? ({inativosPot.length})</div>
+          <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+            <thead><tr style={{background:C.surface}}>{['Parceiro','Telefone','Email','Dig.','Produção','Supervisor'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+            <tbody>{inativosPot.sort((a,b)=>b.pr.vr-a.pr.vr).map(p=><tr key={p.id} style={{borderBottom:'1px solid '+C.border}}>
+              <td style={{padding:'5px 8px',fontWeight:600}}>{p.nome}</td>
+              <td style={{padding:'5px 8px'}}>{p.telefone||'—'}</td>
+              <td style={{padding:'5px 8px'}}>{p.email||'—'}</td>
+              <td style={{padding:'5px 8px',textAlign:'center'}}>{p.pr.dig}</td>
+              <td style={{padding:'5px 8px',fontWeight:600,color:C.accent2}}>{p.pr.prod?fmtCur(p.pr.vr):'—'}</td>
+              <td style={{padding:'5px 8px',fontSize:9}}>{p.supervisor||'—'}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </div>}
+
+        {/* PARCEIROS POR FUNÇÃO */}
+        <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>👥 Por Função</div>
+            {(()=>{const m={};list.forEach(p=>{const f=p.funcao||'SEM FUNÇÃO';if(!m[f])m[f]={t:0,a:0,d:0,p:0};m[f].t++;if(p.ativo)m[f].a++;const pr=getProd(p.nome);m[f].d+=pr.dig;m[f].p+=pr.prod});return Object.entries(m).sort((a,b)=>b[1].t-a[1].t).map(([f,d])=><div key={f} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'4px 0',borderBottom:'1px solid '+C.border}}>
+              <span><Badge text={f} color={f==='AGENTE'?C.accent:f==='INDICADO'?C.info:f==='GERENTE COMERCIAL'?C.accent2:C.muted}/></span>
+              <span style={{color:C.muted}}>{d.a}/{d.t} ativos · {d.d} dig · {d.p} prod</span>
+            </div>)})()}
+          </div>
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📍 Por Supervisor</div>
+            {(()=>{const m={};list.filter(p=>p.ativo).forEach(p=>{const s=p.supervisor||'Sem Supervisor';if(!m[s])m[s]={t:0,d:0,p:0};m[s].t++;const pr=getProd(p.nome);m[s].d+=pr.dig;m[s].p+=pr.prod});return Object.entries(m).sort((a,b)=>b[1].p-a[1].p).slice(0,10).map(([s,d])=>{const cv=d.d?(d.p/d.d*100):0;return<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'4px 0',borderBottom:'1px solid '+C.border}}>
+              <span style={{fontWeight:600}}>{s} <span style={{color:C.muted,fontWeight:400}}>({d.t})</span></span>
+              <span>{d.d} dig · {d.p} prod · <span style={{fontWeight:600,color:cv>=50?C.accent2:cv>=30?C.warn:C.danger}}>{cv.toFixed(0)}%</span></span>
+            </div>})})()}
+          </div>
+        </div>
+      </div>
+    })()}
   </div>
 }
+
 
 /* ═══ HOOK: useOps with custom date support ═══ */
 function useOps(defaultPer,myAgents){
