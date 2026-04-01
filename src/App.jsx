@@ -569,10 +569,10 @@ function PartnerHealth({name,ops,onClose}){
 }
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear}){
+function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear,dash,dailyData,monthlyData,todayDetail,yesterdayDetail,propComp}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[selP,setSelP]=useState(null)
-  // Computações
+  // Use fast RPC data when available, fallback to computed
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrBruto||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrBruto||0),0)
   const est=f.filter(isEst),pend=f.filter(isPend)
@@ -581,11 +581,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const sitArr=Object.entries(bySit).sort((a,b)=>b[1].c-a[1].c)
   const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0,fr:0};topM[a].r+=(o.vrBruto||0);topM[a].c++;if(isFin(o)){topM[a].fc++;topM[a].fr+=(o.vrBruto||0)}})
   const topP=Object.entries(topM).sort((a,b)=>b[1].fr-a[1].fr).slice(0,10)
-  // PRODUÇÃO = by CRC date
-  const curProdR=curProd.reduce((s,o)=>s+(o.vrBruto||0),0),prevProdR=prevProd.reduce((s,o)=>s+(o.vrBruto||0),0)
-  const prevPropR=(prevProdProp||[]).reduce((s,o)=>s+(o.vrBruto||0),0)
-  const m2PropR=(m2Prop||[]).reduce((s,o)=>s+(o.vrBruto||0),0)
-  const m3PropR=(m3Prop||[]).reduce((s,o)=>s+(o.vrBruto||0),0)
+  // PRODUÇÃO = by CRC date (now uses fast RPC when available)
   const varProp=prevPropR?((curProdR-prevPropR)/prevPropR*100):(curProdR>0?100:0)
   const varM2=m2PropR?((curProdR-m2PropR)/m2PropR*100):(curProdR>0?100:0)
   const varM3=m3PropR?((curProdR-m3PropR)/m3PropR*100):(curProdR>0?100:0)
@@ -600,31 +596,19 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
   // Nomes dos meses para comparativo
   const mName=(back)=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-back,1);return d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()}
-  // HOJE + ONTEM — use fresh date (not module-level NOW)
+  // HOJE + ONTEM — prefer fast RPC data
   const now=new Date()
   const TODAY_STR=localDate(now)
   const YESTERDAY=(()=>{const d=new Date(now);d.setDate(d.getDate()-1);return localDate(d)})()
-  const ANTEONTEM=(()=>{const d=new Date(now);d.setDate(d.getDate()-2);return localDate(d)})()
-  const tOps=curOps.filter(o=>o.data===TODAY_STR),yOps=curOps.filter(o=>o.data===YESTERDAY),aaOps=curOps.filter(o=>o.data===ANTEONTEM)
-  // Diagnostic — check in browser DevTools console
-  if(curOps.length>0){
-    const dates=[...new Set(curOps.map(o=>o.data))].sort()
-    console.log('📊 DIAG: TODAY='+TODAY_STR+' YESTERDAY='+YESTERDAY+' curOps='+curOps.length+' today='+tOps.length+' yesterday='+yOps.length)
-    console.log('📊 DIAG: Datas no curOps:',dates.slice(-5).join(', '),'(últimas 5)')
-    if(tOps.length===0)console.log('📊 DIAG: Amostra curOps[0].data=',curOps[0]?.data,'tipo=',typeof curOps[0]?.data)
-  }
-  const tR2=tOps.reduce((s,o)=>s+(o.vrBruto||0),0),yR=yOps.reduce((s,o)=>s+(o.vrBruto||0),0),aaR=aaOps.reduce((s,o)=>s+(o.vrBruto||0),0)
-  const yFin=yOps.filter(isFin),yEst=yOps.filter(isEst)
-  // Top parceiros/bancos HOJE
-  const tAgs={};tOps.forEach(o=>{const a=o.agente||'?';if(!tAgs[a])tAgs[a]={c:0,r:0};tAgs[a].c++;tAgs[a].r+=(o.vrBruto||0)})
-  const tTopP=Object.entries(tAgs).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
-  const tBancos={};tOps.forEach(o=>{const b=o.banco||'?';if(!tBancos[b])tBancos[b]={c:0,r:0};tBancos[b].c++;tBancos[b].r+=(o.vrBruto||0)})
-  const tTopB=Object.entries(tBancos).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
-  // Top parceiros/bancos ONTEM
-  const yAgs={};yOps.forEach(o=>{const a=o.agente||'?';if(!yAgs[a])yAgs[a]={c:0,r:0};yAgs[a].c++;yAgs[a].r+=(o.vrBruto||0)})
-  const yTopP=Object.entries(yAgs).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
-  const yBancos={};yOps.forEach(o=>{const b=o.banco||'?';if(!yBancos[b])yBancos[b]={c:0,r:0};yBancos[b].c++;yBancos[b].r+=(o.vrBruto||0)})
-  const yTopB=Object.entries(yBancos).sort((a,b)=>b[1].r-a[1].r).slice(0,5)
+  // Fast data from RPC
+  const td=todayDetail||{total_dig:0,total_val:0,parceiros:0,top_parceiros:null,top_bancos:null}
+  const yd=yesterdayDetail||{total_dig:0,total_val:0,parceiros:0,top_parceiros:null,top_bancos:null}
+  // Comparativo proporcional from RPC
+  const curProdR=dash?Number(dash.prod_total):curProd.reduce((s,o)=>s+(o.vrBruto||0),0)
+  const prevPropR=propComp?.m1?Number(propComp.m1.total):((prevProdProp||[]).reduce((s,o)=>s+(o.vrBruto||0),0))
+  const m2PropR=propComp?.m2?Number(propComp.m2.total):((m2Prop||[]).reduce((s,o)=>s+(o.vrBruto||0),0))
+  const m3PropR=propComp?.m3?Number(propComp.m3.total):((m3Prop||[]).reduce((s,o)=>s+(o.vrBruto||0),0))
+  const prevProdR=prevProd.reduce((s,o)=>s+(o.vrBruto||0),0)
   // Prod by situação
   const prodBySit={};curProd.forEach(o=>{const k=o.situacao||'?';if(!prodBySit[k])prodBySit[k]={c:0,r:0};prodBySit[k].c++;prodBySit[k].r+=(o.vrBruto||0)})
 
@@ -632,54 +616,43 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       <h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
-      <div style={{fontSize:10,color:C.muted}}>{count} digitações no período · curOps: {curOps.length} · curProd: {curProd.length} · hoje({TODAY_STR}): {tOps.length} · ontem({YESTERDAY}): {yOps.length}</div>
+      <div style={{fontSize:10,color:C.muted}}>{dash?`${dash.dig_count} digitações · ${dash.prod_count} produção`:count+' digitações no período'}</div>
 
       {/* HOJE + ONTEM */}
       <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <div style={{background:C.card,border:'1px solid '+C.accent2+'44',borderRadius:14,padding:16}}>
           <div style={{fontSize:13,fontWeight:700,color:C.accent2,marginBottom:10}}>🟢 Hoje — {fmtDate(TODAY_STR)}</div>
           <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{tOps.length}</div></div>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>VL.BASE</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{fmtCur(tR2)}</div></div>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:18,fontWeight:700}}>{[...new Set(tOps.map(o=>o.agente).filter(Boolean))].length}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{td.total_dig}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>VL.BASE</div><div style={{fontSize:18,fontWeight:700,color:C.accent}}>{fmtCur(td.total_val)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:18,fontWeight:700}}>{td.parceiros}</div></div>
           </div>
         </div>
         <div style={{background:C.card,border:'1px solid '+C.info+'44',borderRadius:14,padding:16}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
-            <span style={{fontSize:13,fontWeight:700,color:C.info}}>📋 Ontem — {fmtDate(YESTERDAY)}</span>
-            <span style={{fontSize:9,color:C.muted}}>anteontem: {aaOps.length} · {fmtCur(aaR)}</span>
-          </div>
+          <div style={{fontSize:13,fontWeight:700,color:C.info,marginBottom:10}}>📋 Ontem — {fmtDate(YESTERDAY)}</div>
           <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700}}>{yOps.length}</div><div style={{fontSize:9,color:yOps.length>=aaOps.length?C.accent2:C.danger}}>{yOps.length>=aaOps.length?'↑':'↓'} vs {aaOps.length}</div></div>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>VL.BASE</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(yR)}</div></div>
-            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>FINALIZADAS</div><div style={{fontSize:18,fontWeight:700,color:C.accent2}}>{yFin.length}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>DIGITADAS</div><div style={{fontSize:18,fontWeight:700}}>{yd.total_dig}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>VL.BASE</div><div style={{fontSize:18,fontWeight:700}}>{fmtCur(yd.total_val)}</div></div>
+            <div><div style={{fontSize:8,color:C.muted,fontWeight:600}}>PARCEIROS</div><div style={{fontSize:18,fontWeight:700}}>{yd.parceiros}</div></div>
           </div>
         </div>
       </div>
 
       {/* DETALHAMENTO HOJE + ONTEM */}
       <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        {tOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.accent2+'33',borderRadius:14,padding:16}}>
+        {td.total_dig>0&&<div style={{background:C.card,border:'1px solid '+C.accent2+'33',borderRadius:14,padding:16}}>
           <div style={{fontSize:12,fontWeight:700,color:C.accent2,marginBottom:10}}>🟢 Hoje — {fmtDate(TODAY_STR)}</div>
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>
-            {tTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}
-          </div>
-          <div>
-            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>
-            {tTopB.map(([b,d])=><div key={b} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b} ({d.c})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</span></div>)}
-          </div>
+          {td.top_parceiros&&<div style={{marginBottom:10}}><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>
+            {td.top_parceiros.map((p,i)=><div key={p.nome} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {p.nome} ({p.qtd})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(p.total)}</span></div>)}</div>}
+          {td.top_bancos&&<div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>
+            {td.top_bancos.map(b=><div key={b.nome} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b.nome} ({b.qtd})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(b.total)}</span></div>)}</div>}
         </div>}
-        {yOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.info+'33',borderRadius:14,padding:16}}>
+        {yd.total_dig>0&&<div style={{background:C.card,border:'1px solid '+C.info+'33',borderRadius:14,padding:16}}>
           <div style={{fontSize:12,fontWeight:700,color:C.info,marginBottom:10}}>📋 Ontem — {fmtDate(YESTERDAY)}</div>
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>
-            {yTopP.map(([a,d],i)=><div key={a} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {a} ({d.c})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</span></div>)}
-          </div>
-          <div>
-            <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>
-            {yTopB.map(([b,d])=><div key={b} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b} ({d.c})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(d.r)}</span></div>)}
-          </div>
+          {yd.top_parceiros&&<div style={{marginBottom:10}}><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Top Parceiros</div>
+            {yd.top_parceiros.map((p,i)=><div key={p.nome} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span style={{color:i<3?C.accent:C.text}}>{i+1}. {p.nome} ({p.qtd})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(p.total)}</span></div>)}</div>}
+          {yd.top_bancos&&<div><div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4}}>Bancos</div>
+            {yd.top_bancos.map(b=><div key={b.nome} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'2px 0'}}><span>{b.nome} ({b.qtd})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(b.total)}</span></div>)}</div>}
         </div>}
       </div>
 
@@ -757,9 +730,9 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       </div>
 
       {/* VISÃO DIÁRIA — últimos 30 dias */}
-      {curOps.length>0&&(()=>{
-        const days=[];for(let i=30;i>=0;i--){const d=new Date(NOW);d.setDate(d.getDate()-i);days.push(localDate(d))}
-        const byDay=days.map(d=>{const dOps=curOps.filter(o=>o.data===d);const dt=new Date(d+'T12:00:00');const dow=dt.getDay();const isWe=dow===0||dow===6;return{d,dow,isWe,c:dOps.length,r:dOps.reduce((s,o)=>s+(o.vrBruto||0),0),label:dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),wd:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][dow]}})
+      {dailyData.length>0&&(()=>{
+        const days=[];for(let i=30;i>=0;i--){const d=new Date(now);d.setDate(d.getDate()-i);days.push(localDate(d))}
+        const byDay=days.map(d=>{const row=dailyData.find(x=>x.dia===d);const dt=new Date(d+'T12:00:00');const dow=dt.getDay();const isWe=dow===0||dow===6;return{d,dow,isWe,c:row?Number(row.qtd):0,r:row?Number(row.total):0,label:dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),wd:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][dow]}})
         const maxR=Math.max(...byDay.map(x=>x.r),1)
         return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:20}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>📅 Digitações Diárias — Últimos 30 dias (Vl. Base)</div>
@@ -780,11 +753,10 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       })()}
 
       {/* PRODUÇÃO 12 MESES */}
-      {prodYear.length>0&&(()=>{
+      {monthlyData.length>0&&(()=>{
         const y=NOW.getFullYear(),mo=NOW.getMonth()
         const months=[];for(let i=11;i>=0;i--){const d=new Date(y,mo-i,1);months.push({key:localDate(d).slice(0,7),label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',''),m:d.getMonth(),y:d.getFullYear()})}
-        const byMonth={};prodYear.forEach(o=>{const k=(o.crcCliente||'').slice(0,7);if(!byMonth[k])byMonth[k]={c:0,r:0};byMonth[k].c++;byMonth[k].r+=(o.vrBruto||0)})
-        const data=months.map(m=>({...m,...(byMonth[m.key]||{c:0,r:0})}))
+        const data=months.map(m=>{const row=monthlyData.find(x=>x.mes===m.key);return{...m,c:row?Number(row.qtd):0,r:row?Number(row.total):0}})
         const maxR=Math.max(...data.map(x=>x.r),1)
         const totalR=data.reduce((s,x)=>s+x.r,0),totalC=data.reduce((s,x)=>s+x.c,0)
         const avgR=totalR/12
@@ -1216,34 +1188,56 @@ export default function App(){
   const[myAgents,setMyAgents]=useState(null)
   const[refreshKey,setRefreshKey]=useState(0)
   const refreshAll=()=>setRefreshKey(k=>k+1)
+  // Fast dashboard data via RPC
+  const[dash,setDash]=useState(null)
+  const[dailyData,setDailyData]=useState([])
+  const[monthlyData,setMonthlyData]=useState([])
+  const[todayDetail,setTodayDetail]=useState(null)
+  const[yesterdayDetail,setYesterdayDetail]=useState(null)
+  const[propComp,setPropComp]=useState({})
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return
-    // Load agent list for supervisor
     if(user.cod_supervisor){
       supabase.from('parceiros').select('nome').eq('cod_supervisor',user.cod_supervisor).then(({data})=>{
         if(data&&data.length)setMyAgents(new Set(data.map(p=>p.nome)))
       })
     }
-    const day=NOW.getDate(),y=NOW.getFullYear(),mo=NOW.getMonth()
-    const propRange=(mBack)=>{const f=localDate(new Date(y,mo-mBack,1));const t=localDate(new Date(y,mo-mBack,day));return[f,t]}
+    const now=new Date(),y=now.getFullYear(),mo=now.getMonth(),day=now.getDate()
+    const mesF=localDate(new Date(y,mo,1)),mesT=localDate(new Date(y,mo+1,0))
+    const antF=localDate(new Date(y,mo-1,1)),antT=localDate(new Date(y,mo,0))
+    const todayStr=localDate(now)
+    const yest=new Date(now);yest.setDate(yest.getDate()-1);const yesterdayStr=localDate(yest)
+    // 1. Dashboard summary — 1 query
+    supabase.rpc('dashboard_summary',{dt_from:mesF,dt_to:mesT,prev_from:antF,prev_to:antT}).then(({data})=>{if(data)setDash(typeof data==='string'?JSON.parse(data):data)}).catch(()=>{
+      // Fallback se RPC não existe ainda
+      fetchOps('mes').then(d=>setCurOps(d));fetchOps('ant').then(d=>setPrevOps(d))
+      fetchProd('mes').then(d=>setCurProd(d));fetchProd('ant').then(d=>setPrevProd(d))
+    })
+    // 2. Digitações diárias — 1 query
+    const d30=new Date(now);d30.setDate(d30.getDate()-30)
+    supabase.rpc('daily_stats',{dt_from:localDate(d30),dt_to:todayStr}).then(({data})=>{if(data)setDailyData(data)}).catch(()=>{})
+    // 3. Produção 12 meses — 1 query
+    const y12f=localDate(new Date(y,mo-11,1))
+    supabase.rpc('monthly_prod',{dt_from:y12f,dt_to:mesT}).then(({data})=>{if(data)setMonthlyData(data)}).catch(()=>{})
+    // 4. Hoje + Ontem — 2 queries
+    supabase.rpc('day_detail',{target_date:todayStr}).then(({data})=>{if(data)setTodayDetail(typeof data==='string'?JSON.parse(data):data)}).catch(()=>{})
+    supabase.rpc('day_detail',{target_date:yesterdayStr}).then(({data})=>{if(data)setYesterdayDetail(typeof data==='string'?JSON.parse(data):data)}).catch(()=>{})
+    // 5. Comparativo proporcional — 3 queries
+    const loadComp=async()=>{
+      const comp={}
+      for(let i=1;i<=3;i++){
+        const mDate=localDate(new Date(y,mo-i,1))
+        const{data}=await supabase.rpc('prod_proporcional',{target_month:mDate,ate_dia:day}).catch(()=>({data:null}))
+        if(data)comp['m'+i]=typeof data==='string'?JSON.parse(data):data
+      }
+      setPropComp(comp)
+    }
+    loadComp()
+    // Legacy fallback — carrega dados brutos para outras telas
     fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{})
     fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})
     fetchProd('mes').then(d=>setCurProd(d)).catch(()=>{})
     fetchProd('ant').then(d=>setPrevProd(d)).catch(()=>{})
-    const[pf1,pt1]=propRange(1);fetchProd('custom',null,pf1,pt1).then(d=>setPrevProdProp(d)).catch(()=>{})
-    const[pf2,pt2]=propRange(2);fetchProd('custom',null,pf2,pt2).then(d=>setM2Prop(d)).catch(()=>{})
-    const[pf3,pt3]=propRange(3);fetchProd('custom',null,pf3,pt3).then(d=>setM3Prop(d)).catch(()=>{})
-    // 12 meses de produção — fetch por mês para evitar timeout
-    const loadYear=async()=>{
-      const all=[]
-      for(let i=11;i>=0;i--){
-        const mf=localDate(new Date(y,mo-i,1))
-        const mt=localDate(new Date(y,mo-i+1,0))
-        try{const d=await fetchProd('custom',null,mf,mt);all.push(...d)}catch(e){}
-      }
-      setProdYear(all)
-    }
-    loadYear()
   },[user,refreshKey])
   // Filter by team - stable refs when no filter
   const tCurOps=myAgents?curOps.filter(o=>myAgents.has(o.agente)):curOps
@@ -1293,7 +1287,7 @@ export default function App(){
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
-      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} todayDetail={todayDetail} yesterdayDetail={yesterdayDetail} propComp={propComp}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents} onDone={refreshAll}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
