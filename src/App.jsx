@@ -1205,36 +1205,34 @@ export default function App(){
     const todayStr=localDate(now)
     const yest=new Date(now);yest.setDate(yest.getDate()-1);const yesterdayStr=localDate(yest)
     // 1. Dashboard summary — 1 query
-    supabase.rpc('dashboard_summary',{dt_from:mesF,dt_to:mesT,prev_from:antF,prev_to:antT}).then(({data})=>{if(data)setDash(typeof data==='string'?JSON.parse(data):data)}).catch(()=>{
-      // Fallback se RPC não existe ainda
-      fetchOps('mes').then(d=>setCurOps(d));fetchOps('ant').then(d=>setPrevOps(d))
-      fetchProd('mes').then(d=>setCurProd(d));fetchProd('ant').then(d=>setPrevProd(d))
+    supabase.rpc('dashboard_summary',{dt_from:mesF,dt_to:mesT,prev_from:antF,prev_to:antT}).then(({data,error})=>{
+      if(!error&&data)setDash(typeof data==='string'?JSON.parse(data):data)
     })
     // 2. Digitações diárias — 1 query
     const d30=new Date(now);d30.setDate(d30.getDate()-30)
-    supabase.rpc('daily_stats',{dt_from:localDate(d30),dt_to:todayStr}).then(({data})=>{if(data)setDailyData(data)}).catch(()=>{})
+    supabase.rpc('daily_stats',{dt_from:localDate(d30),dt_to:todayStr}).then(({data,error})=>{if(!error&&data)setDailyData(data)})
     // 3. Produção 12 meses — 1 query
     const y12f=localDate(new Date(y,mo-11,1))
-    supabase.rpc('monthly_prod',{dt_from:y12f,dt_to:mesT}).then(({data})=>{if(data)setMonthlyData(data)}).catch(()=>{})
+    supabase.rpc('monthly_prod',{dt_from:y12f,dt_to:mesT}).then(({data,error})=>{if(!error&&data)setMonthlyData(data)})
     // 4. Hoje + Ontem — 2 queries
-    supabase.rpc('day_detail',{target_date:todayStr}).then(({data})=>{if(data)setTodayDetail(typeof data==='string'?JSON.parse(data):data)}).catch(()=>{})
-    supabase.rpc('day_detail',{target_date:yesterdayStr}).then(({data})=>{if(data)setYesterdayDetail(typeof data==='string'?JSON.parse(data):data)}).catch(()=>{})
+    supabase.rpc('day_detail',{target_date:todayStr}).then(({data,error})=>{if(!error&&data)setTodayDetail(typeof data==='string'?JSON.parse(data):data)})
+    supabase.rpc('day_detail',{target_date:yesterdayStr}).then(({data,error})=>{if(!error&&data)setYesterdayDetail(typeof data==='string'?JSON.parse(data):data)})
     // 5. Comparativo proporcional — 3 queries
     const loadComp=async()=>{
       const comp={}
       for(let i=1;i<=3;i++){
         const mDate=localDate(new Date(y,mo-i,1))
-        const{data}=await supabase.rpc('prod_proporcional',{target_month:mDate,ate_dia:day}).catch(()=>({data:null}))
-        if(data)comp['m'+i]=typeof data==='string'?JSON.parse(data):data
+        const{data,error}=await supabase.rpc('prod_proporcional',{target_month:mDate,ate_dia:day})
+        if(!error&&data)comp['m'+i]=typeof data==='string'?JSON.parse(data):data
       }
       setPropComp(comp)
     }
     loadComp()
-    // Legacy fallback — carrega dados brutos para outras telas
-    fetchOps('mes').then(d=>setCurOps(d)).catch(()=>{})
-    fetchOps('ant').then(d=>setPrevOps(d)).catch(()=>{})
-    fetchProd('mes').then(d=>setCurProd(d)).catch(()=>{})
-    fetchProd('ant').then(d=>setPrevProd(d)).catch(()=>{})
+    // Legacy — carrega dados brutos para outras telas
+    fetchOps('mes').then(d=>setCurOps(d))
+    fetchOps('ant').then(d=>setPrevOps(d))
+    fetchProd('mes').then(d=>setCurProd(d))
+    fetchProd('ant').then(d=>setPrevProd(d))
   },[user,refreshKey])
   // Filter by team - stable refs when no filter
   const tCurOps=myAgents?curOps.filter(o=>myAgents.has(o.agente)):curOps
