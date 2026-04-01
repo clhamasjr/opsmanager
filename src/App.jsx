@@ -569,7 +569,7 @@ function PartnerHealth({name,ops,onClose}){
 }
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear,dash,dailyData,monthlyData,bizDays,propComp,weekCur,weekPrev}){
+function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear,dash,dailyData,monthlyData,bizDays,propComp,weekCur,weekPrev,bankWeekCur,bankWeekPrev,bankMonthly}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[selP,setSelP]=useState(null)
   // Use fast RPC data when available, fallback to computed
@@ -615,16 +615,15 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       {/* ÚLTIMOS 5 DIAS ÚTEIS */}
       {bizDays.length>0&&<>
         <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
-          {bizDays.map((d,i)=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;const label=dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'66':C.border),borderRadius:12,padding:12}}>
+          {bizDays.map((d,i)=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;const label=dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const hasMov=d.total_dig>0;return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'66':C.border),borderRadius:12,padding:12,opacity:hasMov?1:.5}}>
             <div style={{fontSize:10,fontWeight:700,color:isToday?C.accent2:C.info,marginBottom:6}}>{isToday?'🟢 Hoje':'📋'} {label}</div>
-            <div style={{fontSize:20,fontWeight:800,color:d.total_dig?C.text:C.muted}}>{d.total_dig||0}</div>
-            <div style={{fontSize:11,fontWeight:600,color:C.accent}}>{fmtCur(d.total_val||0)}</div>
-            <div style={{fontSize:9,color:C.muted}}>{d.parceiros||0} parceiros</div>
+            <div style={{fontSize:16,fontWeight:800,color:hasMov?C.accent:C.muted}}>{fmtCur(d.total_val||0)}</div>
+            <div style={{fontSize:10,color:C.muted}}>{d.total_dig||0} digitações · {d.parceiros||0} parceiros</div>
           </div>})}
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:10}}>
           {bizDays.filter(d=>d.total_dig>0).slice(0,3).map(d=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'33':C.border),borderRadius:14,padding:14}}>
-            <div style={{fontSize:11,fontWeight:700,color:isToday?C.accent2:C.info,marginBottom:8}}>{isToday?'🟢 Hoje':'📋'} — {fmtDate(d.date)}</div>
+            <div style={{fontSize:11,fontWeight:700,color:isToday?C.accent2:C.info,marginBottom:8}}>{isToday?'🟢 Hoje':'📋'} — {fmtDate(d.date)} · {fmtCur(d.total_val||0)}</div>
             {d.top_parceiros&&<div style={{marginBottom:8}}><div style={{fontSize:9,fontWeight:600,color:C.muted,marginBottom:3}}>Top Parceiros</div>
               {d.top_parceiros.map((p,j)=><div key={p.nome} style={{display:'flex',justifyContent:'space-between',fontSize:9,padding:'1px 0'}}><span style={{color:j<3?C.accent:C.text}}>{j+1}. {p.nome} ({p.qtd})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(p.total)}</span></div>)}</div>}
             {d.top_bancos&&<div><div style={{fontSize:9,fontWeight:600,color:C.muted,marginBottom:3}}>Bancos</div>
@@ -659,7 +658,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
               {caindo.length===0?<div style={{fontSize:10,color:C.muted}}>Nenhum parceiro caiu</div>:
               <div style={{maxHeight:200,overflowY:'auto'}}>{caindo.slice(0,15).map(r=><div key={r.nome} style={{display:'flex',justifyContent:'space-between',fontSize:9,padding:'3px 0',borderBottom:'1px solid '+C.border}}>
                 <span style={{maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.nome}</span>
-                <span><span style={{color:C.danger,fontWeight:600}}>{r.dig}</span> <span style={{color:C.muted}}>← {r.prevDig}</span> <span style={{color:C.danger,fontWeight:600}}>{r.var_dig.toFixed(0)}%</span></span>
+                <span><span style={{fontWeight:700,color:C.danger}}>{fmtCur(r.val)}</span> <span style={{color:C.muted,fontSize:8}}>({r.dig} dig)</span> <span style={{color:C.danger,fontWeight:600}}>{r.var_dig.toFixed(0)}%</span></span>
               </div>)}</div>}
             </div>
             <div style={{background:C.accent2+'08',border:'1px solid '+C.accent2+'22',borderRadius:10,padding:12}}>
@@ -667,14 +666,79 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
               {subindo.length===0?<div style={{fontSize:10,color:C.muted}}>Nenhum parceiro subiu</div>:
               <div style={{maxHeight:200,overflowY:'auto'}}>{subindo.slice(0,15).map(r=><div key={r.nome} style={{display:'flex',justifyContent:'space-between',fontSize:9,padding:'3px 0',borderBottom:'1px solid '+C.border}}>
                 <span style={{maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.nome}</span>
-                <span><span style={{color:C.accent2,fontWeight:600}}>{r.dig}</span> <span style={{color:C.muted}}>← {r.prevDig}</span> <span style={{color:C.accent2,fontWeight:600}}>+{r.var_dig.toFixed(0)}%</span></span>
+                <span><span style={{fontWeight:700,color:C.accent2}}>{fmtCur(r.val)}</span> <span style={{color:C.muted,fontSize:8}}>({r.dig} dig)</span> <span style={{color:C.accent2,fontWeight:600}}>+{r.var_dig.toFixed(0)}%</span></span>
               </div>)}</div>}
             </div>
           </div>
           {inativos.length>0&&<div style={{marginTop:10,background:C.warn+'08',border:'1px solid '+C.warn+'22',borderRadius:10,padding:12}}>
             <div style={{fontSize:11,fontWeight:700,color:C.warn,marginBottom:6}}>⚠ Pararam esta semana ({inativos.length})</div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:4}}>{inativos.slice(0,20).map(r=><span key={r.nome} style={{fontSize:9,background:C.warn+'15',border:'1px solid '+C.warn+'33',borderRadius:6,padding:'2px 8px'}}>{r.nome} <span style={{color:C.muted}}>({r.prevDig} ant.)</span></span>)}</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:4}}>{inativos.slice(0,20).map(r=><span key={r.nome} style={{fontSize:9,background:C.warn+'15',border:'1px solid '+C.warn+'33',borderRadius:6,padding:'2px 8px'}}>{r.nome} <span style={{color:C.muted}}>({fmtCur(r.prevVal)})</span></span>)}</div>
           </div>}
+        </div>
+      })()}
+
+      {/* VISÃO POR BANCO — Diária, Semanal, Mensal */}
+      {(bankWeekCur.length>0||bankMonthly.length>0)&&(()=>{
+        // Semanal por banco
+        const prevBankMap={};(bankWeekPrev||[]).forEach(b=>{prevBankMap[b.banco]={dig:Number(b.dig_count),val:Number(b.dig_total)}})
+        const bankRows=bankWeekCur.map(b=>{
+          const val=Number(b.dig_total),dig=Number(b.dig_count),prod=Number(b.prod_total),prodC=Number(b.prod_count)
+          const prev=prevBankMap[b.banco]||{dig:0,val:0}
+          const varVal=prev.val?((val-prev.val)/prev.val*100):(val>0?100:0)
+          return{banco:b.banco,val,dig,prod,prodC,prevVal:prev.val,prevDig:prev.dig,varVal}
+        }).sort((a,b)=>b.val-a.val)
+        // Mensal por banco — pivot
+        const meses=[...new Set(bankMonthly.map(r=>r.mes))].sort()
+        const bancoSet=[...new Set(bankMonthly.map(r=>r.banco))]
+        const bancoTotals={};bankMonthly.forEach(r=>{bancoTotals[r.banco]=(bancoTotals[r.banco]||0)+Number(r.dig_total)})
+        const topBancos=Object.entries(bancoTotals).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([b])=>b)
+        const monthMap={};bankMonthly.forEach(r=>{monthMap[r.mes+'|'+r.banco]=Number(r.dig_total)})
+        const mLabels=meses.map(m=>{const[y,mo]=m.split('-');return new Date(y,mo-1,1).toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()})
+
+        return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:14,fontWeight:800,marginBottom:12}}>🏦 Visão por Banco</div>
+
+          {/* SEMANAL */}
+          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Semana Atual vs Anterior</div>
+          <div style={{overflowX:'auto',marginBottom:16}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+              <thead><tr style={{background:C.surface}}>
+                {['Banco','Vl. Digitado','Dig.','Produção','Sem. Anterior','Var.'].map(h=><th key={h} style={{padding:'6px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{bankRows.slice(0,12).map(r=><tr key={r.banco} style={{borderBottom:'1px solid '+C.border}}>
+                <td style={{padding:'5px 10px',fontWeight:600}}>{r.banco}</td>
+                <td style={{padding:'5px 10px',fontWeight:700,color:C.accent}}>{fmtCur(r.val)}</td>
+                <td style={{padding:'5px 10px',color:C.muted}}>{r.dig}</td>
+                <td style={{padding:'5px 10px',fontWeight:600,color:r.prodC?C.accent2:C.muted}}>{r.prodC?fmtCur(r.prod):'—'}</td>
+                <td style={{padding:'5px 10px',color:C.muted}}>{r.prevVal?fmtCur(r.prevVal):'—'}</td>
+                <td style={{padding:'5px 10px',fontWeight:700,color:r.varVal>0?C.accent2:r.varVal<0?C.danger:C.muted}}>{r.prevVal?((r.varVal>0?'+':'')+r.varVal.toFixed(0)+'%'):'novo'}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+
+          {/* MENSAL — tabela pivot */}
+          {meses.length>1&&<>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Evolução Mensal (Top 8 Bancos)</div>
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+                <thead><tr style={{background:C.surface}}>
+                  <th style={{padding:'6px 10px',textAlign:'left',color:C.muted,fontSize:8}}>BANCO</th>
+                  {mLabels.map((l,i)=><th key={i} style={{padding:'6px 10px',textAlign:'right',color:i===mLabels.length-1?C.accent:C.muted,fontSize:8}}>{l}</th>)}
+                  <th style={{padding:'6px 10px',textAlign:'right',color:C.muted,fontSize:8}}>TOTAL</th>
+                </tr></thead>
+                <tbody>{topBancos.map(banco=><tr key={banco} style={{borderBottom:'1px solid '+C.border}}>
+                  <td style={{padding:'5px 10px',fontWeight:600,whiteSpace:'nowrap'}}>{banco}</td>
+                  {meses.map((m,i)=>{const v=monthMap[m+'|'+banco]||0;return<td key={m} style={{padding:'5px 10px',textAlign:'right',fontWeight:i===meses.length-1?700:400,color:v?C.text:C.muted}}>{v?fmtCur(v):'—'}</td>})}
+                  <td style={{padding:'5px 10px',textAlign:'right',fontWeight:700,color:C.accent}}>{fmtCur(bancoTotals[banco]||0)}</td>
+                </tr>)}</tbody>
+                <tfoot><tr style={{background:C.surface}}>
+                  <td style={{padding:'6px 10px',fontWeight:700}}>TOTAL</td>
+                  {meses.map(m=>{const t=bankMonthly.filter(r=>r.mes===m).reduce((s,r)=>s+Number(r.dig_total),0);return<td key={m} style={{padding:'6px 10px',textAlign:'right',fontWeight:700}}>{fmtCur(t)}</td>})}
+                  <td style={{padding:'6px 10px',textAlign:'right',fontWeight:700,color:C.accent2}}>{fmtCur(Object.values(bancoTotals).reduce((s,v)=>s+v,0))}</td>
+                </tr></tfoot>
+              </table>
+            </div>
+          </>}
         </div>
       })()}
 
@@ -1218,6 +1282,9 @@ export default function App(){
   const[propComp,setPropComp]=useState({})
   const[weekCur,setWeekCur]=useState([])
   const[weekPrev,setWeekPrev]=useState([])
+  const[bankWeekCur,setBankWeekCur]=useState([])
+  const[bankWeekPrev,setBankWeekPrev]=useState([])
+  const[bankMonthly,setBankMonthly]=useState([])
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
   useEffect(()=>{if(!user)return
     if(user.cod_supervisor){
@@ -1269,6 +1336,22 @@ export default function App(){
       if(d2)setWeekPrev(d2)
     }
     loadWeek()
+    // 6. Bancos — semanal + mensal
+    const loadBanks=async()=>{
+      const dow=now.getDay()||7
+      const wStart=new Date(now);wStart.setDate(now.getDate()-(dow-1))
+      const wEnd=new Date(now)
+      const pwStart=new Date(wStart);pwStart.setDate(pwStart.getDate()-7)
+      const pwEnd=new Date(wStart);pwEnd.setDate(pwEnd.getDate()-1)
+      const{data:bw1}=await supabase.rpc('bank_stats',{dt_from:localDate(wStart),dt_to:localDate(wEnd)})
+      const{data:bw2}=await supabase.rpc('bank_stats',{dt_from:localDate(pwStart),dt_to:localDate(pwEnd)})
+      if(bw1)setBankWeekCur(bw1)
+      if(bw2)setBankWeekPrev(bw2)
+      const m6f=localDate(new Date(y,mo-5,1))
+      const{data:bm}=await supabase.rpc('bank_monthly',{dt_from:m6f,dt_to:mesT})
+      if(bm)setBankMonthly(bm)
+    }
+    loadBanks()
     // 5. Comparativo proporcional — 3 queries
     const loadComp=async()=>{
       const comp={}
@@ -1334,7 +1417,7 @@ export default function App(){
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
-      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} bizDays={bizDays} propComp={propComp} weekCur={weekCur} weekPrev={weekPrev}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} bizDays={bizDays} propComp={propComp} weekCur={weekCur} weekPrev={weekPrev} bankWeekCur={bankWeekCur} bankWeekPrev={bankWeekPrev} bankMonthly={bankMonthly}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents} onDone={refreshAll}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
