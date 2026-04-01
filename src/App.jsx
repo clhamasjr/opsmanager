@@ -581,10 +581,6 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const sitArr=Object.entries(bySit).sort((a,b)=>b[1].c-a[1].c)
   const topM={};f.forEach(o=>{const a=o.agente||'?';if(!topM[a])topM[a]={r:0,c:0,fc:0,fr:0};topM[a].r+=(o.vrBruto||0);topM[a].c++;if(isFin(o)){topM[a].fc++;topM[a].fr+=(o.vrBruto||0)}})
   const topP=Object.entries(topM).sort((a,b)=>b[1].fr-a[1].fr).slice(0,10)
-  // PRODUÇÃO = by CRC date (now uses fast RPC when available)
-  const varProp=prevPropR?((curProdR-prevPropR)/prevPropR*100):(curProdR>0?100:0)
-  const varM2=m2PropR?((curProdR-m2PropR)/m2PropR*100):(curProdR>0?100:0)
-  const varM3=m3PropR?((curProdR-m3PropR)/m3PropR*100):(curProdR>0?100:0)
   const DAY=NOW.getDate()
   const curDig=curOps.length,prevDig=prevOps.length,varDig=prevDig?((curDig-prevDig)/prevDig*100):(curDig>0?100:0)
   // Projeção by CRC
@@ -594,13 +590,11 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const bancoArr=Object.entries(byBanco).sort((a,b)=>b[1].r-a[1].r).slice(0,10)
   const vc=(v)=>v>0?'+'+v.toFixed(0)+'%':v.toFixed(0)+'%'
   const vCol=(v)=>v>0?C.accent2:v<-10?C.danger:C.warn
-  // Nomes dos meses para comparativo
   const mName=(back)=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-back,1);return d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()}
   // HOJE + ONTEM — prefer fast RPC data
   const now=new Date()
   const TODAY_STR=localDate(now)
   const YESTERDAY=(()=>{const d=new Date(now);d.setDate(d.getDate()-1);return localDate(d)})()
-  // Fast data from RPC
   const td=todayDetail||{total_dig:0,total_val:0,parceiros:0,top_parceiros:null,top_bancos:null}
   const yd=yesterdayDetail||{total_dig:0,total_val:0,parceiros:0,top_parceiros:null,top_bancos:null}
   // Comparativo proporcional from RPC
@@ -609,6 +603,9 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   const m2PropR=propComp?.m2?Number(propComp.m2.total):((m2Prop||[]).reduce((s,o)=>s+(o.vrBruto||0),0))
   const m3PropR=propComp?.m3?Number(propComp.m3.total):((m3Prop||[]).reduce((s,o)=>s+(o.vrBruto||0),0))
   const prevProdR=prevProd.reduce((s,o)=>s+(o.vrBruto||0),0)
+  const varProp=prevPropR?((curProdR-prevPropR)/prevPropR*100):(curProdR>0?100:0)
+  const varM2=m2PropR?((curProdR-m2PropR)/m2PropR*100):(curProdR>0?100:0)
+  const varM3=m3PropR?((curProdR-m3PropR)/m3PropR*100):(curProdR>0?100:0)
   // Prod by situação
   const prodBySit={};curProd.forEach(o=>{const k=o.situacao||'?';if(!prodBySit[k])prodBySit[k]={c:0,r:0};prodBySit[k].c++;prodBySit[k].r+=(o.vrBruto||0)})
 
