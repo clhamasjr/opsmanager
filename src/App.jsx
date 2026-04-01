@@ -445,6 +445,64 @@ function Parceiros({curOps,curProd,myAgents}){
           </table></div>
         </div>}
 
+        {/* PERFIL POR FAIXA DE PRODUÇÃO */}
+        {(()=>{
+          const faixas=[
+            {id:'elite',label:'🏆 Elite',min:100000,color:'#8B5CF6',bg:'#8B5CF610'},
+            {id:'ouro',label:'🥇 Ouro',min:50000,max:100000,color:C.accent2,bg:C.accent2+'10'},
+            {id:'prata',label:'🥈 Prata',min:20000,max:50000,color:C.accent,bg:C.accent+'10'},
+            {id:'bronze',label:'🥉 Bronze',min:5000,max:20000,color:C.warn,bg:C.warn+'10'},
+            {id:'inicial',label:'📗 Iniciante',min:1,max:5000,color:C.info,bg:C.info+'10'},
+            {id:'zero',label:'⚪ Sem Produção',min:0,max:0,color:C.muted,bg:C.surface}
+          ]
+          const ativosData=ativos.map(p=>{const pr=getProd(p.nome);return{...p,pr,vr:pr.vr||0}})
+          const faixaData=faixas.map(f=>{
+            const ps=f.id==='zero'?ativosData.filter(p=>p.vr===0):f.max?ativosData.filter(p=>p.vr>=f.min&&p.vr<f.max):ativosData.filter(p=>p.vr>=f.min)
+            const totalVal=ps.reduce((s,p)=>s+p.vr,0)
+            const totalDig=ps.reduce((s,p)=>s+p.pr.dig,0)
+            const avgVal=ps.length?totalVal/ps.length:0
+            const cv=totalDig?(ps.reduce((s,p)=>s+p.pr.prod,0)/totalDig*100):0
+            return{...f,count:ps.length,totalVal,totalDig,avgVal,cv,parceiros:ps.sort((a,b)=>b.vr-a.vr)}
+          })
+          const totalGeral=ativosData.reduce((s,p)=>s+p.vr,0)
+          return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:13,fontWeight:800,marginBottom:12}}>🎯 Perfil por Faixa de Produção</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8,marginBottom:14}}>
+              {faixaData.map(f=><div key={f.id} style={{background:f.bg,border:'1px solid '+f.color+'33',borderRadius:10,padding:10,textAlign:'center'}}>
+                <div style={{fontSize:10,fontWeight:700,color:f.color,marginBottom:4}}>{f.label}</div>
+                <div style={{fontSize:20,fontWeight:800}}>{f.count}</div>
+                <div style={{fontSize:10,fontWeight:600,color:f.color}}>{fmtCur(f.totalVal)}</div>
+                <div style={{fontSize:8,color:C.muted}}>{totalGeral?(f.totalVal/totalGeral*100).toFixed(0):0}% do total</div>
+              </div>)}
+            </div>
+            <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+              <thead><tr style={{background:C.surface}}>
+                {['Faixa','Qtd','Vl. Produção','% Total','Média/Parceiro','Digitações','Conversão'].map(h=><th key={h} style={{padding:'6px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{faixaData.map(f=><tr key={f.id} style={{borderBottom:'1px solid '+C.border}}>
+                <td style={{padding:'5px 10px',fontWeight:700,color:f.color}}>{f.label}</td>
+                <td style={{padding:'5px 10px',fontWeight:600}}>{f.count} <span style={{color:C.muted,fontWeight:400}}>({ativos.length?(f.count/ativos.length*100).toFixed(0):0}%)</span></td>
+                <td style={{padding:'5px 10px',fontWeight:700,color:f.color}}>{fmtCur(f.totalVal)}</td>
+                <td style={{padding:'5px 10px'}}>{totalGeral?(f.totalVal/totalGeral*100).toFixed(1):0}%</td>
+                <td style={{padding:'5px 10px'}}>{fmtCur(f.avgVal)}</td>
+                <td style={{padding:'5px 10px'}}>{f.totalDig}</td>
+                <td style={{padding:'5px 10px',fontWeight:600,color:f.cv>=50?C.accent2:f.cv>=30?C.warn:f.cv>0?C.danger:C.muted}}>{f.cv?f.cv.toFixed(0)+'%':'—'}</td>
+              </tr>)}</tbody>
+            </table></div>
+
+            {/* Top parceiros por faixa */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginTop:14}}>
+              {faixaData.filter(f=>f.count>0&&f.id!=='zero').slice(0,3).map(f=><div key={f.id} style={{background:f.bg,border:'1px solid '+f.color+'22',borderRadius:10,padding:12}}>
+                <div style={{fontSize:10,fontWeight:700,color:f.color,marginBottom:6}}>{f.label} — Top 5</div>
+                {f.parceiros.slice(0,5).map((p,i)=><div key={p.nome} style={{display:'flex',justifyContent:'space-between',fontSize:9,padding:'2px 0'}}>
+                  <span>{i+1}. {p.nome}</span>
+                  <span style={{fontWeight:600,color:f.color}}>{fmtCur(p.vr)}</span>
+                </div>)}
+              </div>)}
+            </div>
+          </div>
+        })()}
+
         {/* PARCEIROS POR FUNÇÃO */}
         <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
