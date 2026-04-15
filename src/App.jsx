@@ -17,11 +17,11 @@ const isFin=o=>PROD_SIT.includes((o.situacao||'').toUpperCase())||PROD_SITB.incl
 const isEst=o=>{const s=(o.situacao||'').toUpperCase(),sb=(o.situacaoBanco||'').toUpperCase();return['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA','CANCELADO PELO CLIENTE'].includes(s)||['CANCELADO','CANCELADA','REPROVADA','REPROVADO','NEGADA','REPROVADA - FINALIZADA','REPROVADO CRÉDITO'].includes(sb)}
 const isPend=o=>!isFin(o)&&!isEst(o)
 const sitCol=s=>{s=(s||'').toUpperCase();if(['FINALIZADO','PAGO','AVERBADO','APROVADO','CONCRETIZADO','INTEGRADA','INTEGRADO','CRC CLIENTE','PAGA','PAGAMENTO REALIZADO'].includes(s))return C.accent2;if(['ESTORNADO','CANCELADO','CANCELADA','RECUSADA','REPROVADA','REPROVADO','NEGADO','NEGADA','PROPOSTA REPROVADA'].includes(s))return C.danger;if(['EM ANÁLISE','EM ANALISE','PENDENTE','ANALISE BANCO','ANDAMENTO','AGUARDANDO RETORNO CIP','PROPOSTA CADASTRADA','ASSINADO CCB'].includes(s))return C.warn;return C.info}
-function nDate(v){if(!v)return'';if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400*1000));return!isNaN(d.getTime())?localDate(d):''}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);return''}
+function nDate(v){if(!v)return'';if(typeof v==='number'){const days=Math.floor(v-25569);const y=1970;const d=new Date(Date.UTC(y,0,1+days));return!isNaN(d.getTime())?(d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0')):''}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);return''}
 function pNum(v){if(v==null||v==='')return 0;if(typeof v==='number')return v;return parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.'))||0}
 const fixDate=v=>{if(!v)return'';const s=String(v).trim();return s.length>=10&&s[4]==='-'?s.slice(0,10):s}
 const fromDb=r=>({id:r.id,id_ext:r.id_ext||'',banco:r.banco||'',cpf:r.cpf||'',cliente:r.cliente||'',proposta:r.proposta||'',contrato:r.contrato||'',data:fixDate(r.data),prazo:r.prazo||'',vrBruto:Number(r.vr_bruto)||0,vrParcela:Number(r.vr_parcela)||0,vrLiquido:Number(r.vr_liquido)||0,vrRepasse:Number(r.vr_repasse)||0,vrSeguro:Number(r.vr_seguro)||0,taxa:r.taxa||'',operacao:r.operacao||'',situacao:r.situacao||'',produto:r.produto||'',convenio:r.convenio||'',agente:r.agente||'',situacaoBanco:r.situacao_banco||'',obsSituacao:r.obs_situacao||'',usuario:r.usuario||'',crcCliente:fixDate(r.crc_cliente),dataNossoCredito:fixDate(r.data_nosso_credito)})
-const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cliente||'',proposta:o.proposta||'',contrato:o.contrato||'',data:o.data||null,prazo:o.prazo||'',vr_bruto:o.vrBruto||0,vr_parcela:o.vrParcela||0,vr_liquido:o.vrBruto||0,vr_repasse:o.vrBruto||0,vr_seguro:o.vrSeguro||0,taxa:o.taxa||'',operacao:o.operacao||'',situacao:o.situacao||'',produto:o.produto||'',convenio:o.convenio||'',agente:o.agente||'',situacao_banco:o.situacaoBanco||'',obs_situacao:o.obsSituacao||'',usuario:o.usuario||'',crc_cliente:o.crcCliente||null,data_nosso_credito:o.dataNossoCredito||null})
+const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cliente||'',proposta:o.proposta||'',contrato:o.contrato||'',data:o.data||null,prazo:o.prazo||'',vr_bruto:o.vrBruto||0,vr_parcela:o.vrParcela||0,vr_liquido:o.vrLiquido||0,vr_repasse:o.vrRepasse||0,vr_seguro:o.vrSeguro||0,taxa:o.taxa||'',operacao:o.operacao||'',situacao:o.situacao||'',produto:o.produto||'',convenio:o.convenio||'',agente:o.agente||'',situacao_banco:o.situacaoBanco||'',obs_situacao:o.obsSituacao||'',usuario:o.usuario||'',crc_cliente:o.crcCliente||null,data_nosso_credito:o.dataNossoCredito||null})
 
 /* ═══ PERIODS ═══ */
 const PERIODS=(()=>{const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>localDate(new Date(a,b,1)),e=(a,b)=>localDate(new Date(a,b+1,0));return{mes:{n:'Mês Atual',f:d(y,m),t:e(y,m)},ant:{n:'Mês Anterior',f:d(y,m-1),t:e(y,m-1)},tri:{n:'Trimestre',f:d(y,m-2),t:e(y,m)},sem:{n:'Semestre',f:d(y,m-5),t:e(y,m)},ano:{n:String(y),f:y+'-01-01',t:y+'-12-31'},tudo:{n:'Tudo',f:'2000-01-01',t:'2099-12-31'}}})()
@@ -546,7 +546,7 @@ function useProd(defaultPer,myAgents){
 }
 
 /* ═══ IMPORT MODAL ═══ */
-const IMP={id_ext:{l:'ID',a:['id']},banco:{l:'Banco',a:['banco']},cpf:{l:'CPF',a:['cpf']},cliente:{l:'Cliente',a:['cliente','nome']},proposta:{l:'Proposta',a:['proposta']},contrato:{l:'Contrato',a:['contrato','nº contrato']},data:{l:'Data',a:['data']},prazo:{l:'Prazo',a:['prazo']},vrBruto:{l:'Bruto',a:['vr. bruto','bruto']},vrParcela:{l:'Parcela',a:['vr. parcela']},vrLiquido:{l:'Vl.Base',a:['vr. líquido','vr liquido']},vrRepasse:{l:'Repasse',a:['vr. repasse','repasse']},vrSeguro:{l:'Seguro',a:['vr. seguro']},taxa:{l:'Taxa',a:['taxa']},operacao:{l:'Operação',a:['operação','operacao']},situacao:{l:'Situação',a:['situação','situacao','status']},produto:{l:'Produto',a:['produto']},convenio:{l:'Convênio',a:['convênio','convenio']},agente:{l:'Agente',a:['agente']},situacaoBanco:{l:'Sit.Banco',a:['situação banco','sit. banco']},obsSituacao:{l:'Obs.',a:['obs. situação','obs. situação banco','obs situação banco']},usuario:{l:'Usuário',a:['usuário','usuario']},crcCliente:{l:'CRC',a:['cr cliente','crc cliente','crc','data crc']},dataNossoCredito:{l:'N.Crédito',a:['nosso cr','nosso crédito','nosso credito']}}
+const IMP={id_ext:{l:'ID',a:['id']},banco:{l:'Banco',a:['banco']},cpf:{l:'CPF',a:['cpf']},cliente:{l:'Cliente',a:['cliente','nome']},proposta:{l:'Proposta',a:['proposta']},contrato:{l:'Contrato',a:['contrato','nº contrato','n\u00ba contrato']},data:{l:'Data',a:['data','dat.inclus\u00e3o']},prazo:{l:'Prazo',a:['prazo']},vrBruto:{l:'Bruto',a:['vr. bruto','bruto','vr bruto']},vrParcela:{l:'Parcela',a:['vr. parcela','vr parcela','parcela']},vrLiquido:{l:'Vl.Base',a:['vr. l\u00edquido','vr liquido','vr. liquido','l\u00edquido','liquido']},vrRepasse:{l:'Repasse',a:['vr. repasse','repasse','vr repasse']},vrSeguro:{l:'Seguro',a:['vr. seguro','vr seguro','seguro']},taxa:{l:'Taxa',a:['taxa']},operacao:{l:'Opera\u00e7\u00e3o',a:['opera\u00e7\u00e3o','operacao','opera\u00e7ao','operac\u00e3o']},situacao:{l:'Situa\u00e7\u00e3o',a:['situa\u00e7\u00e3o','situacao','status','situa\u00e7ao','situac\u00e3o']},produto:{l:'Produto',a:['produto']},convenio:{l:'Conv\u00eanio',a:['conv\u00eanio','convenio','conv\u00eanio']},agente:{l:'Agente',a:['agente']},situacaoBanco:{l:'Sit.Banco',a:['situa\u00e7\u00e3o banco','sit. banco','situacao banco']},obsSituacao:{l:'Obs.',a:['obs. situa\u00e7\u00e3o','obs. situa\u00e7\u00e3o banco','obs situac\u00e3o banco','obs. situacao banco','obs situa\u00e7\u00e3o banco']},usuario:{l:'Usu\u00e1rio',a:['usu\u00e1rio','usuario']},crcCliente:{l:'CRC',a:['cr cliente','crc cliente','crc','data crc']},dataNossoCredito:{l:'N.Cr\u00e9dito',a:['nosso cr','nosso cr\u00e9dito','nosso credito']}}
 
 function ImportModal({open,onClose,onImport,onDone}){
   const fr=useRef(null),[step,setStep]=useState(1),[raw,setRaw]=useState([]),[hd,setHd]=useState([]),[mp,setMp]=useState({}),[pv,setPv]=useState([]),[fn,setFn]=useState(''),[busy,setBusy]=useState(false),[progress,setProg]=useState('')
@@ -558,7 +558,7 @@ function ImportModal({open,onClose,onImport,onDone}){
       <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:18,width:760,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto'}}>
         <div style={{padding:'16px 22px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between'}}><h3 style={{fontWeight:700,fontSize:15,margin:0}}>Importar — Etapa {step}/3</h3><button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:22,cursor:'pointer'}}>×</button></div>
         <div style={{padding:'16px 22px'}}>
-          {step===1&&<div onClick={()=>fr.current?.click()} style={{border:'2px dashed '+C.border,borderRadius:14,padding:'36px 20px',textAlign:'center',cursor:'pointer',background:C.surface}}><div style={{fontSize:32}}>📂</div><div style={{fontSize:13,fontWeight:600,marginTop:8}}>Clique para selecionar</div><input ref={fr} type="file" accept=".xlsx,.xls,.csv" onChange={e=>{const file=e.target.files?.[0];if(!file)return;setFn(file.name);const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});if(!rows.length)return;setRaw(rows);const cols=Object.keys(rows[0]);setHd(cols);const m={};Object.entries(IMP).forEach(([f,def])=>{const found=cols.find(c=>def.a.some(a=>c.toLowerCase().includes(a)));if(found)m[f]=found});setMp(m);setStep(2)}catch(ex){alert(ex.message)}};rd.readAsArrayBuffer(file)}} style={{display:'none'}}/></div>}
+          {step===1&&<div onClick={()=>fr.current?.click()} style={{border:'2px dashed '+C.border,borderRadius:14,padding:'36px 20px',textAlign:'center',cursor:'pointer',background:C.surface}}><div style={{fontSize:32}}>📂</div><div style={{fontSize:13,fontWeight:600,marginTop:8}}>Clique para selecionar</div><input ref={fr} type="file" accept=".xlsx,.xls,.csv" onChange={e=>{const file=e.target.files?.[0];if(!file)return;setFn(file.name);const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});if(!rows.length)return;setRaw(rows);const cols=Object.keys(rows[0]);setHd(cols);const m={};const norm=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,' ').trim();Object.entries(IMP).forEach(([f,def])=>{const exact=cols.find(c=>def.a.some(a=>norm(c)===norm(a)));if(exact){m[f]=exact;return}const found=cols.find(c=>def.a.some(a=>norm(c).includes(norm(a))));if(found)m[f]=found});setMp(m);setStep(2)}catch(ex){alert(ex.message)}};rd.readAsArrayBuffer(file)}} style={{display:'none'}}/></div>}
           {step===2&&<div style={{display:'flex',flexDirection:'column',gap:10}}><div style={{fontSize:12,color:C.muted}}>{fn} — {raw.length} linhas — {Object.keys(mp).length} detectados</div><div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>{Object.entries(IMP).map(([f,def])=><div key={f}><label style={{fontSize:8,color:mp[f]?C.accent:C.muted,fontWeight:600}}>{def.l}</label><select value={mp[f]||''} onChange={e=>setMp(p=>({...p,[f]:e.target.value||undefined}))} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:4,fontSize:10,width:'100%'}}><option value="">—</option>{hd.map(h=><option key={h} value={h}>{h}</option>)}</select></div>)}</div><div style={{display:'flex',gap:8}}><button onClick={()=>setStep(1)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 16px',cursor:'pointer'}}>←</button><button onClick={()=>{const built=raw.map(row=>{const cl=mp.cliente?String(row[mp.cliente]||'').trim():'';const pr=mp.proposta?String(row[mp.proposta]||'').trim():'';const ok=!!(cl||pr);const g=f=>mp[f]?String(row[mp[f]]||'').trim():'';const gu=f=>g(f).toUpperCase();return{_v:ok,cliente:cl,proposta:pr,id_ext:g('id_ext'),banco:g('banco'),cpf:g('cpf'),contrato:g('contrato'),data:nDate(mp.data?row[mp.data]:''),prazo:g('prazo'),vrBruto:pNum(mp.vrBruto?row[mp.vrBruto]:''),vrParcela:pNum(mp.vrParcela?row[mp.vrParcela]:''),vrLiquido:pNum(mp.vrLiquido?row[mp.vrLiquido]:''),vrRepasse:pNum(mp.vrRepasse?row[mp.vrRepasse]:''),vrSeguro:pNum(mp.vrSeguro?row[mp.vrSeguro]:''),taxa:g('taxa'),operacao:gu('operacao'),situacao:gu('situacao'),produto:g('produto'),convenio:gu('convenio'),agente:g('agente'),situacaoBanco:gu('situacaoBanco'),obsSituacao:g('obsSituacao'),usuario:g('usuario'),crcCliente:nDate(mp.crcCliente?row[mp.crcCliente]:''),dataNossoCredito:nDate(mp.dataNossoCredito?row[mp.dataNossoCredito]:'')}});setPv(built);setStep(3)}} style={{flex:1,background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Revisar →</button></div></div>}
           {step===3&&<div style={{display:'flex',flexDirection:'column',gap:10}}><div style={{fontSize:12}}><strong style={{color:C.accent2}}>{vc}</strong> válidas — {fmtCur(tR)}</div>{progress&&<div style={{fontSize:11,color:C.warn}}>{progress}</div>}<div style={{overflowX:'auto',maxHeight:260,borderRadius:8,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}><thead><tr style={{background:C.surface}}>{['','Cliente','Banco','Sit.','Agente','Vl.Base'].map(h=><th key={h} style={{padding:'5px 7px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{pv.slice(0,40).map((p,i)=><tr key={i} style={{borderBottom:'1px solid '+C.border,opacity:p._v?1:.3}}><td style={{padding:'3px 7px',color:p._v?C.accent2:C.danger}}>{p._v?'✓':'✕'}</td><td style={{padding:'3px 7px'}}>{p.cliente}</td><td style={{padding:'3px 7px'}}>{p.banco}</td><td style={{padding:'3px 7px'}}>{p.situacao}</td><td style={{padding:'3px 7px'}}>{p.agente}</td><td style={{padding:'3px 7px',fontWeight:600}}>{fmtCur(p.vrBruto)}</td></tr>)}</tbody></table></div><div style={{display:'flex',gap:8}}><button onClick={()=>setStep(2)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 16px',cursor:'pointer'}}>←</button><button onClick={async()=>{setBusy(true);const valid=pv.filter(p=>p._v).map(({_v,...r})=>r);const total=valid.length;let ok=0,fail=0;for(let i=0;i<total;i+=200){const batch=valid.slice(i,i+200);setProg(`Gravando ${Math.min(i+200,total)}/${total}...`);try{await onImport(batch);ok+=batch.length}catch(e){fail+=batch.length;console.error('Batch err:',e)}if(i+50<total)await new Promise(r=>setTimeout(r,200))}setProg(fail?`✓ ${ok} gravados, ${fail} falharam`:`✓ ${ok} gravados!`);await new Promise(r=>setTimeout(r,1500));setBusy(false);setProg('');if(onDone)onDone();onClose()}} disabled={!vc||busy} style={{flex:1,background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer',opacity:(!vc||busy)?.4:1}}>{busy?progress||'Gravando...':'✓ Importar '+vc}</button></div></div>}
         </div>
@@ -934,15 +934,59 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
 function Operacoes({onImport,myAgents,onDone}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[io,sio]=useState(false),[se,sse]=useState(''),[fs,sfs]=useState(''),[selP,setSelP]=useState(null),[showExp,setShowExp]=useState(false)
+  const[importMsg,setImportMsg]=useState(''),[importing,setImporting]=useState(false)
+  const quickRef=useRef(null)
   const aS=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
   const fd=ops.filter(o=>!fs||o.situacao===fs).filter(o=>{if(!se)return true;const s=se.toLowerCase();return(o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s)}).sort((a,b)=>(b.data||'').localeCompare(a.data||''))
+  const norm=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,' ').trim()
+  const quickImport=async(file)=>{
+    if(!file)return
+    setImporting(true);setImportMsg('Lendo '+file.name+'...')
+    try{
+      const buf=await file.arrayBuffer()
+      const wb=XLSX.read(new Uint8Array(buf),{type:'array'})
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''})
+      if(!rows.length){setImportMsg('Arquivo vazio');setImporting(false);return}
+      const cols=Object.keys(rows[0])
+      const mp={}
+      Object.entries(IMP).forEach(([f,def])=>{const exact=cols.find(c=>def.a.some(a=>norm(c)===norm(a)));if(exact){mp[f]=exact;return};const found=cols.find(c=>def.a.some(a=>norm(c).includes(norm(a))));if(found)mp[f]=found})
+      setImportMsg(file.name+' \u2014 '+rows.length+' linhas \u2014 '+Object.keys(mp).length+'/'+Object.keys(IMP).length+' colunas detectadas')
+      const built=rows.map(row=>{
+        const cl=mp.cliente?String(row[mp.cliente]||'').trim():''
+        const pr=mp.proposta?String(row[mp.proposta]||'').trim():''
+        const ok=!!(cl||pr)
+        const g=f=>mp[f]?String(row[mp[f]]||'').trim():''
+        const gu=f=>g(f).toUpperCase()
+        return{_v:ok,cliente:cl,proposta:pr,id_ext:g('id_ext'),banco:g('banco'),cpf:g('cpf'),contrato:g('contrato'),data:nDate(mp.data?row[mp.data]:''),prazo:g('prazo'),vrBruto:pNum(mp.vrBruto?row[mp.vrBruto]:''),vrParcela:pNum(mp.vrParcela?row[mp.vrParcela]:''),vrLiquido:pNum(mp.vrLiquido?row[mp.vrLiquido]:''),vrRepasse:pNum(mp.vrRepasse?row[mp.vrRepasse]:''),vrSeguro:pNum(mp.vrSeguro?row[mp.vrSeguro]:''),taxa:g('taxa'),operacao:gu('operacao'),situacao:gu('situacao'),produto:g('produto'),convenio:gu('convenio'),agente:g('agente'),situacaoBanco:gu('situacaoBanco'),obsSituacao:g('obsSituacao'),usuario:g('usuario'),crcCliente:nDate(mp.crcCliente?row[mp.crcCliente]:''),dataNossoCredito:nDate(mp.dataNossoCredito?row[mp.dataNossoCredito]:'')}
+      })
+      const valid=built.filter(p=>p._v).map(({_v,...r})=>r)
+      if(!valid.length){setImportMsg('Nenhuma linha v\u00e1lida encontrada');setImporting(false);return}
+      const total=valid.length;let ok=0,fail=0
+      for(let i=0;i<total;i+=200){
+        const batch=valid.slice(i,i+200)
+        setImportMsg('Gravando '+Math.min(i+200,total)+'/'+total+'...')
+        try{await onImport(batch);ok+=batch.length}catch(e){fail+=batch.length;console.error('Batch err:',e)}
+        if(i+200<total)await new Promise(r=>setTimeout(r,150))
+      }
+      setImportMsg(fail?'\u2713 '+ok+' gravados, '+fail+' falharam':'\u2713 '+ok+' propostas importadas com sucesso!')
+      if(onDone)onDone()
+    }catch(ex){setImportMsg('Erro: '+ex.message)}
+    setImporting(false)
+    if(quickRef.current)quickRef.current.value=''
+  }
   return(
     <div style={{display:'flex',flexDirection:'column',gap:12}}>
-      <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Operações</h2><div style={{display:'flex',gap:6}}><button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button><button onClick={()=>sio(true)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontWeight:600,fontSize:12}}>📥 Importar</button></div></div>
+      <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Opera\u00e7\u00f5es</h2><div style={{display:'flex',gap:6}}>
+        <button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button>
+        <button onClick={()=>quickRef.current?.click()} disabled={importing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:importing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:importing?.6:1}}>📥 {importing?'Importando...':'Importar WorkBank'}</button>
+        <input ref={quickRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>quickImport(e.target.files?.[0])}/>
+        <button onClick={()=>sio(true)} style={{background:C.surface,border:'1px solid '+C.accent,borderRadius:8,color:C.accent,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>Importar Manual</button>
+      </div></div>
+      {importMsg&&<div style={{background:importMsg.includes('\u2713')?C.accent2+'22':importMsg.includes('Erro')?C.danger+'22':C.warn+'22',color:importMsg.includes('\u2713')?C.accent2:importMsg.includes('Erro')?C.danger:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>{importMsg}</span>{!importing&&<button onClick={()=>setImportMsg('')} style={{background:'none',border:'none',color:'inherit',cursor:'pointer',fontSize:14}}>\u00d7</button>}</div>}
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
       <div style={{display:'flex',gap:6,flexWrap:'wrap'}}><input value={se} onChange={e=>sse(e.target.value)} placeholder="Buscar..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none',flex:1,minWidth:160}}/><select value={fs} onChange={e=>sfs(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:12}}><option value="">Todos</option>{aS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-      <div style={{fontSize:10,color:C.muted}}>{fd.length} de {count} — {fmtCur(fd.reduce((s,o)=>s+(o.vrBruto||0),0))}</div>
-      <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Data','CPF','Cliente','Banco','Op.','Situação','Agente','Vl.Base'].map(h=><th key={h} style={{padding:'8px 9px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.slice(0,500).map(o=><tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td><td style={{padding:'7px 9px',fontSize:10,color:C.muted,whiteSpace:'nowrap'}}>{o.cpf||'—'}</td><td style={{padding:'7px 9px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente||'—'}</td><td style={{padding:'7px 9px'}}>{o.banco}</td><td style={{padding:'7px 9px'}}>{o.operacao}</td><td style={{padding:'7px 9px'}}><Badge text={o.situacao||'—'} color={sitCol(o.situacao)}/></td><td style={{padding:'7px 9px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer',color:C.accent}} onClick={()=>setSelP(o.agente)}>{o.agente}</td><td style={{padding:'7px 9px',fontWeight:600}}>{fmtCur(o.vrBruto)}</td></tr>)}</tbody></table></div>
+      <div style={{fontSize:10,color:C.muted}}>{fd.length} de {count} \u2014 {fmtCur(fd.reduce((s,o)=>s+(o.vrBruto||0),0))}</div>
+      <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Data','CPF','Cliente','Banco','Op.','Situa\u00e7\u00e3o','Agente','Vl.Base'].map(h=><th key={h} style={{padding:'8px 9px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.slice(0,500).map(o=><tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td><td style={{padding:'7px 9px',fontSize:10,color:C.muted,whiteSpace:'nowrap'}}>{o.cpf||'\u2014'}</td><td style={{padding:'7px 9px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente||'\u2014'}</td><td style={{padding:'7px 9px'}}>{o.banco}</td><td style={{padding:'7px 9px'}}>{o.operacao}</td><td style={{padding:'7px 9px'}}><Badge text={o.situacao||'\u2014'} color={sitCol(o.situacao)}/></td><td style={{padding:'7px 9px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer',color:C.accent}} onClick={()=>setSelP(o.agente)}>{o.agente}</td><td style={{padding:'7px 9px',fontWeight:600}}>{fmtCur(o.vrBruto)}</td></tr>)}</tbody></table></div>
       <ImportModal open={io} onClose={()=>sio(false)} onImport={onImport} onDone={onDone}/>
       <ExportModal open={showExp} onClose={()=>setShowExp(false)} ops={ops}/>
       <PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/>
@@ -1243,11 +1287,12 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
-  const[edNome,setEdNome]=useState(''),[edEmail,setEdEmail]=useState(''),[edSenha,setEdSenha]=useState('')
+  const[edNome,setEdNome]=useState(''),[edEmail,setEdEmail]=useState(''),[edSenha,setEdSenha]=useState(''),[edPerfil,setEdPerfil]=useState('operador')
+  const[showSenha,setShowSenha]=useState({})
   const[sups,setSups]=useState([])
   useEffect(()=>{
     supabase.from('usuarios').select('*').order('nome').then(({data})=>{setUsers(data||[]);setLoading(false)})
@@ -1259,67 +1304,217 @@ function Usuarios({user}){
     })
   },[])
   const reload=async()=>{const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}
-  const openEdit=u=>{setEditUser(u);setEdNome(u.nome);setEdEmail(u.email);setEdSenha('')}
+  const openEdit=u=>{setEditUser(u);setEdNome(u.nome);setEdEmail(u.email);setEdSenha(u.senha||'');setEdPerfil(u.perfil||'operador')}
   const saveEdit=async()=>{
-    const upd={nome:edNome,email:edEmail}
-    if(edSenha.trim())upd.senha=edSenha.trim()
+    if(!edNome.trim()||!edEmail.trim()){setMsg('Nome e email s\u00e3o obrigat\u00f3rios');return}
+    if(!edSenha.trim()){setMsg('A senha n\u00e3o pode ficar vazia');return}
+    const upd={nome:edNome.trim(),email:edEmail.trim(),senha:edSenha.trim(),perfil:edPerfil}
     const{error}=await supabase.from('usuarios').update(upd).eq('id',editUser.id)
-    if(error){setMsg('Erro: '+error.message);return}
-    setMsg('✓ '+edNome+' atualizado!'+(edSenha?' (senha alterada)':''))
+    if(error){setMsg('Erro ao salvar: '+error.message);return}
+    setMsg('\u2713 '+edNome+' atualizado com sucesso! Senha: '+edSenha.trim())
     setEditUser(null);await reload()
   }
-  const resetSenha=async(u)=>{
-    const nova=u.email.split('@')[0]+'123'
-    await supabase.from('usuarios').update({senha:nova}).eq('id',u.id)
-    setMsg('✓ Senha de '+u.nome+' resetada para: '+nova)
+  const createUser=async(e)=>{
+    e.preventDefault()
+    if(!nome.trim()||!email.trim()||!senha.trim()){setMsg('Preencha todos os campos');return}
+    const{error}=await supabase.from('usuarios').insert({nome:nome.trim(),email:email.trim(),senha:senha.trim(),perfil,telas:ALL_TELAS.slice(0,3)})
+    if(error){setMsg('Erro ao criar: '+error.message);return}
+    setMsg('\u2713 Usu\u00e1rio '+nome+' criado! Senha: '+senha)
+    setNome('');setEmail('');setSenha('');setShowNew(false);await reload()
+  }
+  const changeSenha=async(u,novaSenha)=>{
+    if(!novaSenha||!novaSenha.trim()){setMsg('Senha n\u00e3o pode ser vazia');return}
+    const{error}=await supabase.from('usuarios').update({senha:novaSenha.trim()}).eq('id',u.id)
+    if(error){setMsg('Erro: '+error.message);return}
+    setMsg('\u2713 Senha de '+u.nome+' alterada para: '+novaSenha.trim())
+    await reload()
   }
   if(user.perfil!=='admin')return<div style={{padding:28,textAlign:'center',color:C.muted}}>Restrito</div>
+  const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usuários</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
-    {msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:C.muted,cursor:'pointer'}}>×</button></div>}
-    {showNew&&<form onSubmit={async e=>{e.preventDefault();const{error}=await supabase.from('usuarios').insert({nome,email,senha,perfil,telas:ALL_TELAS.slice(0,3)});if(error){setMsg(error.message);return}setMsg('Criado!');setNome('');setEmail('');setSenha('');setShowNew(false);await reload()}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
-      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
-      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
-      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={senha} onChange={e=>setSenha(e.target.value)} required style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
-      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%'}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
+    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usu\u00e1rios ({users.length})</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
+    {msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:C.muted,cursor:'pointer'}}>\u00d7</button></div>}
+    {showNew&&<form onSubmit={createUser} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required autoComplete="off" style={inp}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL / LOGIN</label><input value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="off" style={inp}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={senha} onChange={e=>setSenha(e.target.value)} required autoComplete="new-password" style={inp}/></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
       <button type="submit" style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Criar</button>
     </form>}
-    {/* EDITAR USUARIO */}
     {editUser&&<div style={{background:C.card,border:'1px solid '+C.warn+'66',borderRadius:14,padding:16}}>
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Editar: <strong style={{color:C.warn}}>{editUser.nome}</strong></div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
-        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={edNome} onChange={e=>setEdNome(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
-        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input value={edEmail} onChange={e=>setEdEmail(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
-        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOVA SENHA <span style={{color:C.muted,fontWeight:400}}>(vazio = mantém)</span></label><input value={edSenha} onChange={e=>setEdSenha(e.target.value)} placeholder="Deixe vazio para manter" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box'}}/></div>
-        <div style={{display:'flex',gap:6}}><button onClick={saveEdit} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button><button onClick={()=>setEditUser(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.muted,padding:'8px 12px',cursor:'pointer'}}>×</button></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
+        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={edNome} onChange={e=>setEdNome(e.target.value)} autoComplete="off" style={inp}/></div>
+        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL / LOGIN</label><input value={edEmail} onChange={e=>setEdEmail(e.target.value)} autoComplete="off" style={inp}/></div>
+        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={edSenha} onChange={e=>setEdSenha(e.target.value)} autoComplete="new-password" style={{...inp,border:'1px solid '+C.warn}}/></div>
+        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={edPerfil} onChange={e=>setEdPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
+        <div style={{display:'flex',gap:6}}><button onClick={saveEdit} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button><button onClick={()=>setEditUser(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.muted,padding:'8px 12px',cursor:'pointer'}}>\u00d7</button></div>
       </div>
     </div>}
     {editTelas&&<div style={{background:C.card,border:'1px solid '+C.accent+'66',borderRadius:14,padding:16}}>
-      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Permissões de tela: <strong style={{color:C.accent}}>{editTelas.nome}</strong></div>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Permiss\u00f5es de tela: <strong style={{color:C.accent}}>{editTelas.nome}</strong></div>
       <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
-        {ALL_TELAS.map(t=>{const has=(editTelas.telas||[]).includes(t);return<button key={t} onClick={async()=>{const nTelas=has?(editTelas.telas||[]).filter(x=>x!==t):[...(editTelas.telas||[]),t];await supabase.from('usuarios').update({telas:nTelas}).eq('id',editTelas.id);setEditTelas({...editTelas,telas:nTelas});await reload()}} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(has?C.accent2:C.border),background:has?C.accent2+'22':'transparent',color:has?C.accent2:C.muted,fontSize:11,fontWeight:has?600:400,cursor:'pointer'}}>{has?'✓ ':''}{t}</button>})}
+        {ALL_TELAS.map(t=>{const has=(editTelas.telas||[]).includes(t);return<button key={t} onClick={async()=>{const nTelas=has?(editTelas.telas||[]).filter(x=>x!==t):[...(editTelas.telas||[]),t];await supabase.from('usuarios').update({telas:nTelas}).eq('id',editTelas.id);setEditTelas({...editTelas,telas:nTelas});await reload()}} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(has?C.accent2:C.border),background:has?C.accent2+'22':'transparent',color:has?C.accent2:C.muted,fontSize:11,fontWeight:has?600:400,cursor:'pointer'}}>{has?'\u2713 ':''}{t}</button>})}
       </div>
       <button onClick={()=>setEditTelas(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',fontSize:11,cursor:'pointer'}}>Fechar</button>
     </div>}
-    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','Email','Perfil','Carteira','Telas','Status','Ações'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+    {!loading&&<div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Nome','Email','Senha','Perfil','Carteira','Telas','Status','A\u00e7\u00f5es'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
       <tbody>{users.map(u=><tr key={u.id} style={{borderBottom:'1px solid '+C.border}}>
         <td style={{padding:'8px 10px',fontWeight:600}}>{u.nome}</td>
         <td style={{padding:'8px 10px'}}>{u.email}</td>
-        <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);await reload()}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></td>
-        <td style={{padding:'8px 10px'}}><select value={u.cod_supervisor||''} onChange={async e=>{await supabase.from('usuarios').update({cod_supervisor:e.target.value||null}).eq('id',u.id);await reload()}} style={{background:C.surface,border:'1px solid '+(u.cod_supervisor?C.accent2:C.border),borderRadius:4,color:u.cod_supervisor?C.accent2:C.text,padding:'2px 6px',fontSize:10,minWidth:100}}><option value="">Todos (admin)</option>{sups.map(s=><option key={s.cod} value={s.cod}>{s.nome} ({s.cod})</option>)}</select></td>
-        <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas ✏</button></td>
+        <td style={{padding:'8px 10px'}}><div style={{display:'flex',alignItems:'center',gap:4}}><span style={{fontSize:10,fontFamily:'monospace'}}>{showSenha[u.id]?u.senha:'\u2022\u2022\u2022\u2022\u2022\u2022'}</span><button onClick={()=>setShowSenha(p=>({...p,[u.id]:!p[u.id]}))} style={{background:'none',border:'none',color:C.muted,fontSize:10,cursor:'pointer',padding:0}}>{showSenha[u.id]?'\ud83d\ude48':'\ud83d\udc41'}</button></div></td>
+        <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{const{error}=await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else{setMsg('\u2713 Perfil de '+u.nome+' alterado');await reload()}}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></td>
+        <td style={{padding:'8px 10px'}}><select value={u.cod_supervisor||''} onChange={async e=>{const{error}=await supabase.from('usuarios').update({cod_supervisor:e.target.value||null}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else await reload()}} style={{background:C.surface,border:'1px solid '+(u.cod_supervisor?C.accent2:C.border),borderRadius:4,color:u.cod_supervisor?C.accent2:C.text,padding:'2px 6px',fontSize:10,minWidth:100}}><option value="">Todos (admin)</option>{sups.map(s=><option key={s.cod} value={s.cod}>{s.nome} ({s.cod})</option>)}</select></td>
+        <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas \u270f</button></td>
         <td style={{padding:'8px 10px'}}><Badge text={u.ativo?'Ativo':'Inativo'} color={u.ativo?C.accent2:C.danger}/></td>
         <td style={{padding:'8px 10px'}}><div style={{display:'flex',gap:4}}>
-          <button onClick={()=>openEdit(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>✏ Editar</button>
-          <button onClick={()=>resetSenha(u)} style={{background:C.warn+'22',color:C.warn,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>🔑 Reset</button>
-          <button onClick={async()=>{await supabase.from('usuarios').update({ativo:!u.ativo}).eq('id',u.id);await reload()}} style={{background:u.ativo?'#EF444418':C.accent2+'22',color:u.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{u.ativo?'Desativar':'Ativar'}</button>
+          <button onClick={()=>openEdit(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>\u270f Editar</button>
+          <button onClick={async()=>{const{error}=await supabase.from('usuarios').update({ativo:!u.ativo}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else{setMsg('\u2713 '+u.nome+(u.ativo?' desativado':' ativado'));await reload()}}} style={{background:u.ativo?'#EF444418':C.accent2+'22',color:u.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{u.ativo?'Desativar':'Ativar'}</button>
         </div></td>
       </tr>)}</tbody></table></div>}
   </div>
 }
 
 /* ═══ NAV ═══ */
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+/* ═══ ANÁLISE CRUZADA (TABELA DINÂMICA) ═══ */
+function Analise({myAgents}){
+  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
+  const DIMS=[{id:'banco',l:'Banco',fn:o=>o.banco||'?'},{id:'operacao',l:'Operação',fn:o=>o.operacao||'?'},{id:'convenio',l:'Convênio',fn:o=>o.convenio||'?'},{id:'agente',l:'Parceiro',fn:o=>o.agente||'?'},{id:'situacao',l:'Situação',fn:o=>o.situacao||'?'}]
+  const[dim1,setDim1]=useState('banco'),[dim2,setDim2]=useState('operacao'),[showQtd,setShowQtd]=useState(false)
+  const[selCell,setSelCell]=useState(null),[dim3,setDim3]=useState(null)
+  const d1=DIMS.find(d=>d.id===dim1),d2=DIMS.find(d=>d.id===dim2)
+  // Build pivot
+  const pivot=useMemo(()=>{
+    const mx={},rowTotals={},colTotals={},rowCount={},colCount={}
+    let grandTotal=0,grandCount=0
+    ops.forEach(o=>{
+      const r=d1.fn(o),c=d2.fn(o),v=o.vrBruto||0
+      if(!mx[r])mx[r]={};if(!mx[r][c])mx[r][c]={v:0,c:0}
+      mx[r][c].v+=v;mx[r][c].c++
+      rowTotals[r]=(rowTotals[r]||0)+v;rowCount[r]=(rowCount[r]||0)+1
+      colTotals[c]=(colTotals[c]||0)+v;colCount[c]=(colCount[c]||0)+1
+      grandTotal+=v;grandCount++
+    })
+    const rows=Object.keys(mx).sort((a,b)=>(rowTotals[b]||0)-(rowTotals[a]||0))
+    const cols=[...new Set(ops.map(d2.fn))].sort((a,b)=>(colTotals[b]||0)-(colTotals[a]||0))
+    let maxVal=0;rows.forEach(r=>cols.forEach(c=>{const cell=mx[r]?.[c];if(cell){const v=showQtd?cell.c:cell.v;if(v>maxVal)maxVal=v}}))
+    return{mx,rows,cols,rowTotals,colTotals,rowCount,colCount,grandTotal,grandCount,maxVal}
+  },[ops,dim1,dim2,showQtd])
+  // Drilldown data
+  const drillOps=selCell?ops.filter(o=>d1.fn(o)===selCell.r&&d2.fn(o)===selCell.c):[]
+  // Sub-pivot for dim3
+  const subPivot=useMemo(()=>{
+    if(!dim3||!selCell||!drillOps.length)return null
+    const d3=DIMS.find(d=>d.id===dim3)
+    if(!d3)return null
+    const m={};drillOps.forEach(o=>{const k=d3.fn(o);if(!m[k])m[k]={v:0,c:0,fin:0};m[k].v+=(o.vrBruto||0);m[k].c++;if(isFin(o))m[k].fin++})
+    return{dim:d3,data:Object.entries(m).sort((a,b)=>b[1].v-a[1].v)}
+  },[drillOps,dim3,selCell])
+  const heatBg=(val)=>{if(!val||!pivot.maxVal)return'transparent';const pct=val/pivot.maxVal;return`rgba(59,130,246,${Math.min(pct*0.25,0.25)})`}
+  const fin=ops.filter(isFin),est=ops.filter(isEst),cv=ops.length?(fin.length/ops.length*100):0
+  const sel={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'6px 10px',fontSize:11,fontFamily:'Outfit,sans-serif'}
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <h2 style={{fontWeight:800,fontSize:20}}>Análise Cruzada</h2>
+      <ExportBtn ops={ops} name={'analise-'+per}/>
+    </div>
+    <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
+    <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <Stat label="Total" value={ops.length} sub={fmtCur(pivot.grandTotal)}/>
+      <Stat label="Finalizadas" value={fin.length} sub={fmtCur(fin.reduce((s,o)=>s+(o.vrBruto||0),0))} color={C.accent2}/>
+      <Stat label="Estornos" value={est.length} color={C.danger}/>
+      <Stat label="Conversão" value={cv.toFixed(0)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/>
+      <Stat label={d1.l+'s'} value={pivot.rows.length}/>
+      <Stat label={d2.l+'s'} value={pivot.cols.length}/>
+    </div>
+    {/* SELETORES */}
+    <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'12px 16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <span style={{fontSize:10,color:C.muted,fontWeight:600}}>LINHAS:</span>
+        <select value={dim1} onChange={e=>{setDim1(e.target.value);setSelCell(null)}} style={sel}>{DIMS.filter(d=>d.id!==dim2).map(d=><option key={d.id} value={d.id}>{d.l}</option>)}</select>
+      </div>
+      <span style={{fontSize:14,color:C.muted}}>×</span>
+      <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <span style={{fontSize:10,color:C.muted,fontWeight:600}}>COLUNAS:</span>
+        <select value={dim2} onChange={e=>{setDim2(e.target.value);setSelCell(null)}} style={sel}>{DIMS.filter(d=>d.id!==dim1).map(d=><option key={d.id} value={d.id}>{d.l}</option>)}</select>
+      </div>
+      <div style={{display:'flex',gap:4,marginLeft:'auto'}}>
+        <button onClick={()=>setShowQtd(false)} style={{padding:'5px 12px',borderRadius:6,fontSize:10,border:'1px solid '+(showQtd?C.border:C.accent),background:showQtd?'transparent':C.abg,color:showQtd?C.muted:C.accent,fontWeight:showQtd?400:600,cursor:'pointer'}}>R$ Valor</button>
+        <button onClick={()=>setShowQtd(true)} style={{padding:'5px 12px',borderRadius:6,fontSize:10,border:'1px solid '+(!showQtd?C.border:C.accent),background:!showQtd?'transparent':C.abg,color:!showQtd?C.muted:C.accent,fontWeight:!showQtd?400:600,cursor:'pointer'}}># Qtd</button>
+      </div>
+      <button onClick={()=>{const tmp=dim1;setDim1(dim2);setDim2(tmp);setSelCell(null)}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.accent,padding:'5px 10px',fontSize:10,cursor:'pointer',fontWeight:600}}>⇄ Inverter</button>
+    </div>
+    {/* TABELA PIVOT */}
+    {!loading&&pivot.rows.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,overflowX:'auto'}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>{d1.l} × {d2.l} {selCell&&<button onClick={()=>setSelCell(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.accent,padding:'2px 8px',fontSize:9,cursor:'pointer',marginLeft:8}}>✕ Limpar seleção</button>}</div>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+        <thead><tr style={{background:C.surface}}>
+          <th style={{padding:'6px 10px',textAlign:'left',color:C.muted,fontSize:8,position:'sticky',left:0,background:C.surface,zIndex:1}}>{d1.l}</th>
+          {pivot.cols.map(c=><th key={c} style={{padding:'6px 8px',textAlign:'right',color:C.muted,fontSize:8,whiteSpace:'nowrap',maxWidth:100,overflow:'hidden',textOverflow:'ellipsis'}}>{c}</th>)}
+          <th style={{padding:'6px 10px',textAlign:'right',color:C.accent,fontSize:8,fontWeight:700}}>TOTAL</th>
+        </tr></thead>
+        <tbody>{pivot.rows.map(r=><tr key={r} style={{borderBottom:'1px solid '+C.border}}>
+          <td style={{padding:'5px 10px',fontWeight:600,whiteSpace:'nowrap',position:'sticky',left:0,background:C.card,zIndex:1,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis'}}>{r}</td>
+          {pivot.cols.map(c=>{const cell=pivot.mx[r]?.[c];const val=cell?(showQtd?cell.c:cell.v):0;const isSelected=selCell?.r===r&&selCell?.c===c;return<td key={c} onClick={()=>setSelCell(cell?{r,c}:null)} style={{padding:'5px 8px',textAlign:'right',fontWeight:val?600:400,color:val?C.text:C.border,background:isSelected?C.accent+'33':heatBg(val),cursor:cell?'pointer':'default',borderRadius:isSelected?4:0}}>{val?(showQtd?val:fmtCur(val)):'—'}</td>})}
+          <td style={{padding:'5px 10px',textAlign:'right',fontWeight:700,color:C.accent,background:C.surface}}>{showQtd?(pivot.rowCount[r]||0):fmtCur(pivot.rowTotals[r]||0)}</td>
+        </tr>)}</tbody>
+        <tfoot><tr style={{background:C.surface}}>
+          <td style={{padding:'6px 10px',fontWeight:700,position:'sticky',left:0,background:C.surface,zIndex:1}}>TOTAL</td>
+          {pivot.cols.map(c=><td key={c} style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:C.accent}}>{showQtd?(pivot.colCount[c]||0):fmtCur(pivot.colTotals[c]||0)}</td>)}
+          <td style={{padding:'6px 10px',textAlign:'right',fontWeight:800,color:C.accent2}}>{showQtd?pivot.grandCount:fmtCur(pivot.grandTotal)}</td>
+        </tr></tfoot>
+      </table>
+    </div>}
+    {/* DRILLDOWN — ao clicar em célula */}
+    {selCell&&drillOps.length>0&&<div style={{background:C.card,border:'1px solid '+C.accent+'44',borderRadius:14,padding:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:8}}>
+        <div>
+          <span style={{fontSize:13,fontWeight:700,color:C.accent}}>{selCell.r}</span>
+          <span style={{fontSize:13,color:C.muted}}> × </span>
+          <span style={{fontSize:13,fontWeight:700,color:C.accent2}}>{selCell.c}</span>
+          <span style={{fontSize:11,color:C.muted,marginLeft:8}}>— {drillOps.length} registros — {fmtCur(drillOps.reduce((s,o)=>s+(o.vrBruto||0),0))}</span>
+        </div>
+        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+          <span style={{fontSize:9,color:C.muted,fontWeight:600}}>Detalhar por:</span>
+          <select value={dim3||''} onChange={e=>setDim3(e.target.value||null)} style={sel}>
+            <option value="">— Nenhum —</option>
+            {DIMS.filter(d=>d.id!==dim1&&d.id!==dim2).map(d=><option key={d.id} value={d.id}>{d.l}</option>)}
+          </select>
+          <ExportBtn ops={drillOps} name={selCell.r+'-'+selCell.c}/>
+        </div>
+      </div>
+      {/* Sub-agrupamento por 3ª dimensão */}
+      {subPivot&&<div style={{marginBottom:14}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,marginBottom:10}}>
+          <thead><tr style={{background:C.surface}}>{[subPivot.dim.l,'Qtd','Valor','Conversão','%'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{subPivot.data.map(([k,d])=>{const pct=drillOps.reduce((s,o)=>s+(o.vrBruto||0),0);const cvn=d.c?(d.fin/d.c*100):0;return<tr key={k} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'5px 8px',fontWeight:600}}>{k}</td>
+            <td style={{padding:'5px 8px'}}>{d.c}</td>
+            <td style={{padding:'5px 8px',fontWeight:600,color:C.accent}}>{fmtCur(d.v)}</td>
+            <td style={{padding:'5px 8px',fontWeight:600,color:cvn>=50?C.accent2:cvn>=30?C.warn:C.danger}}>{cvn.toFixed(0)}%</td>
+            <td style={{padding:'5px 8px',color:C.muted}}>{pct?(d.v/pct*100).toFixed(0):0}%</td>
+          </tr>})}</tbody>
+        </table>
+      </div>}
+      {/* Lista detalhada */}
+      <div style={{overflowX:'auto',maxHeight:300,borderRadius:8,border:'1px solid '+C.border}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Data','Cliente','CPF','Situação','Agente','Vl.Base'].map(h=><th key={h} style={{padding:'5px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{drillOps.slice(0,200).map(o=><tr key={o.id} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'4px 8px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td>
+            <td style={{padding:'4px 8px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente}</td>
+            <td style={{padding:'4px 8px',fontSize:9}}>{o.cpf}</td>
+            <td style={{padding:'4px 8px'}}><Badge text={o.situacao||'—'} color={sitCol(o.situacao)}/></td>
+            <td style={{padding:'4px 8px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.agente}</td>
+            <td style={{padding:'4px 8px',fontWeight:600}}>{fmtCur(o.vrBruto)}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </div>}
+  </div>
+}
+
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
@@ -1441,7 +1636,7 @@ export default function App(){
   async function handleImport(batch){
     const rows=batch.map(toDb)
     // Usa stored procedure — executa direto no PostgreSQL, sem limite REST
-    const{data,error}=await supabase.rpc('import_digitacoes',{rows:JSON.stringify(rows)})
+    const{data,error}=await supabase.rpc('import_digitacoes',{rows})
     if(error){
       console.error('RPC import err:',error.message,'— fallback upsert')
       // Fallback: upsert em chunks de 20
@@ -1478,6 +1673,7 @@ export default function App(){
       {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} bizDays={bizDays} propComp={propComp} weekCur={weekCur} weekPrev={weekPrev} bankWeekCur={bankWeekCur} bankWeekPrev={bankWeekPrev} bankMonthly={bankMonthly}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents} onDone={refreshAll}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
+      {view==='analise'&&<Analise myAgents={myAgents}/>}
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
       {view==='portabilidade'&&<Portabilidade myAgents={myAgents}/>}
