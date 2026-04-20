@@ -1238,8 +1238,11 @@ function Portabilidade(){
     setSyncing(false)
   }
   // Classificação por status (mapeamento Power BI)
-  const isEnviado=r=>!!r.cip_submission_date
-  const isChegou=r=>!!(r.origin_due_balance_returned||(r.origin_due_balance&&r.origin_due_balance>0&&r.status_key!=='retained'))
+  // Enviado CIP = proposta entrou no fluxo de portabilidade (tem portability_number OU cip_submission_date OU status ativo no fluxo)
+  const ACTIVE_FLOW_STATUS=['awaiting_formalization','awaiting_portability','documents_not_found','retained','sent_to_cip','integrated','proposal_cadastrada','accepted']
+  const isEnviado=r=>!!(r.portability_number||r.cip_submission_date||ACTIVE_FLOW_STATUS.includes(r.status_key))
+  // Chegou CIP = saldo efetivamente retornou da Câmara (única fonte confiável: dueBalanceReturned)
+  const isChegou=r=>!!r.origin_due_balance_returned
   const isPago=r=>r.status_key==='integrated'
   const isNaoPago=r=>['canceled','rejected_ctc','proposal_expired','canceled_by_customer'].includes(r.status_key)
   const isRetido=r=>r.status_key==='retained'
