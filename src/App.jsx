@@ -1202,22 +1202,243 @@ function Recebimentos({myAgents}){
   </div>
 }
 
-/* ═══ ESTORNOS ═══ */
-function Portabilidade({myAgents}){
-  const{per,setPer,ops,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
-  const port=ops.filter(o=>(o.operacao||'').toUpperCase().includes('PORTAB'))
-  const tD=port.length,tP=port.filter(isFin).length,cv=tD?(tP/tD*100):0
-  const byBanco=(()=>{const m={};port.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={d:0,p:0,rd:0,rp:0};m[b].d++;m[b].rd+=(o.vrBruto||0);if(isFin(o)){m[b].p++;m[b].rp+=(o.vrBruto||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
-  const byAg=(()=>{const m={};port.forEach(o=>{const a=o.agente||'?';if(!m[a])m[a]={d:0,p:0,rd:0,rp:0};m[a].d++;m[a].rd+=(o.vrBruto||0);if(isFin(o)){m[a].p++;m[a].rp+=(o.vrBruto||0)}});return Object.entries(m).sort((a,b)=>b[1].d-a[1].d)})()
-  const PT=({data,nl})=><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{[nl,'Dig.','Prod.','Conv.','Base Dig.','Base Prod.'].map(h=><th key={h} style={{padding:'7px 9px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead><tbody>{data.map(([n,x])=>{const r=x.d?(x.p/x.d*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n}</td><td style={{padding:'7px 9px'}}>{x.d}</td><td style={{padding:'7px 9px',color:C.accent2,fontWeight:600}}>{x.p}</td><td style={{padding:'7px 9px',fontWeight:600,color:r>=50?C.accent2:r>=30?C.warn:C.danger}}>{r.toFixed(0)}%</td><td style={{padding:'7px 9px'}}>{fmtCur(x.rd)}</td><td style={{padding:'7px 9px',fontWeight:600,color:C.accent2}}>{fmtCur(x.rp)}</td></tr>})}</tbody></table>
+/* ═══ PORTABILIDADE (API QualiBanking) ═══ */
+function Portabilidade(){
+  const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
+  const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
+  const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
+  const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
+  const loadData=async()=>{
+    setLoading(true)
+    let q=supabase.from('portabilidades').select('*').order('proposal_date',{ascending:false}).limit(5000)
+    if(per!=='tudo'){
+      const r=PERIODS[per]||PERIODS.tudo
+      const df=per==='custom'?(customDf||'2000-01-01'):r.f
+      const dt=per==='custom'?(customDt||'2099-12-31'):r.t
+      q=q.gte('proposal_date',df).lte('proposal_date',dt)
+    }
+    const{data}=await q
+    setRows(data||[])
+    // Último sync
+    const{data:sl}=await supabase.from('sync_logs').select('*').eq('source','qualibanking').order('started_at',{ascending:false}).limit(1)
+    if(sl&&sl[0])setLastSync(sl[0])
+    setLoading(false)
+  }
+  useEffect(()=>{loadData()},[per,trigger])
+  const applyCustom=()=>setTrigger(t=>t+1)
+  const doSync=async()=>{
+    setSyncing(true);setMsg('Sincronizando com QualiBanking...')
+    try{
+      const today=new Date(),from=new Date(today);from.setDate(from.getDate()-30)
+      const resp=await fetch('https://rirsmtyuyqxsoxqbgtpu.supabase.co/functions/v1/sync-qualibanking?from='+localDate(from)+'&to='+localDate(today)+'&onlyPortability=true',{method:'GET'})
+      const j=await resp.json()
+      if(j.ok){setMsg('✓ '+j.upserted+' portabilidades sincronizadas ('+j.daysWithData+' dias com dados)');await loadData()}
+      else setMsg('Erro: '+(j.error||'desconhecido'))
+    }catch(e){setMsg('Erro: '+e.message)}
+    setSyncing(false)
+  }
+  // Classificação por status (mapeamento Power BI)
+  const isEnviado=r=>!!r.cip_submission_date
+  const isChegou=r=>!!(r.origin_due_balance_returned||(r.origin_due_balance&&r.origin_due_balance>0&&r.status_key!=='retained'))
+  const isPago=r=>r.status_key==='integrated'
+  const isNaoPago=r=>['canceled','rejected_ctc','proposal_expired','canceled_by_customer'].includes(r.status_key)
+  const isRetido=r=>r.status_key==='retained'
+  const isTrocoNeg=r=>(r.net_value||0)<0
+  // Filtros
+  const fd=rows.filter(r=>{
+    if(fBanco&&r.origin_bank_name!==fBanco&&r.destination_bank_name!==fBanco)return false
+    if(fStatus&&r.status_name!==fStatus)return false
+    if(fOp&&r.operation_type!==fOp)return false
+    if(se){const s=se.toLowerCase();if(!((r.borrower_name||'').toLowerCase().includes(s)||(r.borrower_identity||'').includes(s)||(r.proposal_number||'').includes(s)))return false}
+    return true
+  })
+  // KPIs
+  const sumBal=arr=>arr.reduce((s,r)=>s+(Number(r.origin_due_balance)||0),0)
+  const sumLoan=arr=>arr.reduce((s,r)=>s+(Number(r.loan_value)||0),0)
+  const enviadas=fd.filter(isEnviado),chegou=fd.filter(isChegou),pagas=fd.filter(isPago),naoPagas=fd.filter(isNaoPago),retidas=fd.filter(isRetido),trocoNeg=fd.filter(isTrocoNeg)
+  const totalEnviado=sumBal(enviadas),totalChegou=sumBal(chegou),totalPago=sumBal(pagas),totalNaoPago=sumBal(naoPagas),totalRetido=sumBal(retidas),totalTrocoNeg=sumLoan(trocoNeg)
+  const naoChegou=totalEnviado-totalChegou
+  const pctChegou=totalEnviado?(totalChegou/totalEnviado*100):0
+  const pctPagoChegou=totalChegou?(totalPago/totalChegou*100):0
+  const pctPagoEnviado=totalEnviado?(totalPago/totalEnviado*100):0
+  const pctNaoPagoChegou=totalChegou?(totalNaoPago/totalChegou*100):0
+  const pctRetencao=totalEnviado?(totalRetido/totalEnviado*100):0
+  // Rankings por banco origem
+  const rank=(filterFn,field)=>{
+    const m={}
+    fd.filter(filterFn).forEach(r=>{const k=r[field]||'?';if(!m[k])m[k]={c:0,v:0};m[k].c++;m[k].v+=(Number(r.origin_due_balance)||0)})
+    return Object.entries(m).sort((a,b)=>b[1].v-a[1].v)
+  }
+  const topEnviado=rank(isEnviado,'origin_bank_name').slice(0,15)
+  const topChegou=rank(isChegou,'origin_bank_name').slice(0,10)
+  const topPago=rank(isPago,'origin_bank_name').slice(0,10)
+  const topPctChegou=(()=>{
+    const m={}
+    fd.filter(isEnviado).forEach(r=>{const k=r.origin_bank_name||'?';if(!m[k])m[k]={env:0,ch:0};m[k].env+=(Number(r.origin_due_balance)||0)})
+    fd.filter(isChegou).forEach(r=>{const k=r.origin_bank_name||'?';if(m[k])m[k].ch+=(Number(r.origin_due_balance)||0)})
+    return Object.entries(m).filter(([,x])=>x.env>0).map(([k,x])=>[k,{pct:x.ch/x.env*100,env:x.env,ch:x.ch}]).sort((a,b)=>b[1].pct-a[1].pct).slice(0,10)
+  })()
+  const bancos=[...new Set(rows.flatMap(r=>[r.origin_bank_name,r.destination_bank_name]).filter(Boolean))].sort()
+  const statuses=[...new Set(rows.map(r=>r.status_name).filter(Boolean))].sort()
+  const operations=[...new Set(rows.map(r=>r.operation_type).filter(Boolean))].sort()
+  const maxBar=arr=>Math.max(...arr.map(([,x])=>x.v||x.pct||0),1)
+  const BarRow=({label,value,max,color,fmt})=>{const pct=(value/max*100)||0;return<div style={{marginBottom:4}}>
+    <div style={{display:'flex',justifyContent:'space-between',fontSize:9,marginBottom:2}}><span style={{maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span><span style={{fontWeight:700,color}}>{fmt(value)}</span></div>
+    <div style={{height:14,background:C.surface,borderRadius:3,position:'relative'}}><div style={{height:'100%',background:color,borderRadius:3,width:pct+'%',transition:'width .3s'}}/></div>
+  </div>}
+  const exportPortab=()=>{
+    const dataRows=fd.map(r=>({
+      Proposta:r.proposal_number,CPF:r.borrower_identity,Cliente:r.borrower_name,Telefone:r.borrower_phone,
+      Operação:r.operation_type,Status:r.status_name,'Banco Origem':r.origin_bank_name,'Banco Destino':r.destination_bank_name,
+      'Saldo Devedor':r.origin_due_balance,'Vl. Bruto':r.loan_value,'Vl. Líquido (Troco)':r.net_value,
+      Parcela:r.installment_value,Prazo:r.term,Taxa:r.rate,
+      'Data Proposta':r.proposal_date,'Data Contrato':r.contract_date,'Enviado CIP':r.cip_submission_date,
+      'Retorno Esperado CIP':r.origin_due_balance_expected_date,'Saldo Chegou':r.origin_due_balance_returned?'Sim':'Não',
+      'Parcelas Pagas':r.origin_installments_paid,'Parcelas Restantes':r.origin_installments_remaining
+    }))
+    const ws=XLSX.utils.json_to_sheet(dataRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Portabilidades');XLSX.writeFile(wb,'portabilidades-'+new Date().toISOString().slice(0,10)+'.xlsx')
+  }
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Portabilidade</h2><ExportBtn ops={port} name={'portabilidade-'+per}/></div>
+    <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>Portabilidade</h2>
+      {lastSync&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>Última sync: {new Date(lastSync.started_at).toLocaleString('pt-BR')} — {lastSync.records_upserted||0} registros</div>}</div>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={exportPortab} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
+        <button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>
+      </div>
+    </div>
+    {msg&&<div style={{background:msg.includes('✓')?C.accent2+'22':C.warn+'22',color:msg.includes('✓')?C.accent2:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:'inherit',cursor:'pointer'}}>×</button></div>}
     <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
-    <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}><Stat label="Digitado" value={tD} sub={fmtCur(port.reduce((s,o)=>s+(o.vrBruto||0),0))}/><Stat label="Produção" value={tP} sub={fmtCur(port.filter(isFin).reduce((s,o)=>s+(o.vrBruto||0),0))} color={C.accent2}/><Stat label="Conv." value={cv.toFixed(1)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/></div>
-    {!port.length?<div style={{background:C.card,borderRadius:14,padding:24,textAlign:'center',color:C.muted}}>Nenhuma portabilidade no período</div>:<>
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Banco</div><PT data={byBanco} nl="Banco"/></div>
-      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Por Parceiro</div><PT data={byAg} nl="Parceiro"/></div>
-    </>}
+
+    {/* KPIs PRINCIPAIS - estilo Power BI */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}}>
+      <div style={{background:C.card,border:'2px solid '+C.accent,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.accent}}>ENVIADO CIP</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.accent}}>{fmtCur(totalEnviado)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{enviadas.length} propostas</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.warn,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.warn}}>CHEGOU CIP</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.warn}}>{fmtCur(totalChegou)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{chegou.length} saldos</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.accent2,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.accent2}}>PAGO</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.accent2}}>{fmtCur(totalPago)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{pagas.length} integrados</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.danger,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.danger}}>NÃO FOI PAGO</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.danger}}>{fmtCur(totalNaoPago)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{naoPagas.length} cancel./recus.</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid #F97316',borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:'#F97316'}}>TROCO NEGATIVO</div>
+        <div style={{fontSize:18,fontWeight:800,color:'#F97316'}}>{fmtCur(Math.abs(totalTrocoNeg))}</div>
+        <div style={{fontSize:9,color:C.muted}}>{trocoNeg.length} casos</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.info,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.info}}>RETENÇÃO CLIENTE</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.info}}>{fmtCur(totalRetido)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{retidas.length} retidos</div>
+      </div>
+      <div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.danger}}>NÃO CHEGOU CIP</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.danger}}>{fmtCur(naoChegou)}</div>
+      </div>
+    </div>
+
+    {/* Percentuais */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8}}>
+      {[
+        {l:'Chegou / Enviado %',v:pctChegou,c:C.warn},
+        {l:'Pago / Chegou %',v:pctPagoChegou,c:C.accent2},
+        {l:'Pago / Enviado %',v:pctPagoEnviado,c:C.accent2},
+        {l:'Não foi Pago / Chegou %',v:pctNaoPagoChegou,c:C.danger},
+        {l:'Retenção %',v:pctRetencao,c:C.info}
+      ].map(x=><div key={x.l} style={{background:C.card,border:'1px solid '+C.border,borderRadius:10,padding:'10px 12px'}}>
+        <div style={{fontSize:8,fontWeight:700,color:C.muted,textTransform:'uppercase'}}>{x.l}</div>
+        <div style={{fontSize:20,fontWeight:800,color:x.c}}>{x.v.toFixed(0)}%</div>
+      </div>)}
+    </div>
+
+    {/* FILTROS */}
+    <div style={{display:'flex',gap:6,flexWrap:'wrap',background:C.card,border:'1px solid '+C.border,borderRadius:10,padding:'10px 14px',alignItems:'center'}}>
+      <input value={se} onChange={e=>sSe(e.target.value)} placeholder="🔍 Cliente, CPF ou proposta..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11,flex:1,minWidth:180}}/>
+      <select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos bancos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select>
+      <select value={fStatus} onChange={e=>sFStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos status</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</select>
+      <select value={fOp} onChange={e=>sFOp(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todas operações</option>{operations.map(o=><option key={o} value={o}>{o}</option>)}</select>
+      {(fBanco||fStatus||fOp||se)&&<button onClick={()=>{sFBanco('');sFStatus('');sFOp('');sSe('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 10px',fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
+    </div>
+
+    {/* RANKINGS tipo Power BI */}
+    <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.accent}}>Top Banco Enviado CIP</div>
+        {topEnviado.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topEnviado.map(([k,x])=><BarRow key={k} label={k} value={x.v} max={maxBar(topEnviado)} color={C.accent} fmt={fmtCur}/>)}
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.warn}}>Top Banco Chegou CIP</div>
+        {topChegou.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topChegou.map(([k,x])=><BarRow key={k} label={k} value={x.v} max={maxBar(topChegou)} color={C.warn} fmt={fmtCur}/>)}
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.accent2}}>Top Banco Pago</div>
+        {topPago.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topPago.map(([k,x])=><BarRow key={k} label={k} value={x.v} max={maxBar(topPago)} color={C.accent2} fmt={fmtCur}/>)}
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.info}}>Top Banco % Chegou CIP</div>
+        {topPctChegou.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topPctChegou.map(([k,x])=><BarRow key={k} label={k} value={x.pct} max={100} color={C.info} fmt={v=>v.toFixed(0)+'%'}/>)}
+      </div>
+    </div>
+
+    {/* TABELA DETALHADA */}
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Portabilidades — {fd.length} registros</div>
+      <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Vl. Bruto','Troco','Status','Op.'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{fd.slice(0,500).map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+            <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{fmtDate(r.proposal_date)}</td>
+            <td style={{padding:'5px 8px',fontWeight:600}}>{r.proposal_number||r.code}</td>
+            <td style={{padding:'5px 8px',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.borrower_name}</td>
+            <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.origin_bank_name||'—'}</td>
+            <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.destination_bank_name||'—'}</td>
+            <td style={{padding:'5px 8px',fontWeight:600,color:C.accent}}>{fmtCur(r.origin_due_balance)}</td>
+            <td style={{padding:'5px 8px',fontWeight:600}}>{fmtCur(r.loan_value)}</td>
+            <td style={{padding:'5px 8px',fontWeight:600,color:(r.net_value||0)<0?C.danger:C.accent2}}>{fmtCur(r.net_value)}</td>
+            <td style={{padding:'5px 8px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(r.status_color||C.muted)+'22',color:r.status_color||C.muted,fontWeight:600}}>{r.status_name||'—'}</span></td>
+            <td style={{padding:'5px 8px',fontSize:9}}>{r.operation_type}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* MODAL DETALHE */}
+    {selRow&&<div onClick={()=>setSelRow(null)} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,width:700,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+          <h3 style={{margin:0,fontSize:16}}>{selRow.borrower_name}</h3>
+          <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:14}}>Proposta {selRow.proposal_number} · CPF {selRow.borrower_identity} · {selRow.borrower_phone||'sem telefone'}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+          {[
+            ['Banco Origem',selRow.origin_bank_name],['Banco Destino',selRow.destination_bank_name],
+            ['Operação',selRow.operation_type],['Status',selRow.status_name],
+            ['Saldo Devedor',fmtCur(selRow.origin_due_balance)],['Vl. Bruto',fmtCur(selRow.loan_value)],
+            ['Vl. Líquido (Troco)',fmtCur(selRow.net_value)],['Parcela',fmtCur(selRow.installment_value)],
+            ['Prazo',selRow.term+' meses'],['Taxa',(selRow.rate||0).toFixed(2)+'%'],
+            ['Parcelas Pagas (origem)',selRow.origin_installments_paid],['Parcelas Restantes (origem)',selRow.origin_installments_remaining],
+            ['Data Proposta',fmtDate(selRow.proposal_date)],['Data Contrato',fmtDate(selRow.contract_date)],
+            ['Enviado CIP',fmtDate(selRow.cip_submission_date)],['Retorno Esperado CIP',fmtDate(selRow.origin_due_balance_expected_date)],
+            ['Saldo Chegou?',selRow.origin_due_balance_returned?'✓ Sim':'Não'],['Assinado?',selRow.assigned?'✓ Sim':'Não']
+          ].map(([l,v])=><div key={l} style={{background:C.surface,borderRadius:6,padding:'8px 10px'}}>
+            <div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{l}</div>
+            <div style={{fontSize:12,fontWeight:600}}>{v||'—'}</div>
+          </div>)}
+        </div>
+      </div>
+    </div>}
   </div>
 }
 
@@ -1676,7 +1897,7 @@ export default function App(){
       {view==='analise'&&<Analise myAgents={myAgents}/>}
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
-      {view==='portabilidade'&&<Portabilidade myAgents={myAgents}/>}
+      {view==='portabilidade'&&<Portabilidade/>}
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
