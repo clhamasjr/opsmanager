@@ -1202,11 +1202,111 @@ function Recebimentos({myAgents}){
   </div>
 }
 
+/* ═══ MEU PORTAL (tela do Parceiro) ═══ */
+function MeuPortal({user}){
+  const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[parceiro,setParceiro]=useState(null)
+  const[selRow,setSelRow]=useState(null)
+  useEffect(()=>{
+    if(!user.parceiro_id){setLoading(false);return}
+    ;(async()=>{
+      const{data:p}=await supabase.from('parceiros').select('*').eq('id',user.parceiro_id).single()
+      setParceiro(p)
+      // Buscar portabilidades via view enriched filtrando pelo parceiro
+      const{data}=await supabase.from('portabilidades_enriched').select('*').eq('parceiro_id',user.parceiro_id).order('proposal_date',{ascending:false}).limit(1000)
+      setRows(data||[])
+      setLoading(false)
+    })()
+  },[user.parceiro_id])
+  if(!user.parceiro_id)return<div style={{padding:40,textAlign:'center',color:C.muted}}>⚠️ Seu usuário não está vinculado a um parceiro. Contate o administrador.</div>
+  if(loading)return<div style={{padding:40,textAlign:'center'}}>⏳ Carregando...</div>
+  const isEnviado=r=>!!(r.portability_number||r.cip_submission_date||r.origin_due_balance_returned||r.origin_due_balance_date||['retained','rejected_ctc','integrated'].includes(r.status_key))
+  const isChegou=r=>!!r.origin_due_balance_returned
+  const isPago=r=>r.status_key==='integrated'
+  const sumBal=arr=>arr.reduce((s,r)=>s+(Number(r.origin_due_balance)||0),0)
+  const enviadas=rows.filter(isEnviado),chegou=rows.filter(isChegou),pagas=rows.filter(isPago)
+  const aguardandoForm=rows.filter(r=>r.status_key==='awaiting_formalization')
+  const pendenteDoc=rows.filter(r=>r.status_key==='documents_not_found')
+  const hoje=localDate(new Date())
+  const hojeChegaram=rows.filter(r=>r.origin_due_balance_date&&String(r.origin_due_balance_date).slice(0,10)===hoje)
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div>
+        <h2 style={{fontWeight:800,fontSize:22,margin:0}}>👋 Olá, {user.nome.split(' ')[0]}!</h2>
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>Parceiro: <strong>{parceiro?.nome||'—'}</strong></div>
+      </div>
+      <div style={{fontSize:10,color:C.muted}}>{rows.length} portabilidades registradas</div>
+    </div>
+    {/* CIP DO DIA */}
+    {hojeChegaram.length>0&&<div style={{background:C.accent2+'15',border:'2px solid '+C.accent2,borderRadius:14,padding:16}}>
+      <div style={{fontSize:14,fontWeight:800,color:C.accent2,marginBottom:8}}>🟢 Saldos que chegaram hoje — {hojeChegaram.length}</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:8}}>
+        {hojeChegaram.map(r=><div key={r.id} onClick={()=>setSelRow(r)} style={{background:C.card,borderRadius:8,padding:10,cursor:'pointer',border:'1px solid '+C.accent2+'33'}}>
+          <div style={{fontSize:12,fontWeight:700}}>{r.borrower_name}</div>
+          <div style={{fontSize:10,color:C.muted}}>{r.origin_bank_name}</div>
+          <div style={{fontSize:14,fontWeight:700,color:C.accent2,marginTop:4}}>{fmtCur(r.origin_due_balance)}</div>
+        </div>)}
+      </div>
+    </div>}
+    {/* KPIs */}
+    <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <Stat label="Total" value={rows.length} sub={fmtCur(sumBal(rows))}/>
+      <Stat label="Enviadas CIP" value={enviadas.length} sub={fmtCur(sumBal(enviadas))} color={C.accent}/>
+      <Stat label="Chegou Saldo" value={chegou.length} sub={fmtCur(sumBal(chegou))} color={C.warn}/>
+      <Stat label="Integradas" value={pagas.length} sub={fmtCur(sumBal(pagas))} color={C.accent2}/>
+      <Stat label="Aguardando Form." value={aguardandoForm.length} color={C.info}/>
+      <Stat label="Pend. Docs" value={pendenteDoc.length} color={C.danger}/>
+    </div>
+    {/* Por status */}
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📋 Minhas Portabilidades</div>
+      <div style={{overflowX:'auto',maxHeight:600,borderRadius:8,border:'1px solid '+C.border}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Data','Cliente','Banco Origem','Saldo','Status','Retorno CIP'].map(h=><th key={h} style={{padding:'7px 10px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+            <td style={{padding:'6px 10px',whiteSpace:'nowrap',fontSize:10}}>{fmtDate(r.proposal_date)}</td>
+            <td style={{padding:'6px 10px',fontWeight:600}}>{r.borrower_name}</td>
+            <td style={{padding:'6px 10px',fontSize:10}}>{r.origin_bank_name||'—'}</td>
+            <td style={{padding:'6px 10px',fontWeight:600,color:C.accent}}>{fmtCur(r.origin_due_balance)}</td>
+            <td style={{padding:'6px 10px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(r.status_color||C.muted)+'22',color:r.status_color||C.muted,fontWeight:600}}>{r.status_name}</span></td>
+            <td style={{padding:'6px 10px',fontSize:10,color:r.origin_due_balance_returned?C.accent2:C.muted}}>{r.origin_due_balance_date?fmtDate(r.origin_due_balance_date):(r.origin_due_balance_expected_date?'prev: '+fmtDate(r.origin_due_balance_expected_date):'—')}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+    {/* Modal detalhes */}
+    {selRow&&<div onClick={()=>setSelRow(null)} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,width:600,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+          <h3 style={{margin:0,fontSize:16}}>{selRow.borrower_name}</h3>
+          <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:14}}>Proposta {selRow.proposal_number} · CPF {selRow.borrower_identity}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          {[
+            ['Status',selRow.status_name],['Operação',selRow.operation_type],
+            ['Banco Origem',selRow.origin_bank_name],['Banco Destino',selRow.destination_bank_name],
+            ['Saldo Devedor',fmtCur(selRow.origin_due_balance)],['Vl. Bruto',fmtCur(selRow.loan_value)],
+            ['Vl. Líquido (Troco)',fmtCur(selRow.net_value)],['Parcela',fmtCur(selRow.installment_value)],
+            ['Prazo',selRow.term+' meses'],['Taxa',(selRow.rate||0).toFixed(2)+'%'],
+            ['Data Proposta',fmtDate(selRow.proposal_date)],['Data Contrato',fmtDate(selRow.contract_date)],
+            ['Retorno CIP',fmtDate(selRow.origin_due_balance_date)],['Retorno Esperado',fmtDate(selRow.origin_due_balance_expected_date)],
+            ['Saldo Retornou?',selRow.origin_due_balance_returned?'✅ Sim':'Não'],['Número CIP',selRow.portability_number||'—']
+          ].map(([l,v])=><div key={l} style={{background:C.surface,borderRadius:6,padding:'8px 10px'}}>
+            <div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{l}</div>
+            <div style={{fontSize:12,fontWeight:600}}>{v||'—'}</div>
+          </div>)}
+        </div>
+      </div>
+    </div>}
+  </div>
+}
+
 /* ═══ PORTABILIDADE (API QualiBanking) ═══ */
 function Portabilidade(){
   const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
   const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
+  const[fDataRetornoDe,sFDataRetornoDe]=useState(''),[fDataRetornoAte,sFDataRetornoAte]=useState('')
   const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
   const loadData=async()=>{
     setLoading(true)
@@ -1237,22 +1337,35 @@ function Portabilidade(){
     }catch(e){setMsg('Erro: '+e.message)}
     setSyncing(false)
   }
-  // Classificação por status (mapeamento Power BI)
-  // Enviado CIP = proposta entrou no fluxo de portabilidade (tem portability_number OU cip_submission_date OU status ativo no fluxo)
-  const ACTIVE_FLOW_STATUS=['awaiting_formalization','awaiting_portability','documents_not_found','retained','sent_to_cip','integrated','proposal_cadastrada','accepted']
-  const isEnviado=r=>!!(r.portability_number||r.cip_submission_date||ACTIVE_FLOW_STATUS.includes(r.status_key))
-  // Chegou CIP = saldo efetivamente retornou da Câmara (única fonte confiável: dueBalanceReturned)
+  // Classificação por status — critérios baseados no fluxo real QualiBanking
+  // Aguardando Formalização / Documentos Não Encontrados = AINDA NÃO FORAM para CIP
+  // Enviado CIP = foi efetivamente para a Câmara. Indicadores: número CIP, cipSubmissionDate, saldo retornou, retido, rejeitado CTC, integrado
+  const CIP_STATUS_AFTER=['retained','rejected_ctc','integrated','sent_to_cip','awaiting_portability','proposal_expired']
+  const isEnviado=r=>!!(r.portability_number||r.cip_submission_date||r.origin_due_balance_returned||r.origin_due_balance_date||CIP_STATUS_AFTER.includes(r.status_key))
+  // Chegou CIP = saldo efetivamente retornou da Câmara
   const isChegou=r=>!!r.origin_due_balance_returned
+  // Pré-CIP = ainda no fluxo, mas não foi pra CIP
+  const isPreCip=r=>['awaiting_formalization','documents_not_found','proposal_cadastrada','accepted'].includes(r.status_key)&&!isEnviado(r)
   const isPago=r=>r.status_key==='integrated'
   const isNaoPago=r=>['canceled','rejected_ctc','proposal_expired','canceled_by_customer'].includes(r.status_key)
   const isRetido=r=>r.status_key==='retained'
   const isTrocoNeg=r=>(r.net_value||0)<0
+  // CIP do dia (com base na data que chegou o saldo)
+  const hoje=localDate(new Date())
+  const isChegouHoje=r=>r.origin_due_balance_date&&String(r.origin_due_balance_date).slice(0,10)===hoje
+  const isEsperaHoje=r=>r.origin_due_balance_expected_date&&String(r.origin_due_balance_expected_date).slice(0,10)===hoje&&!r.origin_due_balance_returned
   // Filtros
   const fd=rows.filter(r=>{
     if(fBanco&&r.origin_bank_name!==fBanco&&r.destination_bank_name!==fBanco)return false
     if(fStatus&&r.status_name!==fStatus)return false
     if(fOp&&r.operation_type!==fOp)return false
     if(se){const s=se.toLowerCase();if(!((r.borrower_name||'').toLowerCase().includes(s)||(r.borrower_identity||'').includes(s)||(r.proposal_number||'').includes(s)))return false}
+    if(fDataRetornoDe||fDataRetornoAte){
+      const dt=r.origin_due_balance_date?String(r.origin_due_balance_date).slice(0,10):''
+      if(!dt)return false
+      if(fDataRetornoDe&&dt<fDataRetornoDe)return false
+      if(fDataRetornoAte&&dt>fDataRetornoAte)return false
+    }
     return true
   })
   // KPIs
@@ -1313,6 +1426,51 @@ function Portabilidade(){
     {msg&&<div style={{background:msg.includes('✓')?C.accent2+'22':C.warn+'22',color:msg.includes('✓')?C.accent2:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:'inherit',cursor:'pointer'}}>×</button></div>}
     <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
 
+    {/* CIP DO DIA — movimentos de hoje */}
+    {(()=>{
+      const chegouHoje=rows.filter(isChegouHoje),esperaHoje=rows.filter(isEsperaHoje)
+      const pagoHoje=rows.filter(r=>r.status_key==='integrated'&&r.status_date&&String(r.status_date).slice(0,10)===hoje)
+      const totalChegouHoje=sumBal(chegouHoje),totalEsperaHoje=sumBal(esperaHoje),totalPagoHoje=sumBal(pagoHoje)
+      const temMov=chegouHoje.length+esperaHoje.length+pagoHoje.length>0
+      return<div style={{background:C.card,border:'2px solid '+C.accent2+'55',borderRadius:14,padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:6}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.accent2}}>📅 CIP do Dia — {new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</div>
+          <div style={{fontSize:9,color:C.muted}}>Movimentos de CIP registrados hoje</div>
+        </div>
+        {!temMov?<div style={{textAlign:'center',color:C.muted,fontSize:11,padding:14}}>Sem movimentos de CIP registrados hoje.</div>:<>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
+            <div style={{background:C.accent2+'15',borderLeft:'4px solid '+C.accent2,borderRadius:8,padding:'10px 14px'}}>
+              <div style={{fontSize:9,fontWeight:700,color:C.accent2}}>🟢 CHEGOU SALDO HOJE</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.accent2}}>{chegouHoje.length}</div>
+              <div style={{fontSize:11,fontWeight:600,color:C.accent2}}>{fmtCur(totalChegouHoje)}</div>
+            </div>
+            <div style={{background:C.warn+'15',borderLeft:'4px solid '+C.warn,borderRadius:8,padding:'10px 14px'}}>
+              <div style={{fontSize:9,fontWeight:700,color:C.warn}}>⏳ ESPERA RETORNO HOJE</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.warn}}>{esperaHoje.length}</div>
+              <div style={{fontSize:11,fontWeight:600,color:C.warn}}>{fmtCur(totalEsperaHoje)}</div>
+            </div>
+            <div style={{background:C.accent+'15',borderLeft:'4px solid '+C.accent,borderRadius:8,padding:'10px 14px'}}>
+              <div style={{fontSize:9,fontWeight:700,color:C.accent}}>💰 INTEGRADA HOJE</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.accent}}>{pagoHoje.length}</div>
+              <div style={{fontSize:11,fontWeight:600,color:C.accent}}>{fmtCur(totalPagoHoje)}</div>
+            </div>
+          </div>
+          {chegouHoje.length>0&&<div style={{marginTop:12,overflowX:'auto'}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.accent2,marginBottom:4}}>Saldos chegados hoje:</div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+              <thead><tr style={{background:C.surface}}>{['Cliente','Banco Origem','Saldo','Status'].map(h=><th key={h} style={{padding:'4px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+              <tbody>{chegouHoje.map(r=><tr key={r.id} style={{borderBottom:'1px solid '+C.border}}>
+                <td style={{padding:'4px 8px',fontWeight:600}}>{r.borrower_name}</td>
+                <td style={{padding:'4px 8px',fontSize:9}}>{r.origin_bank_name}</td>
+                <td style={{padding:'4px 8px',fontWeight:600,color:C.accent2}}>{fmtCur(r.origin_due_balance)}</td>
+                <td style={{padding:'4px 8px'}}><span style={{fontSize:9,padding:'1px 6px',borderRadius:4,background:(r.status_color||C.muted)+'22',color:r.status_color||C.muted,fontWeight:600}}>{r.status_name}</span></td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+        </>}
+      </div>
+    })()}
+
     {/* KPIs PRINCIPAIS - estilo Power BI */}
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}}>
       <div style={{background:C.card,border:'2px solid '+C.accent,borderRadius:10,padding:'12px 14px'}}>
@@ -1371,7 +1529,13 @@ function Portabilidade(){
       <select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos bancos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select>
       <select value={fStatus} onChange={e=>sFStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos status</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</select>
       <select value={fOp} onChange={e=>sFOp(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todas operações</option>{operations.map(o=><option key={o} value={o}>{o}</option>)}</select>
-      {(fBanco||fStatus||fOp||se)&&<button onClick={()=>{sFBanco('');sFStatus('');sFOp('');sSe('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 10px',fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
+      <div style={{display:'flex',gap:4,alignItems:'center',fontSize:9,color:C.muted}}>
+        <span style={{fontWeight:600}}>Retorno CIP:</span>
+        <input type="date" value={fDataRetornoDe} onChange={e=>sFDataRetornoDe(e.target.value)} style={{background:C.surface,border:'1px solid '+(fDataRetornoDe?C.accent2:C.border),borderRadius:6,color:C.text,padding:'5px 8px',fontSize:10}}/>
+        <span>→</span>
+        <input type="date" value={fDataRetornoAte} onChange={e=>sFDataRetornoAte(e.target.value)} style={{background:C.surface,border:'1px solid '+(fDataRetornoAte?C.accent2:C.border),borderRadius:6,color:C.text,padding:'5px 8px',fontSize:10}}/>
+      </div>
+      {(fBanco||fStatus||fOp||se||fDataRetornoDe||fDataRetornoAte)&&<button onClick={()=>{sFBanco('');sFStatus('');sFOp('');sSe('');sFDataRetornoDe('');sFDataRetornoAte('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 10px',fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
     </div>
 
     {/* RANKINGS tipo Power BI */}
@@ -1515,7 +1679,9 @@ function Usuarios({user}){
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
-  const[edNome,setEdNome]=useState(''),[edEmail,setEdEmail]=useState(''),[edSenha,setEdSenha]=useState(''),[edPerfil,setEdPerfil]=useState('operador')
+  const[edNome,setEdNome]=useState(''),[edEmail,setEdEmail]=useState(''),[edSenha,setEdSenha]=useState(''),[edPerfil,setEdPerfil]=useState('operador'),[edParceiroId,setEdParceiroId]=useState('')
+  const[parceiroId,setParceiroId]=useState('')
+  const[allParceiros,setAllParceiros]=useState([])
   const[showSenha,setShowSenha]=useState({})
   const[sups,setSups]=useState([])
   useEffect(()=>{
@@ -1526,13 +1692,15 @@ function Usuarios({user}){
       const supList=data.filter(p=>supCods.has(p.cod_agente)).map(p=>({cod:p.cod_agente,nome:p.nome}))
       setSups(supList.length?supList:[...supCods].map(c=>({cod:c,nome:c})))
     })
+    supabase.from('parceiros').select('id,nome,telefone,ativo').order('nome').then(({data})=>setAllParceiros(data||[]))
   },[])
   const reload=async()=>{const{data}=await supabase.from('usuarios').select('*').order('nome');setUsers(data||[])}
-  const openEdit=u=>{setEditUser(u);setEdNome(u.nome);setEdEmail(u.email);setEdSenha(u.senha||'');setEdPerfil(u.perfil||'operador')}
+  const openEdit=u=>{setEditUser(u);setEdNome(u.nome);setEdEmail(u.email);setEdSenha(u.senha||'');setEdPerfil(u.perfil||'operador');setEdParceiroId(u.parceiro_id||'')}
   const saveEdit=async()=>{
     if(!edNome.trim()||!edEmail.trim()){setMsg('Nome e email s\u00e3o obrigat\u00f3rios');return}
     if(!edSenha.trim()){setMsg('A senha n\u00e3o pode ficar vazia');return}
-    const upd={nome:edNome.trim(),email:edEmail.trim(),senha:edSenha.trim(),perfil:edPerfil}
+    if(edPerfil==='parceiro'&&!edParceiroId){setMsg('Perfil Parceiro exige v\u00ednculo com parceiro');return}
+    const upd={nome:edNome.trim(),email:edEmail.trim(),senha:edSenha.trim(),perfil:edPerfil,parceiro_id:edParceiroId||null}
     const{error}=await supabase.from('usuarios').update(upd).eq('id',editUser.id)
     if(error){setMsg('Erro ao salvar: '+error.message);return}
     setMsg('\u2713 '+edNome+' atualizado com sucesso! Senha: '+edSenha.trim())
@@ -1541,10 +1709,12 @@ function Usuarios({user}){
   const createUser=async(e)=>{
     e.preventDefault()
     if(!nome.trim()||!email.trim()||!senha.trim()){setMsg('Preencha todos os campos');return}
-    const{error}=await supabase.from('usuarios').insert({nome:nome.trim(),email:email.trim(),senha:senha.trim(),perfil,telas:ALL_TELAS.slice(0,3)})
+    if(perfil==='parceiro'&&!parceiroId){setMsg('Perfil Parceiro exige sele\u00e7\u00e3o de parceiro');return}
+    const telasDefault=perfil==='parceiro'?['meuportal']:ALL_TELAS.slice(0,3)
+    const{error}=await supabase.from('usuarios').insert({nome:nome.trim(),email:email.trim(),senha:senha.trim(),perfil,parceiro_id:parceiroId||null,telas:telasDefault})
     if(error){setMsg('Erro ao criar: '+error.message);return}
     setMsg('\u2713 Usu\u00e1rio '+nome+' criado! Senha: '+senha)
-    setNome('');setEmail('');setSenha('');setShowNew(false);await reload()
+    setNome('');setEmail('');setSenha('');setParceiroId('');setShowNew(false);await reload()
   }
   const changeSenha=async(u,novaSenha)=>{
     if(!novaSenha||!novaSenha.trim()){setMsg('Senha n\u00e3o pode ser vazia');return}
@@ -1562,7 +1732,8 @@ function Usuarios({user}){
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required autoComplete="off" style={inp}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL / LOGIN</label><input value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="off" style={inp}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={senha} onChange={e=>setSenha(e.target.value)} required autoComplete="new-password" style={inp}/></div>
-      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
+      <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={perfil} onChange={e=>setPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option><option value="parceiro">Parceiro</option></select></div>
+      {perfil==='parceiro'&&<div style={{gridColumn:'1/-1'}}><label style={{fontSize:9,color:C.accent,fontWeight:600,display:'block',marginBottom:3}}>PARCEIRO VINCULADO *</label><select value={parceiroId} onChange={e=>setParceiroId(e.target.value)} required style={{...inp,border:'1px solid '+C.accent}}><option value="">Selecione o parceiro...</option>{allParceiros.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} {p.telefone?'('+p.telefone+')':''}</option>)}</select></div>}
       <button type="submit" style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Criar</button>
     </form>}
     {editUser&&<div style={{background:C.card,border:'1px solid '+C.warn+'66',borderRadius:14,padding:16}}>
@@ -1571,7 +1742,8 @@ function Usuarios({user}){
         <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={edNome} onChange={e=>setEdNome(e.target.value)} autoComplete="off" style={inp}/></div>
         <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL / LOGIN</label><input value={edEmail} onChange={e=>setEdEmail(e.target.value)} autoComplete="off" style={inp}/></div>
         <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={edSenha} onChange={e=>setEdSenha(e.target.value)} autoComplete="new-password" style={{...inp,border:'1px solid '+C.warn}}/></div>
-        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={edPerfil} onChange={e=>setEdPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></div>
+        <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={edPerfil} onChange={e=>setEdPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option><option value="parceiro">Parceiro</option></select></div>
+        {edPerfil==='parceiro'&&<div style={{gridColumn:'1/-1'}}><label style={{fontSize:9,color:C.accent,fontWeight:600,display:'block',marginBottom:3}}>PARCEIRO VINCULADO *</label><select value={edParceiroId} onChange={e=>setEdParceiroId(e.target.value)} required style={{...inp,border:'1px solid '+C.accent}}><option value="">Selecione o parceiro...</option>{allParceiros.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} {p.telefone?'('+p.telefone+')':''}</option>)}</select></div>}
         <div style={{display:'flex',gap:6}}><button onClick={saveEdit} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button><button onClick={()=>setEditUser(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.muted,padding:'8px 12px',cursor:'pointer'}}>\u00d7</button></div>
       </div>
     </div>}
@@ -1587,7 +1759,7 @@ function Usuarios({user}){
         <td style={{padding:'8px 10px',fontWeight:600}}>{u.nome}</td>
         <td style={{padding:'8px 10px'}}>{u.email}</td>
         <td style={{padding:'8px 10px'}}><div style={{display:'flex',alignItems:'center',gap:4}}><span style={{fontSize:10,fontFamily:'monospace'}}>{showSenha[u.id]?u.senha:'\u2022\u2022\u2022\u2022\u2022\u2022'}</span><button onClick={()=>setShowSenha(p=>({...p,[u.id]:!p[u.id]}))} style={{background:'none',border:'none',color:C.muted,fontSize:10,cursor:'pointer',padding:0}}>{showSenha[u.id]?'\ud83d\ude48':'\ud83d\udc41'}</button></div></td>
-        <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{const{error}=await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else{setMsg('\u2713 Perfil de '+u.nome+' alterado');await reload()}}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option></select></td>
+        <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{const{error}=await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else{setMsg('\u2713 Perfil de '+u.nome+' alterado');await reload()}}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option><option value="parceiro">Parceiro</option></select></td>
         <td style={{padding:'8px 10px'}}><select value={u.cod_supervisor||''} onChange={async e=>{const{error}=await supabase.from('usuarios').update({cod_supervisor:e.target.value||null}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else await reload()}} style={{background:C.surface,border:'1px solid '+(u.cod_supervisor?C.accent2:C.border),borderRadius:4,color:u.cod_supervisor?C.accent2:C.text,padding:'2px 6px',fontSize:10,minWidth:100}}><option value="">Todos (admin)</option>{sups.map(s=><option key={s.cod} value={s.cod}>{s.nome} ({s.cod})</option>)}</select></td>
         <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas \u270f</button></td>
         <td style={{padding:'8px 10px'}}><Badge text={u.ativo?'Ativo':'Inativo'} color={u.ativo?C.accent2:C.danger}/></td>
@@ -2041,7 +2213,7 @@ export default function App(){
   const tM3Prop=myAgents?m3Prop.filter(o=>myAgents.has(o.agente)):m3Prop
   const tProdYear=myAgents?prodYear.filter(o=>myAgents.has(o.agente)):prodYear
 
-  async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||''};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
+  async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||'',parceiro_id:data.parceiro_id||null};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){
     const rows=batch.map(toDb)
     // Usa stored procedure — executa direto no PostgreSQL, sem limite REST
@@ -2063,7 +2235,11 @@ export default function App(){
 
   if(!user)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:C.bg,fontFamily:'Outfit,sans-serif',color:C.text}}><form onSubmit={handleLogin} style={{background:C.card,border:'1px solid '+C.border,borderRadius:20,padding:'40px 36px',width:'95%',maxWidth:380}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,'+C.accent+','+C.accent2+')',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:'#fff'}}>O</div><h1 style={{fontSize:22,fontWeight:800,margin:0}}>OpsManager</h1></div><p style={{color:C.muted,fontSize:12,marginBottom:24}}>Gestão de Digitações</p>{loginError&&<div style={{background:'#EF444418',color:C.danger,padding:'8px 12px',borderRadius:8,fontSize:12,marginBottom:12}}>{loginError}</div>}<div style={{marginBottom:8}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL</label><input name="email" type="email" required placeholder="seu@email.com" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><div style={{marginBottom:16}}><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input name="senha" type="password" required placeholder="Sua senha" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'10px 12px',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}}/></div><button type="submit" style={{width:'100%',padding:'12px 0',fontSize:14,borderRadius:10,border:'none',background:C.accent,color:'#fff',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>Entrar</button></form></div>
 
-  const levels={operador:1,gestor:2,admin:3},nav=NAV.filter(n=>{if(user.perfil==='admin')return true;return(user.telas||['dashboard','ops','producao']).includes(n.id)})
+  const PARCEIRO_NAV=[{id:'meuportal',l:'Meu Portal',i:'👤'}]
+  const levels={operador:1,gestor:2,admin:3,parceiro:0}
+  const nav=user.perfil==='parceiro'?PARCEIRO_NAV:NAV.filter(n=>{if(user.perfil==='admin')return true;return(user.telas||['dashboard','ops','producao']).includes(n.id)})
+  // Se parceiro logado e tenta acessar outra view, força meuportal
+  useEffect(()=>{if(user.perfil==='parceiro'&&view!=='meuportal')setView('meuportal')},[user.perfil,view])
   return<div style={{display:'flex',minHeight:'100vh',fontFamily:'Outfit,sans-serif',color:C.text,background:C.bg}}>
     {/* SIDEBAR */}
     <div className="sidebar" style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
@@ -2087,6 +2263,7 @@ export default function App(){
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
       {view==='portabilidade'&&<Portabilidade/>}
       {view==='notificacoes'&&<Notificacoes/>}
+      {view==='meuportal'&&<MeuPortal user={user}/>}
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
