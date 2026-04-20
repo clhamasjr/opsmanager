@@ -2120,6 +2120,8 @@ export default function App(){
   const[bankWeekPrev,setBankWeekPrev]=useState([])
   const[bankMonthly,setBankMonthly]=useState([])
   useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
+  // Se parceiro logado, força view=meuportal
+  useEffect(()=>{if(user?.perfil==='parceiro'&&view!=='meuportal')setView('meuportal')},[user,view])
   useEffect(()=>{if(!user)return
     if(user.cod_supervisor){
       supabase.from('parceiros').select('nome').eq('cod_supervisor',user.cod_supervisor).then(({data})=>{
@@ -2238,8 +2240,6 @@ export default function App(){
   const PARCEIRO_NAV=[{id:'meuportal',l:'Meu Portal',i:'👤'}]
   const levels={operador:1,gestor:2,admin:3,parceiro:0}
   const nav=user.perfil==='parceiro'?PARCEIRO_NAV:NAV.filter(n=>{if(user.perfil==='admin')return true;return(user.telas||['dashboard','ops','producao']).includes(n.id)})
-  // Se parceiro logado e tenta acessar outra view, força meuportal
-  useEffect(()=>{if(user.perfil==='parceiro'&&view!=='meuportal')setView('meuportal')},[user.perfil,view])
   return<div style={{display:'flex',minHeight:'100vh',fontFamily:'Outfit,sans-serif',color:C.text,background:C.bg}}>
     {/* SIDEBAR */}
     <div className="sidebar" style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
