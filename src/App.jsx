@@ -1735,7 +1735,192 @@ function Analise({myAgents}){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+/* ═══ NOTIFICAÇÕES ═══ */
+function Notificacoes(){
+  const[tab,sTab]=useState('historico')
+  const[notifs,setNotifs]=useState([]),[loading,setLoading]=useState(true),[msg,setMsg]=useState('')
+  const[cfg,setCfg]=useState({}),[loadingCfg,setLoadingCfg]=useState(true)
+  const[testing,setTesting]=useState(false),[running,setRunning]=useState(false)
+  const[mapList,setMapList]=useState([]),[parcList,setParcList]=useState([])
+  const[portabList,setPortabList]=useState([]),[selCpf,setSelCpf]=useState(''),[selParc,setSelParc]=useState('')
+  const loadAll=async()=>{
+    setLoading(true)
+    const{data:n}=await supabase.from('notificacoes_portabilidade').select('*').order('created_at',{ascending:false}).limit(500)
+    setNotifs(n||[])
+    const{data:c}=await supabase.from('notificacoes_config').select('*')
+    const cmap={};(c||[]).forEach(r=>cmap[r.key]=r.value);setCfg(cmap);setLoadingCfg(false)
+    const{data:m}=await supabase.from('portabilidade_parceiro_map').select('*, parceiros(nome, telefone)')
+    setMapList(m||[])
+    const{data:p}=await supabase.from('parceiros').select('id, nome, telefone, telefone_notificacao, ativo').order('nome')
+    setParcList(p||[])
+    const{data:port}=await supabase.from('portabilidades_enriched').select('id, quali_id, borrower_name, borrower_identity, status_name, parceiro_nome, telefone_envio').order('proposal_date',{ascending:false}).limit(500)
+    setPortabList(port||[])
+    setLoading(false)
+  }
+  useEffect(()=>{loadAll()},[])
+  const saveCfg=async(key,value)=>{
+    const{error}=await supabase.from('notificacoes_config').update({value,updated_at:new Date().toISOString()}).eq('key',key)
+    if(error)setMsg('Erro: '+error.message)
+    else{setCfg(p=>({...p,[key]:value}));setMsg('✓ Configuração salva')}
+  }
+  const runSync=async()=>{
+    setRunning(true);setMsg('Sincronizando QualiBanking...')
+    try{
+      const today=new Date(),from=new Date(today);from.setDate(from.getDate()-7)
+      const r=await fetch('https://rirsmtyuyqxsoxqbgtpu.supabase.co/functions/v1/sync-qualibanking?from='+localDate(from)+'&to='+localDate(today)+'&onlyPortability=true&delayMs=800&field=proposalDate')
+      const j=await r.json()
+      setMsg(j.ok?'✓ '+j.upserted+' portabilidades sincronizadas':'Erro: '+(j.error||'falhou'))
+    }catch(e){setMsg('Erro: '+e.message)}
+    setRunning(false)
+  }
+  const runNotify=async()=>{
+    setTesting(true);setMsg('Processando notificações...')
+    try{
+      const r=await fetch('https://rirsmtyuyqxsoxqbgtpu.supabase.co/functions/v1/notify-portability-whatsapp',{method:'POST'})
+      const j=await r.json()
+      setMsg(j.ok?'✓ Avaliado: '+j.evaluated+' | Enviado: '+j.sent+' | Skipped: '+j.skipped+' | Falhou: '+j.failed:'Erro: '+(j.error||'falhou'))
+      await loadAll()
+    }catch(e){setMsg('Erro: '+e.message)}
+    setTesting(false)
+  }
+  const addMap=async()=>{
+    if(!selCpf||!selParc){setMsg('Selecione CPF e parceiro');return}
+    const{error}=await supabase.from('portabilidade_parceiro_map').upsert({borrower_identity:selCpf,parceiro_id:selParc},{onConflict:'borrower_identity'})
+    if(error)setMsg('Erro: '+error.message)
+    else{setMsg('✓ Mapeamento salvo');setSelCpf('');setSelParc('');await loadAll()}
+  }
+  const removeMap=async(id)=>{
+    await supabase.from('portabilidade_parceiro_map').delete().eq('id',id)
+    await loadAll()
+  }
+  const savePhone=async(parceiroId,telefone)=>{
+    await supabase.from('parceiros').update({telefone_notificacao:telefone}).eq('id',parceiroId)
+    setMsg('✓ Telefone salvo')
+    await loadAll()
+  }
+  // Stats de notificações
+  const stats={
+    total:notifs.length,
+    sent:notifs.filter(n=>n.status==='sent').length,
+    failed:notifs.filter(n=>n.status==='failed').length,
+    skipped:notifs.filter(n=>n.status==='skipped').length
+  }
+  const statusColor=s=>s==='sent'?C.accent2:s==='failed'?C.danger:s==='skipped'?C.muted:C.warn
+  const triggerEmoji=t=>({balance_arrived:'🟢',balance_retained:'⚠️',balance_rejected:'❌',balance_expired:'⏰',integrated:'✅',canceled:'🔴',status_change:'📋'})[t]||'📋'
+  const tabs=[{id:'historico',l:'📜 Histórico'},{id:'config',l:'⚙️ Configurações'},{id:'mapeamento',l:'🔗 Mapeamento CPF→Parceiro'},{id:'telefones',l:'📞 Telefones Parceiros'}]
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <h2 style={{fontWeight:800,fontSize:20}}>Notificações WhatsApp</h2>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={runSync} disabled={running} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>🔄 Sync Quali</button>
+        <button onClick={runNotify} disabled={testing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:testing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:testing?.6:1}}>{testing?'⏳ Processando...':'▶ Processar Notificações'}</button>
+      </div>
+    </div>
+    {msg&&<div style={{background:msg.includes('✓')?C.accent2+'22':C.warn+'22',color:msg.includes('✓')?C.accent2:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:'inherit',cursor:'pointer'}}>×</button></div>}
+    {/* Alerta dry_run */}
+    {cfg.dry_run===true&&<div style={{background:C.warn+'22',color:C.warn,padding:'10px 14px',borderRadius:10,fontSize:12,fontWeight:600}}>⚠️ MODO TESTE (dry_run) — notificações NÃO são enviadas, apenas registradas. Desative na aba Configurações quando estiver tudo OK.</div>}
+    {/* KPIs */}
+    <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <Stat label="Total Registros" value={stats.total}/>
+      <Stat label="Enviadas" value={stats.sent} color={C.accent2}/>
+      <Stat label="Falharam" value={stats.failed} color={C.danger}/>
+      <Stat label="Skipped (dry_run/duplicata)" value={stats.skipped} color={C.muted}/>
+    </div>
+    {/* Tabs */}
+    <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{tabs.map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:tab===t.id?600:400}}>{t.l}</button>)}</div>
+
+    {/* ABA HISTÓRICO */}
+    {tab==='historico'&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+      <div style={{overflowX:'auto',maxHeight:600,borderRadius:8,border:'1px solid '+C.border}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Data','Trigger','Status','Destinatário','Telefone','Mensagem (preview)'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{notifs.map(n=><tr key={n.id} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'5px 8px',whiteSpace:'nowrap',fontSize:9}}>{new Date(n.created_at).toLocaleString('pt-BR')}</td>
+            <td style={{padding:'5px 8px',fontSize:11}}>{triggerEmoji(n.trigger_type)} <span style={{fontSize:9,color:C.muted}}>{n.trigger_type}</span></td>
+            <td style={{padding:'5px 8px'}}><Badge text={n.status} color={statusColor(n.status)}/></td>
+            <td style={{padding:'5px 8px',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.recipient_name||'—'}</td>
+            <td style={{padding:'5px 8px',fontFamily:'monospace',fontSize:9}}>{n.recipient_phone}</td>
+            <td style={{padding:'5px 8px',fontSize:9,color:C.muted,maxWidth:350,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{(n.message||'').replace(/\n/g,' ')}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </div>}
+
+    {/* ABA CONFIG */}
+    {tab==='config'&&!loadingCfg&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{fontSize:12,fontWeight:700}}>⚙️ Configurações Gerais</div>
+      {[
+        {k:'enabled',l:'Sistema de notificações ativo',type:'bool'},
+        {k:'dry_run',l:'Modo teste (NÃO envia WhatsApp)',type:'bool',danger:true},
+        {k:'fallback_to_admin',l:'Fallback: enviar para admin quando sem parceiro',type:'bool'},
+        {k:'send_to_client',l:'Enviar também para o cliente final',type:'bool'},
+        {k:'business_hours_only',l:'Apenas em horário comercial (8-18h seg-sex)',type:'bool'},
+        {k:'admin_phone',l:'Telefone admin (fallback)',type:'text'},
+        {k:'evolution_url',l:'URL Evolution API',type:'text'},
+        {k:'evolution_instance',l:'Instância Evolution',type:'text'}
+      ].map(s=><div key={s.k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,padding:'8px 10px',background:C.surface,borderRadius:8}}>
+        <div><div style={{fontSize:11,fontWeight:600,color:s.danger&&cfg[s.k]===true?C.warn:C.text}}>{s.l}</div><div style={{fontSize:9,color:C.muted}}>{s.k}</div></div>
+        {s.type==='bool'?<label style={{cursor:'pointer'}}><input type="checkbox" checked={cfg[s.k]===true} onChange={e=>saveCfg(s.k,e.target.checked)}/> <span style={{fontSize:11,color:cfg[s.k]===true?C.accent2:C.muted,fontWeight:600}}>{cfg[s.k]===true?'Ativo':'Inativo'}</span></label>:<input defaultValue={cfg[s.k]||''} onBlur={e=>{if(e.target.value!==cfg[s.k])saveCfg(s.k,e.target.value)}} style={{background:C.card,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'5px 10px',fontSize:11,minWidth:250}}/>}
+      </div>)}
+      <div style={{fontSize:10,color:C.muted,fontStyle:'italic'}}>💡 Templates de mensagens são editáveis via SQL na tabela <code>notificacoes_config</code> → key <code>templates</code></div>
+    </div>}
+
+    {/* ABA MAPEAMENTO */}
+    {tab==='mapeamento'&&<div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>➕ Associar CPF do cliente a um parceiro</div>
+        <div style={{display:'flex',gap:8,alignItems:'end'}}>
+          <div style={{flex:1}}>
+            <label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>CLIENTE (CPF)</label>
+            <select value={selCpf} onChange={e=>setSelCpf(e.target.value)} style={{width:'100%',background:C.surface,border:'1px solid '+C.border,borderRadius:7,padding:'6px 10px',fontSize:11}}>
+              <option value="">Selecione...</option>
+              {portabList.filter(p=>!p.parceiro_nome).map(p=><option key={p.id} value={p.borrower_identity}>{p.borrower_name} — {p.borrower_identity}</option>)}
+            </select>
+          </div>
+          <div style={{flex:1}}>
+            <label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>PARCEIRO</label>
+            <select value={selParc} onChange={e=>setSelParc(e.target.value)} style={{width:'100%',background:C.surface,border:'1px solid '+C.border,borderRadius:7,padding:'6px 10px',fontSize:11}}>
+              <option value="">Selecione...</option>
+              {parcList.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+            </select>
+          </div>
+          <button onClick={addMap} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button>
+        </div>
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Mapeamentos ativos ({mapList.length})</div>
+        <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+          <thead><tr style={{background:C.surface}}>{['CPF','Parceiro','Telefone','Criado em',''].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+          <tbody>{mapList.map(m=><tr key={m.id} style={{borderBottom:'1px solid '+C.border}}>
+            <td style={{padding:'6px 8px',fontFamily:'monospace',fontSize:10}}>{m.borrower_identity||m.quali_id}</td>
+            <td style={{padding:'6px 8px',fontWeight:600}}>{m.parceiros?.nome||'—'}</td>
+            <td style={{padding:'6px 8px'}}>{m.parceiros?.telefone||'—'}</td>
+            <td style={{padding:'6px 8px',fontSize:9}}>{new Date(m.created_at).toLocaleDateString('pt-BR')}</td>
+            <td style={{padding:'6px 8px'}}><button onClick={()=>removeMap(m.id)} style={{background:C.danger+'22',color:C.danger,border:'none',borderRadius:4,padding:'2px 8px',fontSize:10,cursor:'pointer'}}>Remover</button></td>
+          </tr>)}</tbody>
+        </table></div>
+        {mapList.length===0&&<div style={{textAlign:'center',color:C.muted,fontSize:10,padding:14}}>Nenhum mapeamento manual. Use o form acima para associar CPFs a parceiros.</div>}
+      </div>
+    </div>}
+
+    {/* ABA TELEFONES */}
+    {tab==='telefones'&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>📞 Telefones de Notificação — {parcList.length} parceiros</div>
+      <div style={{fontSize:10,color:C.muted,marginBottom:10}}>💡 Use "Telefone Notificação" para um número dedicado (diferente do cadastro principal)</div>
+      <div style={{overflowX:'auto',maxHeight:500}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+        <thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Parceiro','Status','Tel. Principal','Tel. Notificação (editável)'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8}}>{h}</th>)}</tr></thead>
+        <tbody>{parcList.map(p=><tr key={p.id} style={{borderBottom:'1px solid '+C.border}}>
+          <td style={{padding:'6px 8px',fontWeight:600,maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.nome}</td>
+          <td style={{padding:'6px 8px'}}><Badge text={p.ativo?'Ativo':'Inativo'} color={p.ativo?C.accent2:C.danger}/></td>
+          <td style={{padding:'6px 8px',fontFamily:'monospace',fontSize:10,color:p.telefone?C.text:C.muted}}>{p.telefone||'—'}</td>
+          <td style={{padding:'6px 8px'}}><input defaultValue={p.telefone_notificacao||''} placeholder="Ex: 5515999998888" onBlur={e=>{if(e.target.value!==(p.telefone_notificacao||''))savePhone(p.id,e.target.value)}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'4px 8px',fontSize:10,fontFamily:'monospace',width:180}}/></td>
+        </tr>)}</tbody>
+      </table></div>
+    </div>}
+  </div>
+}
+
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
@@ -1898,6 +2083,7 @@ export default function App(){
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
       {view==='portabilidade'&&<Portabilidade/>}
+      {view==='notificacoes'&&<Notificacoes/>}
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
