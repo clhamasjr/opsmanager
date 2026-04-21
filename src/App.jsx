@@ -1363,7 +1363,7 @@ function MeuPortal({user}){
           <h3 style={{margin:0,fontSize:16}}>{selRow.borrower_name}</h3>
           <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Proposta {selRow.proposal_number} · CPF {selRow.borrower_identity}</div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Proposta {selRow.contract_number||selRow.proposal_number} · CPF {selRow.borrower_identity}</div>
         {selRow.formalization_url&&<div style={{marginBottom:14}}>
           <a href={selRow.formalization_url} target="_blank" rel="noopener noreferrer" style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>🔗 Link de Formalização</a>
           {selRow.document_url&&<a href={selRow.document_url} target="_blank" rel="noopener noreferrer" style={{background:C.surface,color:C.accent,border:'1px solid '+C.accent,borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6,marginLeft:8}}>📄 Contrato</a>}
@@ -1794,7 +1794,7 @@ function Portabilidade({filterParceiroId,user}={}){
     if(fBanco&&r.origin_bank_name!==fBanco&&r.destination_bank_name!==fBanco)return false
     if(fStatus&&r.status_name!==fStatus)return false
     if(fOp&&r.operation_type!==fOp)return false
-    if(se){const s=se.toLowerCase();if(!((r.borrower_name||'').toLowerCase().includes(s)||(r.borrower_identity||'').includes(s)||(r.proposal_number||'').includes(s)))return false}
+    if(se){const s=se.toLowerCase();if(!((r.borrower_name||'').toLowerCase().includes(s)||(r.borrower_identity||'').includes(s)||(r.proposal_number||'').includes(s)||(r.contract_number||'').toLowerCase().includes(s)))return false}
     if(fDataRetornoDe||fDataRetornoAte){
       const dt=r.origin_due_balance_date?String(r.origin_due_balance_date).slice(0,10):''
       if(!dt)return false
@@ -1843,7 +1843,7 @@ function Portabilidade({filterParceiroId,user}={}){
   </div>}
   const exportPortab=()=>{
     const dataRows=fd.map(r=>({
-      Proposta:r.proposal_number,CPF:r.borrower_identity,Cliente:r.borrower_name,Telefone:r.borrower_phone,
+      Proposta:r.contract_number||r.proposal_number,'ID Proposta Interno':r.proposal_number,CPF:r.borrower_identity,Cliente:r.borrower_name,Telefone:r.borrower_phone,
       Operação:r.operation_type,Status:r.status_name,'Banco Origem':r.origin_bank_name,'Banco Destino':r.destination_bank_name,
       'Saldo Devedor':r.origin_due_balance,'Vl. Bruto':r.loan_value,'Vl. Líquido (Troco)':r.net_value,
       Parcela:r.installment_value,Prazo:r.term,Taxa:r.rate,
@@ -2084,7 +2084,7 @@ function Portabilidade({filterParceiroId,user}={}){
           <tbody>{fd.slice(0,500).map(r=><tr key={r._source+':'+r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <td style={{padding:'5px 8px'}}><span style={{fontSize:8,padding:'2px 5px',borderRadius:3,background:r._src_color+'22',color:r._src_color,fontWeight:700}}>{r._source==='quali'?'🔵':'🟠'}</span></td>
             <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{fmtDate(r.proposal_date)}</td>
-            <td style={{padding:'5px 8px',fontWeight:600}}>{r.proposal_number||r.code}</td>
+            <td style={{padding:'5px 8px',fontWeight:600}}>{r.contract_number||r.proposal_number||r.code}</td>
             <td style={{padding:'5px 8px',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.borrower_name}</td>
             <td style={{padding:'5px 8px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9,fontWeight:600,color:C.accent}}>{r.parceiro_nome||'—'}</td>
             <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.origin_bank_name||'—'}</td>
@@ -2220,7 +2220,7 @@ function PortabilityDetailModal({row,onClose,onReload,user}){
         <h3 style={{margin:0,fontSize:16}}>{row.borrower_name}</h3>
         <button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
       </div>
-      <div style={{fontSize:10,color:C.muted,marginBottom:12}}>Proposta {row.proposal_number} · CPF {row.borrower_identity} · {row.borrower_phone||'sem telefone'}</div>
+      <div style={{fontSize:10,color:C.muted,marginBottom:12}}>Proposta {row.contract_number||row.proposal_number} · CPF {row.borrower_identity} · {row.borrower_phone||'sem telefone'}</div>
       {/* LINKS DE FORMALIZAÇÃO E DOCUMENTO */}
       {(row.formalization_url||row.document_url)&&<div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
         {row.formalization_url&&<a href={row.formalization_url} target="_blank" rel="noopener noreferrer" style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>🔗 Link de Formalização</a>}
