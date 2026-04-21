@@ -1658,8 +1658,19 @@ function Portabilidade({filterParceiroId,user}={}){
     if(effectiveParceiroId)q1=q1.eq('parceiro_id',effectiveParceiroId)
     if(per!=='tudo')q1=q1.gte('proposal_date',df).lte('proposal_date',dt)
     // Fonte 2: Consig360 (apenas produtos de portabilidade)
+    // Se é view de parceiro, precisa filtrar por squad_user_name (nome do parceiro)
+    let parceiroNomeFilter=null
+    if(effectiveParceiroId){
+      // Se tem parceiroInfo (parceiro logado) ou fParceiro (admin selecionou), buscar o nome
+      if(parceiroInfo?.nome)parceiroNomeFilter=parceiroInfo.nome
+      else{
+        const match=allParceiros.find(p=>p.id===effectiveParceiroId)
+        if(match)parceiroNomeFilter=match.nome
+      }
+    }
     let q2=supabase.from('consig_proposals').select('*').ilike('product','%portab%').order('created_at_api',{ascending:false}).limit(6000)
     if(per!=='tudo')q2=q2.gte('created_at_api',df).lte('created_at_api',dt+'T23:59:59')
+    if(parceiroNomeFilter)q2=q2.ilike('squad_user_name',parceiroNomeFilter)
     const [r1,r2]=await Promise.all([q1,q2])
     const qualiRows=(r1.data||[]).map(r=>normalizeQuali(r))
     const consigRows=(r2.data||[]).map(r=>normalizeConsig(r))
@@ -1741,7 +1752,7 @@ function Portabilidade({filterParceiroId,user}={}){
       agente_digitacao:r.squad_user_name||null
     }
   }
-  useEffect(()=>{loadData()},[per,trigger,fParceiro])
+  useEffect(()=>{loadData()},[per,trigger,fParceiro,parceiroInfo,allParceiros.length])
   const applyCustom=()=>setTrigger(t=>t+1)
   const doSync=async()=>{
     setSyncing(true);setMsg('Sincronizando com QualiBanking...')
