@@ -1280,7 +1280,11 @@ function MeuPortal({user}){
           <h3 style={{margin:0,fontSize:16}}>{selRow.borrower_name}</h3>
           <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginBottom:14}}>Proposta {selRow.proposal_number} · CPF {selRow.borrower_identity}</div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Proposta {selRow.proposal_number} · CPF {selRow.borrower_identity}</div>
+        {selRow.formalization_url&&<div style={{marginBottom:14}}>
+          <a href={selRow.formalization_url} target="_blank" rel="noopener noreferrer" style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>🔗 Link de Formalização</a>
+          {selRow.document_url&&<a href={selRow.document_url} target="_blank" rel="noopener noreferrer" style={{background:C.surface,color:C.accent,border:'1px solid '+C.accent,borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6,marginLeft:8}}>📄 Contrato</a>}
+        </div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
           {[
             ['Status',selRow.status_name],['Operação',selRow.operation_type],
@@ -1470,7 +1474,7 @@ function Consig360({user}){
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Propostas — {fd.length} registros</div>
       <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
-          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','CPF','Banco','Produto','Valor','Status Parceiro'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','CPF','Banco','Produto','Valor','Status Parceiro','Link'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
           <tbody>{fd.slice(0,500).map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <td style={{padding:'5px 8px',whiteSpace:'nowrap',fontSize:9}}>{r.created_at_api?new Date(r.created_at_api).toLocaleDateString('pt-BR'):'—'}</td>
             <td style={{padding:'5px 8px',fontWeight:600,fontSize:10}}>{r.partner_contract_id||'—'}</td>
@@ -1480,6 +1484,7 @@ function Consig360({user}){
             <td style={{padding:'5px 8px',fontSize:9}}>{r.product}</td>
             <td style={{padding:'5px 8px',fontWeight:600,color:C.accent}}>{fmtCur(r.value)}</td>
             <td style={{padding:'5px 8px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(isPaid(r)?C.accent2:isRejected(r)||isCanceled(r)?C.danger:isWaitingCip(r)||isWaitingFinalization(r)?C.warn:isWaitingDocs(r)?C.info:C.muted)+'22',color:isPaid(r)?C.accent2:isRejected(r)||isCanceled(r)?C.danger:isWaitingCip(r)||isWaitingFinalization(r)?C.warn:isWaitingDocs(r)?C.info:C.muted,fontWeight:600}}>{r.partner_status_text||r.status||'—'}</span></td>
+            <td style={{padding:'5px 8px'}} onClick={e=>e.stopPropagation()}>{r.client_formalization_url?<a href={r.client_formalization_url} target="_blank" rel="noopener noreferrer" style={{fontSize:14,textDecoration:'none'}} title="Link de formalização">🔗</a>:<span style={{color:C.muted,fontSize:10}}>—</span>}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -1492,7 +1497,10 @@ function Consig360({user}){
           <h3 style={{margin:0,fontSize:16}}>{selRow.title}</h3>
           <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginBottom:14}}>Proposta {selRow.partner_contract_id} · CPF {selRow.client_cpf} · Benefício {selRow.benefit_number||'—'}</div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Proposta {selRow.partner_contract_id} · CPF {selRow.client_cpf} · Benefício {selRow.benefit_number||'—'}</div>
+        {selRow.client_formalization_url&&<div style={{marginBottom:14}}>
+          <a href={selRow.client_formalization_url} target="_blank" rel="noopener noreferrer" style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>🔗 Link de Formalização (Cliente)</a>
+        </div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
           {[
             ['Status',selRow.status],['Status Parceiro',selRow.partner_status_text],
@@ -1812,7 +1820,7 @@ function Portabilidade({filterParceiroId,user}={}){
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Portabilidades — {fd.length} registros</div>
       <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
-          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Link','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
           <tbody>{fd.slice(0,500).map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{fmtDate(r.proposal_date)}</td>
             <td style={{padding:'5px 8px',fontWeight:600}}>{r.proposal_number||r.code}</td>
@@ -1825,6 +1833,7 @@ function Portabilidade({filterParceiroId,user}={}){
             <td style={{padding:'5px 8px',fontWeight:600,color:(r.net_value||0)<0?C.danger:C.accent2}}>{fmtCur(r.net_value)}</td>
             <td style={{padding:'5px 8px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(r.status_color||C.muted)+'22',color:r.status_color||C.muted,fontWeight:600}}>{r.status_name||'—'}</span></td>
             <td style={{padding:'5px 8px',fontSize:9}}>{r.operation_type}</td>
+            <td style={{padding:'5px 8px'}} onClick={e=>e.stopPropagation()}>{r.formalization_url?<a href={r.formalization_url} target="_blank" rel="noopener noreferrer" style={{fontSize:14,textDecoration:'none'}} title="Link de formalização">🔗</a>:<span style={{color:C.muted,fontSize:10}}>—</span>}</td>
             <td style={{padding:'5px 8px'}}><span style={{fontSize:9,color:C.accent,fontWeight:600}}>👁</span></td>
           </tr>)}</tbody>
         </table>
@@ -1901,6 +1910,12 @@ function PortabilityDetailModal({row,onClose,onReload,user}){
         <button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
       </div>
       <div style={{fontSize:10,color:C.muted,marginBottom:12}}>Proposta {row.proposal_number} · CPF {row.borrower_identity} · {row.borrower_phone||'sem telefone'}</div>
+      {/* LINKS DE FORMALIZAÇÃO E DOCUMENTO */}
+      {(row.formalization_url||row.document_url)&&<div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+        {row.formalization_url&&<a href={row.formalization_url} target="_blank" rel="noopener noreferrer" style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>🔗 Link de Formalização</a>}
+        {row.document_url&&<a href={row.document_url} target="_blank" rel="noopener noreferrer" style={{background:C.surface,color:C.accent,border:'1px solid '+C.accent,borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>📄 Ver Contrato</a>}
+        {row.signature_type&&<span style={{fontSize:10,color:C.muted,alignSelf:'center'}}>Assinatura: {row.signature_type} ({row.signature_provider||'—'})</span>}
+      </div>}
       <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap'}}>{tabs.map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:tab===t.id?600:400}}>{t.l}</button>)}</div>
 
       {tab==='info'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
