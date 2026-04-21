@@ -1911,6 +1911,96 @@ function Portabilidade({filterParceiroId,user}={}){
       </div>
     })()}
 
+    {/* CALENDÁRIO CIP - PRÓXIMOS 5 DIAS ÚTEIS */}
+    {(()=>{
+      const next5=[];const d=new Date(NOW);d.setDate(d.getDate()+1)
+      while(next5.length<5){if(d.getDay()!==0&&d.getDay()!==6)next5.push(localDate(d));d.setDate(d.getDate()+1)}
+      // Filtra propostas em aguardo com data esperada futura
+      const comData=rows.filter(r=>{
+        if(!r.origin_due_balance_expected_date)return false
+        if(r.origin_due_balance_returned)return false
+        if(TERMINAL_STATUS.includes(r.status_key))return false
+        const dt=String(r.origin_due_balance_expected_date).slice(0,10)
+        return next5.includes(dt)
+      })
+      // Aguardando sem data prevista (fluxo ativo)
+      const semData=rows.filter(r=>{
+        if(r.origin_due_balance_expected_date)return false
+        if(r.origin_due_balance_returned)return false
+        if(!['awaiting_portability','awaiting_formalization','documents_not_found','proposal_cadastrada','accepted'].includes(r.status_key))return false
+        return true
+      })
+      // Agrupar por dia + por cliente (aglutina múltiplas propostas do mesmo cliente)
+      const byDay={};next5.forEach(dt=>byDay[dt]={clients:{},total:0,count:0})
+      comData.forEach(r=>{
+        const dt=String(r.origin_due_balance_expected_date).slice(0,10)
+        if(!byDay[dt])return
+        const k=r.borrower_identity||r.client_cpf||r.borrower_name
+        if(!byDay[dt].clients[k])byDay[dt].clients[k]={name:r.borrower_name,banks:new Set(),total:0,count:0,parceiro:r.parceiro_nome,source:r._source}
+        byDay[dt].clients[k].banks.add(r.origin_bank_name)
+        byDay[dt].clients[k].total+=(Number(r.origin_due_balance)||0)
+        byDay[dt].clients[k].count++
+        byDay[dt].total+=(Number(r.origin_due_balance)||0)
+        byDay[dt].count++
+      })
+      // Por parceiro das sem data
+      const byParc={}
+      semData.forEach(r=>{
+        const p=r.parceiro_nome||'(Sem parceiro)'
+        const k=r.borrower_identity||r.client_cpf||r.borrower_name
+        if(!byParc[p])byParc[p]={parceiro:p,clients:{},total:0}
+        if(!byParc[p].clients[k])byParc[p].clients[k]={name:r.borrower_name,total:0};
+        byParc[p].clients[k].total+=(Number(r.origin_due_balance)||0)
+        byParc[p].total+=(Number(r.origin_due_balance)||0)
+      })
+      const parcList=Object.values(byParc).map(p=>({...p,qtdClients:Object.keys(p.clients).length})).sort((a,b)=>b.total-a.total)
+      const totalCom=Object.values(byDay).reduce((s,d)=>s+d.total,0)
+      const totalClientsCom=Object.values(byDay).reduce((s,d)=>s+Object.keys(d.clients).length,0)
+      const totalSemClients=parcList.reduce((s,p)=>s+p.qtdClients,0)
+      const totalSem=parcList.reduce((s,p)=>s+p.total,0)
+      return<div style={{background:C.card,border:'2px solid '+C.warn+'66',borderRadius:14,padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:6}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:800,color:C.warn}}>⏳ CIP a Retornar — Próximos 5 Dias Úteis</div>
+            <div style={{fontSize:10,color:C.muted}}>Saldos aguardando retorno (agrupado por cliente)</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:10,color:C.muted}}>Total esperado</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.warn}}>{fmtCur(totalCom+totalSem)}</div>
+            <div style={{fontSize:10,color:C.muted}}>{totalClientsCom+totalSemClients} clientes</div>
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
+          {next5.map(dt=>{const d=byDay[dt];const dtObj=new Date(dt+'T12:00:00');const label=dtObj.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const clients=Object.values(d.clients);const has=clients.length>0;return<div key={dt} style={{background:has?C.warn+'15':C.surface,border:'1px solid '+(has?C.warn+'44':C.border),borderRadius:10,padding:10,opacity:has?1:.5}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.warn,marginBottom:4,textTransform:'capitalize'}}>{label}</div>
+            <div style={{fontSize:16,fontWeight:800,color:has?C.warn:C.muted}}>{clients.length}</div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{fmtCur(d.total)}</div>
+            {has&&<div style={{marginTop:6,fontSize:9,maxHeight:90,overflowY:'auto'}}>
+              {clients.slice(0,5).map((c,i)=><div key={i} style={{padding:'3px 0',borderTop:i>0?'1px solid '+C.border:'none'}}>
+                <div style={{fontWeight:600,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                <div style={{color:C.muted,fontSize:8}}>{[...c.banks].join(', ')||'—'}{c.count>1?' ('+c.count+' prop.)':''}</div>
+                <div style={{fontWeight:600,color:C.warn,fontSize:9}}>{fmtCur(c.total)}</div>
+              </div>)}
+              {clients.length>5&&<div style={{marginTop:3,color:C.accent,fontSize:9,fontWeight:600}}>+{clients.length-5} outros...</div>}
+            </div>}
+          </div>})}
+        </div>
+        {parcList.length>0&&<div style={{marginTop:12,background:C.surface,borderRadius:10,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>📋 Aguardando sem data prevista — {totalSemClients} clientes · {fmtCur(totalSem)}</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
+            {parcList.slice(0,12).map(pr=><div key={pr.parceiro} style={{background:C.card,border:'1px solid '+C.border,borderRadius:8,padding:'10px 12px'}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pr.parceiro}</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                <div style={{fontSize:16,fontWeight:800}}>{pr.qtdClients}</div>
+                <div style={{fontSize:10,color:C.muted}}>cliente{pr.qtdClients>1?'s':''}</div>
+              </div>
+              <div style={{fontSize:11,fontWeight:600,color:C.warn}}>{fmtCur(pr.total)}</div>
+            </div>)}
+          </div>
+        </div>}
+      </div>
+    })()}
+
     {/* KPIs PRINCIPAIS - CLICÁVEIS com breakdown por parceiro */}
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}}>
       {[
