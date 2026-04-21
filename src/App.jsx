@@ -1544,6 +1544,7 @@ function Portabilidade({filterParceiroId,user}={}){
   const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
   const[fDataRetornoDe,sFDataRetornoDe]=useState(''),[fDataRetornoAte,sFDataRetornoAte]=useState('')
   const[fParceiro,sFParceiro]=useState('')    // admin seleciona parceiro
+  const[fSource,sFSource]=useState('all')     // 'all' | 'quali' | 'consig360'
   const[allParceiros,setAllParceiros]=useState([])
   const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
   const[parceiroInfo,setParceiroInfo]=useState(null)
@@ -1560,22 +1561,98 @@ function Portabilidade({filterParceiroId,user}={}){
   },[filterParceiroId])
   const loadData=async()=>{
     setLoading(true)
-    // Usa view enriched quando há filtro por parceiro
-    const table=effectiveParceiroId?'portabilidades_enriched':'portabilidades'
-    let q=supabase.from(table).select('*').order('proposal_date',{ascending:false}).limit(5000)
-    if(effectiveParceiroId)q=q.eq('parceiro_id',effectiveParceiroId)
+    // Período
+    let df='2000-01-01',dt='2099-12-31'
     if(per!=='tudo'){
       const r=PERIODS[per]||PERIODS.tudo
-      const df=per==='custom'?(customDf||'2000-01-01'):r.f
-      const dt=per==='custom'?(customDt||'2099-12-31'):r.t
-      q=q.gte('proposal_date',df).lte('proposal_date',dt)
+      df=per==='custom'?(customDf||'2000-01-01'):r.f
+      dt=per==='custom'?(customDt||'2099-12-31'):r.t
     }
-    const{data}=await q
-    setRows(data||[])
-    // Último sync
-    const{data:sl}=await supabase.from('sync_logs').select('*').eq('source','qualibanking').order('started_at',{ascending:false}).limit(1)
+    // Fonte 1: QualiBanking
+    const qualiTable=effectiveParceiroId?'portabilidades_enriched':'portabilidades'
+    let q1=supabase.from(qualiTable).select('*').order('proposal_date',{ascending:false}).limit(5000)
+    if(effectiveParceiroId)q1=q1.eq('parceiro_id',effectiveParceiroId)
+    if(per!=='tudo')q1=q1.gte('proposal_date',df).lte('proposal_date',dt)
+    // Fonte 2: Consig360 (apenas produtos de portabilidade)
+    let q2=supabase.from('consig_proposals').select('*').ilike('product','%portab%').order('created_at_api',{ascending:false}).limit(6000)
+    if(per!=='tudo')q2=q2.gte('created_at_api',df).lte('created_at_api',dt+'T23:59:59')
+    const [r1,r2]=await Promise.all([q1,q2])
+    const qualiRows=(r1.data||[]).map(r=>normalizeQuali(r))
+    const consigRows=(r2.data||[]).map(r=>normalizeConsig(r))
+    setRows([...qualiRows,...consigRows].sort((a,b)=>(b.proposal_date||'').localeCompare(a.proposal_date||'')))
+    const{data:sl}=await supabase.from('sync_logs').select('*').in('source',['qualibanking','consig360']).order('started_at',{ascending:false}).limit(1)
     if(sl&&sl[0])setLastSync(sl[0])
     setLoading(false)
+  }
+  // Normalizadores: transformam rows de cada fonte em estrutura unificada
+  function normalizeQuali(r){
+    return {
+      ...r,
+      _source:'quali',
+      _src_label:'QualiBanking',
+      _src_color:'#3B82F6',
+      // Garante campos na estrutura padrão
+      external_id:r.quali_id,
+      client_name:r.borrower_name,
+      client_cpf:r.borrower_identity,
+      client_phone:r.borrower_phone
+    }
+  }
+  function normalizeConsig(r){
+    // Mapear partner_status_text para status_color aproximado
+    const st=r.partner_status_text||r.status||''
+    const isP=['Desembolso liberado','Pago'].includes(st)||r.status==='integrated'
+    const isR=st==='Proposta Rejeitada pelo Banco'
+    const isC=['Proposta Cancelada','Cancelado'].includes(st)
+    const isWaitCip=st==='Aguardando Saldo CIP'
+    const isWaitFin=st==='Aguardando Finalização da portabilidade'
+    const isWaitDocs=['Aguardando documentação','Pendente de Formalização'].includes(st)
+    const color=isP?C.accent2:isR||isC?C.danger:isWaitCip||isWaitFin?C.warn:isWaitDocs?C.info:C.muted
+    // Status_key mapeado para a mesma taxonomia da Quali (pra isEnviado/isChegou/etc)
+    const status_key=isP?'integrated':isR?'rejected_ctc':isC?'canceled':isWaitCip?'awaiting_portability':isWaitFin?'awaiting_formalization':isWaitDocs?'documents_not_found':(r.status||'unknown')
+    // Saldo chegou: se status indicar que passou da CIP
+    const balanceReturned=isP||isWaitFin
+    return {
+      ...r,
+      _source:'consig360',
+      _src_label:'Consig360',
+      _src_color:'#F97316',
+      external_id:r.consig_id,
+      // Normaliza campos para match com estrutura Quali
+      proposal_number:r.partner_contract_id,
+      client_name:r.title,
+      client_cpf:r.client_cpf,
+      client_phone:null,
+      borrower_name:r.title,
+      borrower_identity:r.client_cpf,
+      borrower_phone:null,
+      origin_bank_name:r.contract_bank_name||'(pendente enrich)',  // DEVIDO AO ENRICH
+      origin_bank_code:r.contract_bank_febraban_code,
+      destination_bank_name:r.bank_name,
+      destination_bank_code:r.bank_febraban_code,
+      operation_type:r.product,
+      status_name:st,
+      status_color:color,
+      status_key,
+      loan_value:r.value,
+      net_value:r.net_value,
+      origin_due_balance:r.debit_balance||r.value,
+      origin_due_balance_returned:balanceReturned,
+      origin_due_balance_date:r.pay_date||null,
+      origin_due_balance_expected_date:r.expected_balance_date||null,
+      proposal_date:r.created_at_api,
+      contract_date:r.contract_date,
+      cip_submission_date:null,
+      portability_number:r.portability_number,
+      formalization_url:r.client_formalization_url,
+      document_url:null,
+      installment_value:r.installment_value,
+      rate:r.contract_rate||0,
+      term:r.term,
+      origin_installments_paid:r.contract_installments_paid,
+      origin_installments_remaining:r.term?(r.term-(r.contract_installments_paid||0)):null,
+      assigned:null
+    }
   }
   useEffect(()=>{loadData()},[per,trigger,fParceiro])
   const applyCustom=()=>setTrigger(t=>t+1)
@@ -1609,6 +1686,7 @@ function Portabilidade({filterParceiroId,user}={}){
   const isEsperaHoje=r=>r.origin_due_balance_expected_date&&String(r.origin_due_balance_expected_date).slice(0,10)===hoje&&!r.origin_due_balance_returned
   // Filtros
   const fd=rows.filter(r=>{
+    if(fSource!=='all'&&r._source!==fSource)return false
     if(fBanco&&r.origin_bank_name!==fBanco&&r.destination_bank_name!==fBanco)return false
     if(fStatus&&r.status_name!==fStatus)return false
     if(fOp&&r.operation_type!==fOp)return false
@@ -1625,7 +1703,11 @@ function Portabilidade({filterParceiroId,user}={}){
   const sumBal=arr=>arr.reduce((s,r)=>s+(Number(r.origin_due_balance)||0),0)
   const sumLoan=arr=>arr.reduce((s,r)=>s+(Number(r.loan_value)||0),0)
   const enviadas=fd.filter(isEnviado),chegou=fd.filter(isChegou),pagas=fd.filter(isPago),naoPagas=fd.filter(isNaoPago),retidas=fd.filter(isRetido),trocoNeg=fd.filter(isTrocoNeg)
+  // A Chegar da CIP: portabilidades no fluxo CIP que ainda não retornaram (enviadas mas saldo não chegou, excluindo terminais)
+  const TERMINAL_STATUS=['integrated','canceled','canceled_by_customer','rejected_ctc','proposal_expired','retained']
+  const aChegarCip=fd.filter(r=>isEnviado(r)&&!isChegou(r)&&!TERMINAL_STATUS.includes(r.status_key))
   const totalEnviado=sumBal(enviadas),totalChegou=sumBal(chegou),totalPago=sumBal(pagas),totalNaoPago=sumBal(naoPagas),totalRetido=sumBal(retidas),totalTrocoNeg=sumLoan(trocoNeg)
+  const totalAChegar=sumBal(aChegarCip)
   const naoChegou=totalEnviado-totalChegou
   const pctChegou=totalEnviado?(totalChegou/totalEnviado*100):0
   const pctPagoChegou=totalChegou?(totalPago/totalChegou*100):0
@@ -1757,6 +1839,11 @@ function Portabilidade({filterParceiroId,user}={}){
         <div style={{fontSize:18,fontWeight:800,color:C.info}}>{fmtCur(totalRetido)}</div>
         <div style={{fontSize:9,color:C.muted}}>{retidas.length} retidos</div>
       </div>
+      <div style={{background:C.warn+'15',border:'2px solid '+C.warn,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.warn}}>⏳ A CHEGAR DA CIP</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.warn}}>{fmtCur(totalAChegar)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{aChegarCip.length} no fluxo</div>
+      </div>
       <div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:10,padding:'12px 14px'}}>
         <div style={{fontSize:9,fontWeight:700,color:C.danger}}>NÃO CHEGOU CIP</div>
         <div style={{fontSize:18,fontWeight:800,color:C.danger}}>{fmtCur(naoChegou)}</div>
@@ -1780,6 +1867,7 @@ function Portabilidade({filterParceiroId,user}={}){
     {/* FILTROS */}
     <div style={{display:'flex',gap:6,flexWrap:'wrap',background:C.card,border:'1px solid '+C.border,borderRadius:10,padding:'10px 14px',alignItems:'center'}}>
       <input value={se} onChange={e=>sSe(e.target.value)} placeholder="🔍 Cliente, CPF ou proposta..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11,flex:1,minWidth:180}}/>
+      <select value={fSource} onChange={e=>sFSource(e.target.value)} style={{background:C.surface,border:'1px solid '+(fSource!=='all'?C.accent:C.border),borderRadius:6,color:fSource!=='all'?C.accent:C.text,padding:'6px 10px',fontSize:11,fontWeight:fSource!=='all'?600:400}}><option value="all">🌐 Todas fontes</option><option value="quali">🔵 QualiBanking</option><option value="consig360">🟠 Consig360</option></select>
       <select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos bancos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select>
       <select value={fStatus} onChange={e=>sFStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos status</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</select>
       <select value={fOp} onChange={e=>sFOp(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todas operações</option>{operations.map(o=><option key={o} value={o}>{o}</option>)}</select>
@@ -1820,8 +1908,9 @@ function Portabilidade({filterParceiroId,user}={}){
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Portabilidades — {fd.length} registros</div>
       <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
-          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Link','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
-          <tbody>{fd.slice(0,500).map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Fonte','Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Link','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{fd.slice(0,500).map(r=><tr key={r._source+':'+r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+            <td style={{padding:'5px 8px'}}><span style={{fontSize:8,padding:'2px 5px',borderRadius:3,background:r._src_color+'22',color:r._src_color,fontWeight:700}}>{r._source==='quali'?'🔵':'🟠'}</span></td>
             <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{fmtDate(r.proposal_date)}</td>
             <td style={{padding:'5px 8px',fontWeight:600}}>{r.proposal_number||r.code}</td>
             <td style={{padding:'5px 8px',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.borrower_name}</td>
@@ -2478,7 +2567,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'consig360',l:'Consig360',i:'🟠'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
