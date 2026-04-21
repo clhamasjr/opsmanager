@@ -1307,20 +1307,27 @@ function Portabilidade({filterParceiroId,user}={}){
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
   const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
   const[fDataRetornoDe,sFDataRetornoDe]=useState(''),[fDataRetornoAte,sFDataRetornoAte]=useState('')
+  const[fParceiro,sFParceiro]=useState('')    // admin seleciona parceiro
+  const[allParceiros,setAllParceiros]=useState([])
   const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
   const[parceiroInfo,setParceiroInfo]=useState(null)
   const isParceiroView=!!filterParceiroId
+  // ID efetivo: prop (parceiro logado) OU filtro admin
+  const effectiveParceiroId=filterParceiroId||fParceiro||null
   useEffect(()=>{
     if(filterParceiroId){
       supabase.from('parceiros').select('nome,telefone').eq('id',filterParceiroId).single().then(({data})=>setParceiroInfo(data))
+    } else {
+      // Admin: carrega lista de parceiros pra dropdown
+      supabase.from('parceiros').select('id,nome,telefone').eq('ativo',true).order('nome').then(({data})=>setAllParceiros(data||[]))
     }
   },[filterParceiroId])
   const loadData=async()=>{
     setLoading(true)
-    // Quando filtrado por parceiro, usa view enriched para fazer o JOIN
-    const table=filterParceiroId?'portabilidades_enriched':'portabilidades'
+    // Usa view enriched quando há filtro por parceiro
+    const table=effectiveParceiroId?'portabilidades_enriched':'portabilidades'
     let q=supabase.from(table).select('*').order('proposal_date',{ascending:false}).limit(5000)
-    if(filterParceiroId)q=q.eq('parceiro_id',filterParceiroId)
+    if(effectiveParceiroId)q=q.eq('parceiro_id',effectiveParceiroId)
     if(per!=='tudo'){
       const r=PERIODS[per]||PERIODS.tudo
       const df=per==='custom'?(customDf||'2000-01-01'):r.f
@@ -1334,7 +1341,7 @@ function Portabilidade({filterParceiroId,user}={}){
     if(sl&&sl[0])setLastSync(sl[0])
     setLoading(false)
   }
-  useEffect(()=>{loadData()},[per,trigger])
+  useEffect(()=>{loadData()},[per,trigger,fParceiro])
   const applyCustom=()=>setTrigger(t=>t+1)
   const doSync=async()=>{
     setSyncing(true);setMsg('Sincronizando com QualiBanking...')
@@ -1540,14 +1547,17 @@ function Portabilidade({filterParceiroId,user}={}){
       <select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos bancos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select>
       <select value={fStatus} onChange={e=>sFStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos status</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</select>
       <select value={fOp} onChange={e=>sFOp(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todas operações</option>{operations.map(o=><option key={o} value={o}>{o}</option>)}</select>
+      {!isParceiroView&&<select value={fParceiro} onChange={e=>sFParceiro(e.target.value)} style={{background:C.surface,border:'1px solid '+(fParceiro?C.accent:C.border),borderRadius:6,color:fParceiro?C.accent:C.text,padding:'6px 10px',fontSize:11,minWidth:160,fontWeight:fParceiro?600:400}}><option value="">👤 Todos parceiros</option>{allParceiros.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}</select>}
       <div style={{display:'flex',gap:4,alignItems:'center',fontSize:9,color:C.muted}}>
         <span style={{fontWeight:600}}>Retorno CIP:</span>
         <input type="date" value={fDataRetornoDe} onChange={e=>sFDataRetornoDe(e.target.value)} style={{background:C.surface,border:'1px solid '+(fDataRetornoDe?C.accent2:C.border),borderRadius:6,color:C.text,padding:'5px 8px',fontSize:10}}/>
         <span>→</span>
         <input type="date" value={fDataRetornoAte} onChange={e=>sFDataRetornoAte(e.target.value)} style={{background:C.surface,border:'1px solid '+(fDataRetornoAte?C.accent2:C.border),borderRadius:6,color:C.text,padding:'5px 8px',fontSize:10}}/>
       </div>
-      {(fBanco||fStatus||fOp||se||fDataRetornoDe||fDataRetornoAte)&&<button onClick={()=>{sFBanco('');sFStatus('');sFOp('');sSe('');sFDataRetornoDe('');sFDataRetornoAte('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 10px',fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
+      {(fBanco||fStatus||fOp||se||fDataRetornoDe||fDataRetornoAte||fParceiro)&&<button onClick={()=>{sFBanco('');sFStatus('');sFOp('');sSe('');sFDataRetornoDe('');sFDataRetornoAte('');sFParceiro('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 10px',fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
     </div>
+    {/* Indicador visual quando filtro de parceiro ativo */}
+    {fParceiro&&!isParceiroView&&<div style={{background:C.accent+'15',border:'1px solid '+C.accent+'55',borderRadius:8,padding:'8px 14px',fontSize:11,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>👤 Visualizando apenas <strong>{allParceiros.find(p=>p.id===fParceiro)?.nome||'?'}</strong></span><button onClick={()=>sFParceiro('')} style={{background:'none',border:'none',color:C.accent,cursor:'pointer',fontWeight:600,fontSize:11}}>✕ Mostrar todos</button></div>}
 
     {/* RANKINGS tipo Power BI */}
     <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
