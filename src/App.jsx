@@ -630,22 +630,26 @@ function PartnerHealth({name,ops,onClose}){
 function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear,dash,dailyData,monthlyData,bizDays,propComp,weekCur,weekPrev,bankWeekCur,bankWeekPrev,bankMonthly}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[selP,setSelP]=useState(null)
-  // CIP próximos 5 dias úteis (carrega das 2 fontes)
+  // CIP próximos 5 dias úteis (com e sem data esperada)
   const[cipNext,setCipNext]=useState([])
+  const[cipSemData,setCipSemData]=useState([])  // aguardando CIP sem data prevista
   useEffect(()=>{
     (async()=>{
       const today=new Date()
       const in14=new Date(today);in14.setDate(in14.getDate()+14)
       const toISO=d=>d.toISOString().slice(0,10)
-      // Quali: origin_due_balance_expected_date futuro
-      const{data:q1}=await supabase.from('portabilidades').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_expected_date,origin_due_balance_returned,borrower_identity,borrower_phone,status_name,status_color').gte('origin_due_balance_expected_date',toISO(today)).lte('origin_due_balance_expected_date',toISO(in14)).eq('origin_due_balance_returned',false).limit(500)
-      // Consig360: expected_balance_date futuro + ainda no fluxo
-      const{data:q2}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,expected_balance_date,partner_status_text,status,client_cpf,squad_user_name').gte('expected_balance_date',toISO(today)).lte('expected_balance_date',toISO(in14)).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade','Aguardando documentação','Pendente de Formalização']).limit(500)
+      // Quali com data
+      const{data:q1}=await supabase.from('portabilidades').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_expected_date,origin_due_balance_returned,borrower_identity').gte('origin_due_balance_expected_date',toISO(today)).lte('origin_due_balance_expected_date',toISO(in14)).eq('origin_due_balance_returned',false).limit(500)
+      // Consig360 com data
+      const{data:q2}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,expected_balance_date,partner_status_text,client_cpf,squad_user_name').gte('expected_balance_date',toISO(today)).lte('expected_balance_date',toISO(in14)).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade','Aguardando documentação','Pendente de Formalização']).limit(500)
       const merged=[
-        ...(q1||[]).map(r=>({date:String(r.origin_due_balance_expected_date).slice(0,10),client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,phone:r.borrower_phone,status:r.status_name,source:'quali'})),
-        ...(q2||[]).map(r=>({date:String(r.expected_balance_date).slice(0,10),client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,phone:null,status:r.partner_status_text,parceiro:r.squad_user_name,source:'consig360'}))
+        ...(q1||[]).map(r=>({date:String(r.origin_due_balance_expected_date).slice(0,10),client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:null,source:'quali'})),
+        ...(q2||[]).map(r=>({date:String(r.expected_balance_date).slice(0,10),client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,source:'consig360'}))
       ]
       setCipNext(merged)
+      // Aguardando sem data - por parceiro
+      const{data:q3}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,partner_status_text,client_cpf,squad_user_name').is('expected_balance_date',null).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade']).limit(2000)
+      setCipSemData((q3||[]).map(r=>({client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,status:r.partner_status_text,source:'consig360'})))
     })()
   },[])
   // Use fast RPC data when available, fallback to computed
@@ -709,29 +713,36 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       </>}
 
       {/* PRÓXIMOS 5 DIAS ÚTEIS — CIP a Retornar */}
-      {(()=>{
-        // Calcular próximos 5 dias úteis
+      {(cipNext.length>0||cipSemData.length>0)&&(()=>{
         const next5=[];const d=new Date(NOW);d.setDate(d.getDate()+1)
         while(next5.length<5){if(d.getDay()!==0&&d.getDay()!==6)next5.push(localDate(d));d.setDate(d.getDate()+1)}
         const byDay={};next5.forEach(dt=>byDay[dt]={items:[],total:0})
         cipNext.forEach(c=>{if(byDay[c.date]){byDay[c.date].items.push(c);byDay[c.date].total+=c.value}})
         const totalCip=Object.values(byDay).reduce((s,d)=>s+d.total,0)
         const totalCount=Object.values(byDay).reduce((s,d)=>s+d.items.length,0)
-        if(totalCount===0)return null
+        // Aguardando sem data - agrupar por cliente (CPF) para aglutinar duplicadas
+        const byCliAgg={}
+        cipSemData.forEach(c=>{const k=c.cpf||c.client;if(!byCliAgg[k])byCliAgg[k]={client:c.client,parceiro:c.parceiro,bank:c.bank,value:0,count:0,status:c.status};byCliAgg[k].value+=c.value;byCliAgg[k].count++})
+        const totalSemData=Object.values(byCliAgg).reduce((s,c)=>s+c.value,0)
+        // Agrupa por parceiro
+        const byParc={}
+        Object.values(byCliAgg).forEach(c=>{const p=c.parceiro||'(Sem parceiro)';if(!byParc[p])byParc[p]={parceiro:p,clients:[],total:0};byParc[p].clients.push(c);byParc[p].total+=c.value})
+        const parceiros=Object.values(byParc).sort((a,b)=>b.total-a.total)
         return<div style={{background:C.card,border:'2px solid '+C.warn+'66',borderRadius:14,padding:16}}>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:6}}>
             <div>
               <div style={{fontSize:14,fontWeight:800,color:C.warn}}>⏳ CIP a Retornar — Próximos 5 Dias Úteis</div>
-              <div style={{fontSize:10,color:C.muted}}>Portabilidades com data prevista de retorno de saldo nos próximos dias</div>
+              <div style={{fontSize:10,color:C.muted}}>Saldos aguardando retorno da Câmara</div>
             </div>
             <div style={{textAlign:'right'}}>
               <div style={{fontSize:10,color:C.muted}}>Total esperado</div>
-              <div style={{fontSize:16,fontWeight:700,color:C.warn}}>{fmtCur(totalCip)}</div>
-              <div style={{fontSize:10,color:C.muted}}>{totalCount} propostas</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.warn}}>{fmtCur(totalCip+totalSemData)}</div>
+              <div style={{fontSize:10,color:C.muted}}>{totalCount+Object.keys(byCliAgg).length} clientes</div>
             </div>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
-            {next5.map(dt=>{const d=byDay[dt];const dtObj=new Date(dt+'T12:00:00');const label=dtObj.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const has=d.items.length>0;return<div key={dt} style={{background:has?C.warn+'15':C.surface,border:'1px solid '+(has?C.warn+'44':C.border),borderRadius:12,padding:12,opacity:has?1:.5}}>
+          {/* Grid com dias */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8,marginBottom:12}}>
+            {next5.map(dt=>{const d=byDay[dt];const dtObj=new Date(dt+'T12:00:00');const label=dtObj.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const has=d.items.length>0;return<div key={dt} style={{background:has?C.warn+'15':C.surface,border:'1px solid '+(has?C.warn+'44':C.border),borderRadius:12,padding:10,opacity:has?1:.5}}>
               <div style={{fontSize:10,fontWeight:700,color:C.warn,marginBottom:4,textTransform:'capitalize'}}>{label}</div>
               <div style={{fontSize:16,fontWeight:800,color:has?C.warn:C.muted}}>{d.items.length}</div>
               <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{fmtCur(d.total)}</div>
@@ -741,10 +752,24 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
                   <div style={{color:C.muted,fontSize:8}}>{c.bank||'—'}</div>
                   <div style={{fontWeight:600,color:C.warn,fontSize:9}}>{fmtCur(c.value)}</div>
                 </div>)}
-                {d.items.length>4&&<div style={{marginTop:3,color:C.accent,fontSize:9,fontWeight:600}}>+{d.items.length-4} outras...</div>}
+                {d.items.length>4&&<div style={{marginTop:3,color:C.accent,fontSize:9,fontWeight:600}}>+{d.items.length-4} mais...</div>}
               </div>}
             </div>})}
           </div>
+          {/* Lista sem data esperada — agrupado por parceiro */}
+          {parceiros.length>0&&<div style={{marginTop:10,background:C.surface,borderRadius:10,padding:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>📋 Aguardando (sem data prevista) — {Object.keys(byCliAgg).length} clientes · {fmtCur(totalSemData)}</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
+              {parceiros.slice(0,12).map(pr=><div key={pr.parceiro} style={{background:C.card,border:'1px solid '+C.border,borderRadius:8,padding:'10px 12px'}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pr.parceiro}</div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                  <div style={{fontSize:16,fontWeight:800}}>{pr.clients.length}</div>
+                  <div style={{fontSize:10,color:C.muted}}>cliente{pr.clients.length>1?'s':''}</div>
+                </div>
+                <div style={{fontSize:11,fontWeight:600,color:C.warn}}>{fmtCur(pr.total)}</div>
+              </div>)}
+            </div>
+          </div>}
         </div>
       })()}
 
