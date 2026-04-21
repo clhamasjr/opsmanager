@@ -1302,6 +1302,234 @@ function MeuPortal({user}){
 }
 
 /* ═══ PORTABILIDADE (API QualiBanking) ═══ */
+/* ═══ CONSIG360 (API Consig360) ═══ */
+function Consig360({user}){
+  const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
+  const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
+  const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fProduct,sFProduct]=useState(''),[se,sSe]=useState('')
+  const[fPartnerStatus,sFPartnerStatus]=useState('')
+  const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
+  const loadData=async()=>{
+    setLoading(true)
+    let q=supabase.from('consig_proposals').select('*').order('created_at_api',{ascending:false}).limit(6000)
+    if(per!=='tudo'){
+      const r=PERIODS[per]||PERIODS.tudo
+      const df=per==='custom'?(customDf||'2000-01-01'):r.f
+      const dt=per==='custom'?(customDt||'2099-12-31'):r.t
+      q=q.gte('created_at_api',df).lte('created_at_api',dt+'T23:59:59')
+    }
+    const{data}=await q
+    setRows(data||[])
+    const{data:sl}=await supabase.from('sync_logs').select('*').eq('source','consig360').order('started_at',{ascending:false}).limit(1)
+    if(sl&&sl[0])setLastSync(sl[0])
+    setLoading(false)
+  }
+  useEffect(()=>{loadData()},[per,trigger])
+  const applyCustom=()=>setTrigger(t=>t+1)
+  const doSync=async()=>{
+    setSyncing(true);setMsg('Sincronizando Consig360...')
+    try{
+      const r=await fetch('https://rirsmtyuyqxsoxqbgtpu.supabase.co/functions/v1/sync-consig360?mode=incremental&maxPages=20&pageSize=100&delayMs=400')
+      const j=await r.json()
+      setMsg(j.ok?'✓ '+j.upserted+' propostas sincronizadas':'Erro: '+(j.error||'falhou'))
+      await loadData()
+    }catch(e){setMsg('Erro: '+e.message)}
+    setSyncing(false)
+  }
+  // Classificadores baseados em partner_status_slug/text
+  const isPaid=r=>['Desembolso liberado','Pago'].includes(r.partner_status_text)||r.status==='integrated'
+  const isCanceled=r=>['Proposta Cancelada','Cancelado'].includes(r.partner_status_text)
+  const isRejected=r=>r.partner_status_text==='Proposta Rejeitada pelo Banco'
+  const isWaitingCip=r=>r.partner_status_text==='Aguardando Saldo CIP'
+  const isWaitingFinalization=r=>r.partner_status_text==='Aguardando Finalização da portabilidade'
+  const isWaitingDocs=r=>['Aguardando documentação','Pendente de Formalização'].includes(r.partner_status_text)
+  const isBlocked=r=>['Benefício bloqueado','Beneficio Bloqueado'].includes(r.partner_status_text)
+  const isError=r=>r.partner_status_text==='Erro ao digitar a proposta'
+  const fd=rows.filter(r=>{
+    if(fBanco&&r.bank_name!==fBanco)return false
+    if(fStatus&&r.status!==fStatus)return false
+    if(fProduct&&r.product!==fProduct)return false
+    if(fPartnerStatus&&r.partner_status_text!==fPartnerStatus)return false
+    if(se){const s=se.toLowerCase();if(!((r.title||'').toLowerCase().includes(s)||(r.client_cpf||'').includes(s)||(r.partner_contract_id||'').includes(s)))return false}
+    return true
+  })
+  const sumVal=arr=>arr.reduce((s,r)=>s+(Number(r.value)||0),0)
+  const paid=fd.filter(isPaid),canceled=fd.filter(isCanceled),rejected=fd.filter(isRejected)
+  const waitCip=fd.filter(isWaitingCip),waitFin=fd.filter(isWaitingFinalization),waitDocs=fd.filter(isWaitingDocs)
+  const blocked=fd.filter(isBlocked),errored=fd.filter(isError)
+  const totalVal=sumVal(fd),paidVal=sumVal(paid),canceledVal=sumVal(canceled),rejectedVal=sumVal(rejected)
+  const waitCipVal=sumVal(waitCip),waitFinVal=sumVal(waitFin),waitDocsVal=sumVal(waitDocs),blockedVal=sumVal(blocked)
+  // Rankings
+  const rankBank=arr=>{const m={};arr.forEach(r=>{const k=r.bank_name||'?';if(!m[k])m[k]={c:0,v:0};m[k].c++;m[k].v+=(Number(r.value)||0)});return Object.entries(m).sort((a,b)=>b[1].v-a[1].v)}
+  const rankProduct=arr=>{const m={};arr.forEach(r=>{const k=r.product||'?';if(!m[k])m[k]={c:0,v:0};m[k].c++;m[k].v+=(Number(r.value)||0)});return Object.entries(m).sort((a,b)=>b[1].v-a[1].v)}
+  const rankContractBank=arr=>{const m={};arr.forEach(r=>{const k=r.contract_bank_name||r.raw_data?.contract?.bank?.name||'?';if(!m[k])m[k]={c:0,v:0};m[k].c++;m[k].v+=(Number(r.value)||0)});return Object.entries(m).sort((a,b)=>b[1].v-a[1].v)}
+  const topBankPaid=rankBank(paid).slice(0,10)
+  const topBankAll=rankBank(fd).slice(0,10)
+  const topProduct=rankProduct(fd)
+  const maxBar=arr=>Math.max(...arr.map(([,x])=>x.v),1)
+  const BarRow=({label,value,max,color,count})=>{const pct=(value/max*100)||0;return<div style={{marginBottom:4}}>
+    <div style={{display:'flex',justifyContent:'space-between',fontSize:9,marginBottom:2}}><span style={{maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span><span style={{fontWeight:700,color}}>{fmtCur(value)} <span style={{color:C.muted,fontWeight:400}}>({count})</span></span></div>
+    <div style={{height:12,background:C.surface,borderRadius:3}}><div style={{height:'100%',background:color,borderRadius:3,width:pct+'%',transition:'width .3s'}}/></div>
+  </div>}
+  const bancos=[...new Set(rows.map(r=>r.bank_name).filter(Boolean))].sort()
+  const statuses=[...new Set(rows.map(r=>r.status).filter(Boolean))].sort()
+  const products=[...new Set(rows.map(r=>r.product).filter(Boolean))].sort()
+  const partnerStatuses=[...new Set(rows.map(r=>r.partner_status_text).filter(Boolean))].sort()
+  const exportCsv=()=>{
+    const dataRows=fd.map(r=>({
+      Proposta:r.partner_contract_id,Cliente:r.title,CPF:r.client_cpf,Beneficio:r.benefit_number,
+      Produto:r.product,'Banco Destino':r.bank_name,Status:r.status,'Status Parceiro':r.partner_status_text,
+      Valor:r.value,Convenio:r.covenant_type,'Data Criação':r.created_at_api,'Última Atualização':r.updated_at_api
+    }))
+    const ws=XLSX.utils.json_to_sheet(dataRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Consig360');XLSX.writeFile(wb,'consig360-'+new Date().toISOString().slice(0,10)+'.xlsx')
+  }
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>Consig360</h2>
+      {lastSync&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>Última sync: {new Date(lastSync.started_at).toLocaleString('pt-BR')} — {lastSync.records_upserted||0} registros</div>}</div>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={exportCsv} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
+        <button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync Consig360'}</button>
+      </div>
+    </div>
+    {msg&&<div style={{background:msg.includes('✓')?C.accent2+'22':C.warn+'22',color:msg.includes('✓')?C.accent2:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:'inherit',cursor:'pointer'}}>×</button></div>}
+    <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
+
+    {/* KPIs PRINCIPAIS */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8}}>
+      <div style={{background:C.card,border:'2px solid '+C.text,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.text}}>TOTAL</div>
+        <div style={{fontSize:18,fontWeight:800}}>{fmtCur(totalVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{fd.length} propostas</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.accent2,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.accent2}}>✅ PAGO</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.accent2}}>{fmtCur(paidVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{paid.length} integradas</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.warn,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.warn}}>⏳ AGUARD. CIP</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.warn}}>{fmtCur(waitCipVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{waitCip.length} aguardando</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.accent,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.accent}}>📝 AGUARD. FORM.</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.accent}}>{fmtCur(waitFinVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{waitFin.length} aguardando</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.info,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.info}}>📂 PEND. DOCS</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.info}}>{fmtCur(waitDocsVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{waitDocs.length} pendentes</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.danger,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.danger}}>❌ REJEITADA</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.danger}}>{fmtCur(rejectedVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{rejected.length} pelo banco</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid '+C.muted,borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.muted}}>🚫 CANCELADA</div>
+        <div style={{fontSize:18,fontWeight:800,color:C.muted}}>{fmtCur(canceledVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{canceled.length} cancel.</div>
+      </div>
+      <div style={{background:C.card,border:'2px solid #F97316',borderRadius:10,padding:'12px 14px'}}>
+        <div style={{fontSize:9,fontWeight:700,color:'#F97316'}}>⚠️ BLOQUEADO</div>
+        <div style={{fontSize:18,fontWeight:800,color:'#F97316'}}>{fmtCur(blockedVal)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{blocked.length} bloq.</div>
+      </div>
+    </div>
+
+    {/* FILTROS */}
+    <div style={{display:'flex',gap:6,flexWrap:'wrap',background:C.card,border:'1px solid '+C.border,borderRadius:10,padding:'10px 14px',alignItems:'center'}}>
+      <input value={se} onChange={e=>sSe(e.target.value)} placeholder="🔍 Cliente, CPF ou proposta..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11,flex:1,minWidth:180}}/>
+      <select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos bancos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select>
+      <select value={fProduct} onChange={e=>sFProduct(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos produtos</option>{products.map(p=><option key={p} value={p}>{p}</option>)}</select>
+      <select value={fPartnerStatus} onChange={e=>sFPartnerStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos status parceiro</option>{partnerStatuses.map(s=><option key={s} value={s}>{s}</option>)}</select>
+      <select value={fStatus} onChange={e=>sFStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11}}><option value="">Todos status</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</select>
+      {(fBanco||fStatus||fProduct||fPartnerStatus||se)&&<button onClick={()=>{sFBanco('');sFStatus('');sFProduct('');sFPartnerStatus('');sSe('')}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.muted,padding:'6px 10px',fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
+    </div>
+
+    {/* RANKINGS */}
+    <div className="rg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.accent2}}>🏦 Top Banco — Pagas</div>
+        {topBankPaid.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topBankPaid.map(([k,x])=><BarRow key={k} label={k} value={x.v} count={x.c} max={maxBar(topBankPaid)} color={C.accent2}/>)}
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.accent}}>🏦 Top Banco — Geral</div>
+        {topBankAll.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topBankAll.map(([k,x])=><BarRow key={k} label={k} value={x.v} count={x.c} max={maxBar(topBankAll)} color={C.accent}/>)}
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,gridColumn:'1 / -1'}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:C.info}}>📦 Por Produto</div>
+        {topProduct.map(([k,x])=><BarRow key={k} label={k} value={x.v} count={x.c} max={maxBar(topProduct)} color={C.info}/>)}
+      </div>
+    </div>
+
+    {/* TABELA */}
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Propostas — {fd.length} registros</div>
+      <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','CPF','Banco','Produto','Valor','Status Parceiro'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{fd.slice(0,500).map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+            <td style={{padding:'5px 8px',whiteSpace:'nowrap',fontSize:9}}>{r.created_at_api?new Date(r.created_at_api).toLocaleDateString('pt-BR'):'—'}</td>
+            <td style={{padding:'5px 8px',fontWeight:600,fontSize:10}}>{r.partner_contract_id||'—'}</td>
+            <td style={{padding:'5px 8px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</td>
+            <td style={{padding:'5px 8px',fontSize:9,fontFamily:'monospace'}}>{r.client_cpf}</td>
+            <td style={{padding:'5px 8px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.bank_name}</td>
+            <td style={{padding:'5px 8px',fontSize:9}}>{r.product}</td>
+            <td style={{padding:'5px 8px',fontWeight:600,color:C.accent}}>{fmtCur(r.value)}</td>
+            <td style={{padding:'5px 8px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(isPaid(r)?C.accent2:isRejected(r)||isCanceled(r)?C.danger:isWaitingCip(r)||isWaitingFinalization(r)?C.warn:isWaitingDocs(r)?C.info:C.muted)+'22',color:isPaid(r)?C.accent2:isRejected(r)||isCanceled(r)?C.danger:isWaitingCip(r)||isWaitingFinalization(r)?C.warn:isWaitingDocs(r)?C.info:C.muted,fontWeight:600}}>{r.partner_status_text||r.status||'—'}</span></td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* MODAL DETALHES */}
+    {selRow&&<div onClick={()=>setSelRow(null)} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,width:720,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+          <h3 style={{margin:0,fontSize:16}}>{selRow.title}</h3>
+          <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:14}}>Proposta {selRow.partner_contract_id} · CPF {selRow.client_cpf} · Benefício {selRow.benefit_number||'—'}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+          {[
+            ['Status',selRow.status],['Status Parceiro',selRow.partner_status_text],
+            ['Banco',selRow.bank_name],['Produto',selRow.product],
+            ['Valor',fmtCur(selRow.value)],['Vl. Líquido',fmtCur(selRow.net_value)],
+            ['Saldo Devedor',fmtCur(selRow.debit_balance)],['Parcela',fmtCur(selRow.installment_value)],
+            ['Prazo',selRow.term?selRow.term+' meses':'—'],['Convênio',selRow.covenant_type],
+            ['Número CIP',selRow.portability_number||'—'],['Retorno Esperado CIP',selRow.expected_balance_date?fmtDate(selRow.expected_balance_date):'—'],
+            ['Data Criação',selRow.created_at_api?new Date(selRow.created_at_api).toLocaleString('pt-BR'):'—'],
+            ['Última Atualização',selRow.updated_at_api?new Date(selRow.updated_at_api).toLocaleString('pt-BR'):'—'],
+            ['Data Contrato',selRow.contract_date?new Date(selRow.contract_date).toLocaleDateString('pt-BR'):'—'],
+            ['Data Pagamento',selRow.pay_date?fmtDate(selRow.pay_date):'—']
+          ].map(([l,v])=><div key={l} style={{background:C.surface,borderRadius:6,padding:'8px 10px'}}>
+            <div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{l}</div>
+            <div style={{fontSize:12,fontWeight:600}}>{v||'—'}</div>
+          </div>)}
+        </div>
+        {selRow.description&&<div style={{background:C.warn+'15',border:'1px solid '+C.warn+'44',borderRadius:8,padding:12,marginBottom:10}}>
+          <div style={{fontSize:9,fontWeight:600,color:C.warn,marginBottom:3}}>DESCRIÇÃO</div>
+          <div style={{fontSize:11}}>{selRow.description}</div>
+        </div>}
+        {/* Timeline */}
+        {selRow.timeline&&selRow.timeline.length>0&&<div>
+          <div style={{fontSize:11,fontWeight:700,marginBottom:6,color:C.muted}}>📜 Timeline de Status</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:300,overflowY:'auto'}}>
+            {selRow.timeline.map((ev,i)=><div key={i} style={{background:C.surface,borderRadius:6,padding:'8px 10px',borderLeft:'3px solid '+C.accent}}>
+              <div style={{fontSize:11,fontWeight:700}}>{ev.partnerStatus?.displayText||ev.status}</div>
+              <div style={{fontSize:9,color:C.muted}}>{ev.createdAt?new Date(ev.createdAt).toLocaleString('pt-BR'):''}</div>
+              {ev.description&&<div style={{fontSize:10,marginTop:2}}>{ev.description}</div>}
+            </div>)}
+          </div>
+        </div>}
+      </div>
+    </div>}
+  </div>
+}
+
 function Portabilidade({filterParceiroId,user}={}){
   const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
@@ -2235,7 +2463,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'consig360',l:'Consig360',i:'🟠'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
@@ -2402,6 +2630,7 @@ export default function App(){
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
       {view==='portabilidade'&&<Portabilidade/>}
+      {view==='consig360'&&<Consig360 user={user}/>}
       {view==='notificacoes'&&<Notificacoes/>}
       {view==='meuportal'&&(user.parceiro_id?<Portabilidade filterParceiroId={user.parceiro_id} user={user}/>:<div style={{padding:40,textAlign:'center',color:C.muted}}>⚠️ Seu usuário não está vinculado a um parceiro. Contate o administrador.</div>)}
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
