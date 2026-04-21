@@ -630,6 +630,24 @@ function PartnerHealth({name,ops,onClose}){
 function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,myAgents,prodYear,dash,dailyData,monthlyData,bizDays,propComp,weekCur,weekPrev,bankWeekCur,bankWeekPrev,bankMonthly}){
   const{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useOps('mes',myAgents)
   const[selP,setSelP]=useState(null)
+  // CIP próximos 5 dias úteis (carrega das 2 fontes)
+  const[cipNext,setCipNext]=useState([])
+  useEffect(()=>{
+    (async()=>{
+      const today=new Date()
+      const in14=new Date(today);in14.setDate(in14.getDate()+14)
+      const toISO=d=>d.toISOString().slice(0,10)
+      // Quali: origin_due_balance_expected_date futuro
+      const{data:q1}=await supabase.from('portabilidades').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_expected_date,origin_due_balance_returned,borrower_identity,borrower_phone,status_name,status_color').gte('origin_due_balance_expected_date',toISO(today)).lte('origin_due_balance_expected_date',toISO(in14)).eq('origin_due_balance_returned',false).limit(500)
+      // Consig360: expected_balance_date futuro + ainda no fluxo
+      const{data:q2}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,expected_balance_date,partner_status_text,status,client_cpf,squad_user_name').gte('expected_balance_date',toISO(today)).lte('expected_balance_date',toISO(in14)).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade','Aguardando documentação','Pendente de Formalização']).limit(500)
+      const merged=[
+        ...(q1||[]).map(r=>({date:String(r.origin_due_balance_expected_date).slice(0,10),client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,phone:r.borrower_phone,status:r.status_name,source:'quali'})),
+        ...(q2||[]).map(r=>({date:String(r.expected_balance_date).slice(0,10),client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,phone:null,status:r.partner_status_text,parceiro:r.squad_user_name,source:'consig360'}))
+      ]
+      setCipNext(merged)
+    })()
+  },[])
   // Use fast RPC data when available, fallback to computed
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrBruto||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrBruto||0),0)
@@ -689,6 +707,46 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
           </div>})}
         </div>
       </>}
+
+      {/* PRÓXIMOS 5 DIAS ÚTEIS — CIP a Retornar */}
+      {(()=>{
+        // Calcular próximos 5 dias úteis
+        const next5=[];const d=new Date(NOW);d.setDate(d.getDate()+1)
+        while(next5.length<5){if(d.getDay()!==0&&d.getDay()!==6)next5.push(localDate(d));d.setDate(d.getDate()+1)}
+        const byDay={};next5.forEach(dt=>byDay[dt]={items:[],total:0})
+        cipNext.forEach(c=>{if(byDay[c.date]){byDay[c.date].items.push(c);byDay[c.date].total+=c.value}})
+        const totalCip=Object.values(byDay).reduce((s,d)=>s+d.total,0)
+        const totalCount=Object.values(byDay).reduce((s,d)=>s+d.items.length,0)
+        if(totalCount===0)return null
+        return<div style={{background:C.card,border:'2px solid '+C.warn+'66',borderRadius:14,padding:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:6}}>
+            <div>
+              <div style={{fontSize:14,fontWeight:800,color:C.warn}}>⏳ CIP a Retornar — Próximos 5 Dias Úteis</div>
+              <div style={{fontSize:10,color:C.muted}}>Portabilidades com data prevista de retorno de saldo nos próximos dias</div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:10,color:C.muted}}>Total esperado</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.warn}}>{fmtCur(totalCip)}</div>
+              <div style={{fontSize:10,color:C.muted}}>{totalCount} propostas</div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
+            {next5.map(dt=>{const d=byDay[dt];const dtObj=new Date(dt+'T12:00:00');const label=dtObj.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const has=d.items.length>0;return<div key={dt} style={{background:has?C.warn+'15':C.surface,border:'1px solid '+(has?C.warn+'44':C.border),borderRadius:12,padding:12,opacity:has?1:.5}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.warn,marginBottom:4,textTransform:'capitalize'}}>{label}</div>
+              <div style={{fontSize:16,fontWeight:800,color:has?C.warn:C.muted}}>{d.items.length}</div>
+              <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{fmtCur(d.total)}</div>
+              {d.items.length>0&&<div style={{marginTop:6,fontSize:9,maxHeight:80,overflowY:'auto'}}>
+                {d.items.slice(0,4).map((c,i)=><div key={i} style={{padding:'2px 0',borderTop:i>0?'1px solid '+C.border:'none'}}>
+                  <div style={{fontWeight:600,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.client}</div>
+                  <div style={{color:C.muted,fontSize:8}}>{c.bank||'—'}</div>
+                  <div style={{fontWeight:600,color:C.warn,fontSize:9}}>{fmtCur(c.value)}</div>
+                </div>)}
+                {d.items.length>4&&<div style={{marginTop:3,color:C.accent,fontSize:9,fontWeight:600}}>+{d.items.length-4} outras...</div>}
+              </div>}
+            </div>})}
+          </div>
+        </div>
+      })()}
 
       {/* ANÁLISE SEMANAL — Parceiros */}
       {weekCur.length>0&&(()=>{
@@ -1548,6 +1606,7 @@ function Portabilidade({filterParceiroId,user}={}){
   const[allParceiros,setAllParceiros]=useState([])
   const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
   const[parceiroInfo,setParceiroInfo]=useState(null)
+  const[kpiDrilldown,setKpiDrilldown]=useState(null)  // {type, label, items, color}
   const isParceiroView=!!filterParceiroId
   // ID efetivo: prop (parceiro logado) OU filtro admin
   const effectiveParceiroId=filterParceiroId||fParceiro||null
@@ -1816,43 +1875,21 @@ function Portabilidade({filterParceiroId,user}={}){
       </div>
     })()}
 
-    {/* KPIs PRINCIPAIS - estilo Power BI */}
+    {/* KPIs PRINCIPAIS - CLICÁVEIS com breakdown por parceiro */}
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}}>
-      <div style={{background:C.card,border:'2px solid '+C.accent,borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:C.accent}}>ENVIADO CIP</div>
-        <div style={{fontSize:18,fontWeight:800,color:C.accent}}>{fmtCur(totalEnviado)}</div>
-        <div style={{fontSize:9,color:C.muted}}>{enviadas.length} propostas</div>
-      </div>
-      <div style={{background:C.card,border:'2px solid '+C.warn,borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:C.warn}}>CHEGOU CIP</div>
-        <div style={{fontSize:18,fontWeight:800,color:C.warn}}>{fmtCur(totalChegou)}</div>
-        <div style={{fontSize:9,color:C.muted}}>{chegou.length} saldos</div>
-      </div>
-      <div style={{background:C.card,border:'2px solid '+C.accent2,borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:C.accent2}}>PAGO</div>
-        <div style={{fontSize:18,fontWeight:800,color:C.accent2}}>{fmtCur(totalPago)}</div>
-        <div style={{fontSize:9,color:C.muted}}>{pagas.length} integrados</div>
-      </div>
-      <div style={{background:C.card,border:'2px solid '+C.danger,borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:C.danger}}>NÃO FOI PAGO</div>
-        <div style={{fontSize:18,fontWeight:800,color:C.danger}}>{fmtCur(totalNaoPago)}</div>
-        <div style={{fontSize:9,color:C.muted}}>{naoPagas.length} cancel./recus.</div>
-      </div>
-      <div style={{background:C.card,border:'2px solid #F97316',borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:'#F97316'}}>TROCO NEGATIVO</div>
-        <div style={{fontSize:18,fontWeight:800,color:'#F97316'}}>{fmtCur(Math.abs(totalTrocoNeg))}</div>
-        <div style={{fontSize:9,color:C.muted}}>{trocoNeg.length} casos</div>
-      </div>
-      <div style={{background:C.card,border:'2px solid '+C.info,borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:C.info}}>RETENÇÃO CLIENTE</div>
-        <div style={{fontSize:18,fontWeight:800,color:C.info}}>{fmtCur(totalRetido)}</div>
-        <div style={{fontSize:9,color:C.muted}}>{retidas.length} retidos</div>
-      </div>
-      <div style={{background:C.warn+'15',border:'2px solid '+C.warn,borderRadius:10,padding:'12px 14px'}}>
-        <div style={{fontSize:9,fontWeight:700,color:C.warn}}>⏳ A CHEGAR DA CIP</div>
-        <div style={{fontSize:18,fontWeight:800,color:C.warn}}>{fmtCur(totalAChegar)}</div>
-        <div style={{fontSize:9,color:C.muted}}>{aChegarCip.length} no fluxo</div>
-      </div>
+      {[
+        {k:'enviado',label:'ENVIADO CIP',color:C.accent,value:totalEnviado,count:enviadas.length,sub:'propostas',items:enviadas,bg:C.card},
+        {k:'chegou',label:'CHEGOU CIP',color:C.warn,value:totalChegou,count:chegou.length,sub:'saldos',items:chegou,bg:C.card},
+        {k:'pago',label:'PAGO',color:C.accent2,value:totalPago,count:pagas.length,sub:'integrados',items:pagas,bg:C.card},
+        {k:'naoPago',label:'NÃO FOI PAGO',color:C.danger,value:totalNaoPago,count:naoPagas.length,sub:'cancel./recus.',items:naoPagas,bg:C.card},
+        {k:'trocoNeg',label:'TROCO NEGATIVO',color:'#F97316',value:Math.abs(totalTrocoNeg),count:trocoNeg.length,sub:'casos',items:trocoNeg,bg:C.card},
+        {k:'retido',label:'RETENÇÃO CLIENTE',color:C.info,value:totalRetido,count:retidas.length,sub:'retidos',items:retidas,bg:C.card},
+        {k:'aChegar',label:'⏳ A CHEGAR DA CIP',color:C.warn,value:totalAChegar,count:aChegarCip.length,sub:'no fluxo',items:aChegarCip,bg:C.warn+'15'}
+      ].map(kpi=><div key={kpi.k} onClick={()=>setKpiDrilldown({type:kpi.k,label:kpi.label,items:kpi.items,color:kpi.color})} style={{background:kpi.bg,border:'2px solid '+kpi.color,borderRadius:10,padding:'12px 14px',cursor:'pointer',transition:'transform .1s',userSelect:'none'}} onMouseDown={e=>e.currentTarget.style.transform='scale(.98)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
+        <div style={{fontSize:9,fontWeight:700,color:kpi.color,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>{kpi.label}</span><span style={{fontSize:9,opacity:.6}}>→</span></div>
+        <div style={{fontSize:18,fontWeight:800,color:kpi.color}}>{fmtCur(kpi.value)}</div>
+        <div style={{fontSize:9,color:C.muted}}>{kpi.count} {kpi.sub}</div>
+      </div>)}
       <div style={{background:'#EF444418',border:'1px solid #EF444433',borderRadius:10,padding:'12px 14px'}}>
         <div style={{fontSize:9,fontWeight:700,color:C.danger}}>NÃO CHEGOU CIP</div>
         <div style={{fontSize:18,fontWeight:800,color:C.danger}}>{fmtCur(naoChegou)}</div>
@@ -1941,6 +1978,55 @@ function Portabilidade({filterParceiroId,user}={}){
 
     {/* MODAL DETALHE */}
     {selRow&&<PortabilityDetailModal row={selRow} onClose={()=>setSelRow(null)} onReload={loadData} user={user}/>}
+
+    {/* MODAL DRILLDOWN POR PARCEIRO */}
+    {kpiDrilldown&&(()=>{
+      const items=kpiDrilldown.items||[]
+      // Agrupa por parceiro_nome (ou agente_digitacao ou '-')
+      const byPartner={}
+      items.forEach(r=>{
+        const k=r.parceiro_nome||r.agente_digitacao||'(Sem parceiro identificado)'
+        if(!byPartner[k])byPartner[k]={nome:k,items:[],count:0,value:0,phone:null,email:null}
+        byPartner[k].items.push(r)
+        byPartner[k].count++
+        byPartner[k].value+=(Number(r.origin_due_balance)||Number(r.loan_value)||0)
+      })
+      const partnerRows=Object.values(byPartner).sort((a,b)=>b.value-a.value)
+      // Enriquecer com telefone dos parceiros
+      partnerRows.forEach(pr=>{
+        const match=allParceiros.find(p=>p.nome&&p.nome.toUpperCase().trim()===pr.nome.toUpperCase().trim())
+        if(match){pr.phone=match.telefone;pr.email=match.email;pr.parceiro_id=match.id}
+      })
+      return<div onClick={()=>setKpiDrilldown(null)} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'2px solid '+kpiDrilldown.color,borderRadius:14,width:800,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <div>
+              <div style={{fontSize:17,fontWeight:800,color:kpiDrilldown.color}}>{kpiDrilldown.label}</div>
+              <div style={{fontSize:11,color:C.muted}}>{items.length} propostas · {partnerRows.length} parceiros responsáveis</div>
+            </div>
+            <button onClick={()=>setKpiDrilldown(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
+          </div>
+          <div style={{overflowX:'auto',borderRadius:8,border:'1px solid '+C.border}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead><tr style={{background:C.surface}}>{['Parceiro','Contato','Qtd','Valor','Ação'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+              <tbody>{partnerRows.map(pr=><tr key={pr.nome} style={{borderBottom:'1px solid '+C.border}}>
+                <td style={{padding:'8px 10px',fontWeight:600,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pr.nome}{!pr.parceiro_id&&pr.nome!=='(Sem parceiro identificado)'&&<span style={{fontSize:8,color:C.warn,marginLeft:6}}>[não cadastrado]</span>}</td>
+                <td style={{padding:'8px 10px',fontSize:10}}>{pr.phone?<span style={{color:C.accent}}>📞 {pr.phone}</span>:<span style={{color:C.muted}}>—</span>}</td>
+                <td style={{padding:'8px 10px',fontWeight:600}}>{pr.count}</td>
+                <td style={{padding:'8px 10px',fontWeight:600,color:kpiDrilldown.color}}>{fmtCur(pr.value)}</td>
+                <td style={{padding:'8px 10px'}}>
+                  <div style={{display:'flex',gap:4}}>
+                    {pr.phone&&<a href={'https://wa.me/'+String(pr.phone).replace(/\D/g,'')+'?text='+encodeURIComponent('Olá '+pr.nome.split(' ')[0]+', referente às '+pr.count+' propostas com status "'+kpiDrilldown.label+'"...')} target="_blank" rel="noopener noreferrer" style={{background:'#25D366',color:'#fff',padding:'4px 8px',borderRadius:6,textDecoration:'none',fontSize:9,fontWeight:700}}>📱 WhatsApp</a>}
+                    <button onClick={()=>{sFParceiro(pr.parceiro_id||'');setKpiDrilldown(null)}} disabled={!pr.parceiro_id} style={{background:pr.parceiro_id?C.accent:C.surface,color:pr.parceiro_id?'#fff':C.muted,border:'none',borderRadius:6,padding:'4px 8px',fontSize:9,fontWeight:700,cursor:pr.parceiro_id?'pointer':'not-allowed',opacity:pr.parceiro_id?1:.5}}>👁 Ver propostas</button>
+                  </div>
+                </td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div style={{marginTop:14,fontSize:10,color:C.muted}}>💡 Clique em "Ver propostas" para filtrar a tela pelo parceiro específico ou WhatsApp para contatar direto.</div>
+        </div>
+      </div>
+    })()}
   </div>
 }
 
