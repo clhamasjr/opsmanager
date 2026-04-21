@@ -1584,7 +1584,7 @@ function Portabilidade({filterParceiroId,user}={}){
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Portabilidades — {fd.length} registros</div>
       <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
-          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Vl. Bruto','Troco','Status','Op.'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
           <tbody>{fd.slice(0,500).map(r=><tr key={r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{fmtDate(r.proposal_date)}</td>
             <td style={{padding:'5px 8px',fontWeight:600}}>{r.proposal_number||r.code}</td>
@@ -1592,41 +1592,160 @@ function Portabilidade({filterParceiroId,user}={}){
             <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.origin_bank_name||'—'}</td>
             <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.destination_bank_name||'—'}</td>
             <td style={{padding:'5px 8px',fontWeight:600,color:C.accent}}>{fmtCur(r.origin_due_balance)}</td>
+            <td style={{padding:'5px 8px',fontSize:10,whiteSpace:'nowrap',color:r.origin_due_balance_returned?C.accent2:(r.origin_due_balance_expected_date?C.warn:C.muted),fontWeight:r.origin_due_balance_returned?600:400}}>{r.origin_due_balance_date?'🟢 '+fmtDate(r.origin_due_balance_date):(r.origin_due_balance_expected_date?'⏳ '+fmtDate(r.origin_due_balance_expected_date):'—')}</td>
             <td style={{padding:'5px 8px',fontWeight:600}}>{fmtCur(r.loan_value)}</td>
             <td style={{padding:'5px 8px',fontWeight:600,color:(r.net_value||0)<0?C.danger:C.accent2}}>{fmtCur(r.net_value)}</td>
             <td style={{padding:'5px 8px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(r.status_color||C.muted)+'22',color:r.status_color||C.muted,fontWeight:600}}>{r.status_name||'—'}</span></td>
             <td style={{padding:'5px 8px',fontSize:9}}>{r.operation_type}</td>
+            <td style={{padding:'5px 8px'}}><span style={{fontSize:9,color:C.accent,fontWeight:600}}>👁</span></td>
           </tr>)}</tbody>
         </table>
       </div>
     </div>
 
     {/* MODAL DETALHE */}
-    {selRow&&<div onClick={()=>setSelRow(null)} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,width:700,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
-          <h3 style={{margin:0,fontSize:16}}>{selRow.borrower_name}</h3>
-          <button onClick={()=>setSelRow(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
-        </div>
-        <div style={{fontSize:10,color:C.muted,marginBottom:14}}>Proposta {selRow.proposal_number} · CPF {selRow.borrower_identity} · {selRow.borrower_phone||'sem telefone'}</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
-          {[
-            ['Banco Origem',selRow.origin_bank_name],['Banco Destino',selRow.destination_bank_name],
-            ['Operação',selRow.operation_type],['Status',selRow.status_name],
-            ['Saldo Devedor',fmtCur(selRow.origin_due_balance)],['Vl. Bruto',fmtCur(selRow.loan_value)],
-            ['Vl. Líquido (Troco)',fmtCur(selRow.net_value)],['Parcela',fmtCur(selRow.installment_value)],
-            ['Prazo',selRow.term+' meses'],['Taxa',(selRow.rate||0).toFixed(2)+'%'],
-            ['Parcelas Pagas (origem)',selRow.origin_installments_paid],['Parcelas Restantes (origem)',selRow.origin_installments_remaining],
-            ['Data Proposta',fmtDate(selRow.proposal_date)],['Data Contrato',fmtDate(selRow.contract_date)],
-            ['Enviado CIP',fmtDate(selRow.cip_submission_date)],['Retorno Esperado CIP',fmtDate(selRow.origin_due_balance_expected_date)],
-            ['Saldo Chegou?',selRow.origin_due_balance_returned?'✓ Sim':'Não'],['Assinado?',selRow.assigned?'✓ Sim':'Não']
-          ].map(([l,v])=><div key={l} style={{background:C.surface,borderRadius:6,padding:'8px 10px'}}>
-            <div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{l}</div>
-            <div style={{fontSize:12,fontWeight:600}}>{v||'—'}</div>
-          </div>)}
-        </div>
+    {selRow&&<PortabilityDetailModal row={selRow} onClose={()=>setSelRow(null)} onReload={loadData} user={user}/>}
+  </div>
+}
+
+/* ═══ MODAL DETALHE PORTABILIDADE COM AÇÕES ═══ */
+function PortabilityDetailModal({row,onClose,onReload,user}){
+  const[tab,sTab]=useState('info')
+  const[uploading,setUploading]=useState(false),[uploadMsg,setUploadMsg]=useState('')
+  const[approving,setApproving]=useState(false),[approveMsg,setApproveMsg]=useState('')
+  const[recalc,setRecalc]=useState(null),[recalcError,setRecalcError]=useState('')
+  const[rate,setRate]=useState(row.rate?String(row.rate):'1.8'),[hasInsurance,setHasInsurance]=useState(false),[reformalize,setReformalize]=useState(false)
+  const[actions,setActions]=useState([])
+  const[apiRules,setApiRules]=useState([])
+  const fileRef=useRef(null)
+  useEffect(()=>{
+    // Carrega histórico de ações
+    supabase.from('portabilidade_actions').select('*').eq('quali_id',row.quali_id).order('created_at',{ascending:false}).limit(20).then(({data})=>setActions(data||[]))
+  },[row.quali_id])
+  const callProxy=async(action,params={})=>{
+    const r=await fetch('https://rirsmtyuyqxsoxqbgtpu.supabase.co/functions/v1/proxy-qualibanking',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action,qualiId:row.quali_id,portabilidadeId:row.id,performedBy:user?.id,...params})
+    })
+    return r.json()
+  }
+  const uploadFile=async(file)=>{
+    if(!file)return
+    setUploading(true);setUploadMsg('Enviando arquivo...')
+    try{
+      const path=row.quali_id+'/'+Date.now()+'_'+file.name.replace(/[^\w.-]/g,'_')
+      const{data:upData,error:upErr}=await supabase.storage.from('portabilidade-docs').upload(path,file,{upsert:false})
+      if(upErr)throw upErr
+      const{data:pub}=supabase.storage.from('portabilidade-docs').getPublicUrl(upData.path)
+      setUploadMsg('Registrando na QualiBanking...')
+      const res=await callProxy('upload_document',{url:pub.publicUrl})
+      if(res.ok)setUploadMsg('✓ Arquivo enviado e registrado! ID QualiBanking: '+(res.data?.id||'—'))
+      else setUploadMsg('Erro QualiBanking: '+(res.data?.messages?.[0]?.text||res.error||JSON.stringify(res.data).slice(0,200)))
+    }catch(e){setUploadMsg('Erro: '+e.message)}
+    setUploading(false)
+    if(fileRef.current)fileRef.current.value=''
+  }
+  const doRecalc=async()=>{
+    setApproving(true);setRecalcError('');setRecalc(null);setApproveMsg('Recalculando condições...')
+    const ruleId=row.raw_data?.rule?.id
+    if(!ruleId){setRecalcError('Sem ruleId. Não é possível recalcular.');setApproving(false);return}
+    const res=await callProxy('recalculate',{ruleId,hasInsurance,refinanceRate:parseFloat(rate)})
+    if(res.ok){setRecalc(res.data);setApproveMsg('✓ Simulação OK. Revise e clique Aceitar.')}
+    else setRecalcError(res.data?.messages?.[0]?.text||res.error||'Erro desconhecido')
+    setApproving(false)
+  }
+  const doAccept=async()=>{
+    if(!recalc){setRecalcError('Simule antes de aceitar');return}
+    if(!confirm('Confirmar ACEITE DO SALDO para '+row.borrower_name+'?\nTaxa: '+rate+'%\nSeguro: '+(hasInsurance?'Sim':'Não')+'\n\nEsta ação é FINAL.'))return
+    setApproving(true);setApproveMsg('Aceitando termos...')
+    const ruleId=row.raw_data?.rule?.id
+    const res=await callProxy('accept_terms',{ruleId,hasInsurance,refinanceRate:parseFloat(rate),reformalize})
+    if(res.ok){setApproveMsg('✓ Termos aceitos! Status: '+(res.data?.status||'—'));if(onReload)onReload()}
+    else setApproveMsg('Erro: '+(res.data?.messages?.[0]?.text||res.error||JSON.stringify(res.data).slice(0,200)))
+    setApproving(false)
+  }
+  const canApprove=row.origin_due_balance_returned&&!['integrated','canceled','rejected_ctc','proposal_expired'].includes(row.status_key)
+  const tabs=[{id:'info',l:'📋 Detalhes'},{id:'docs',l:'📎 Documentos'},{id:'actions',l:'⚡ Ações'},{id:'history',l:'📜 Histórico'}]
+  return<div onClick={onClose} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,width:800,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+        <h3 style={{margin:0,fontSize:16}}>{row.borrower_name}</h3>
+        <button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
       </div>
-    </div>}
+      <div style={{fontSize:10,color:C.muted,marginBottom:12}}>Proposta {row.proposal_number} · CPF {row.borrower_identity} · {row.borrower_phone||'sem telefone'}</div>
+      <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap'}}>{tabs.map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:tab===t.id?600:400}}>{t.l}</button>)}</div>
+
+      {tab==='info'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        {[
+          ['Banco Origem',row.origin_bank_name],['Banco Destino',row.destination_bank_name],
+          ['Operação',row.operation_type],['Status',row.status_name],
+          ['Saldo Devedor',fmtCur(row.origin_due_balance)],['Vl. Bruto',fmtCur(row.loan_value)],
+          ['Vl. Líquido (Troco)',fmtCur(row.net_value)],['Parcela',fmtCur(row.installment_value)],
+          ['Prazo',row.term?row.term+' meses':'—'],['Taxa',(row.rate||0).toFixed(2)+'%'],
+          ['Parcelas Pagas (origem)',row.origin_installments_paid],['Parcelas Restantes (origem)',row.origin_installments_remaining],
+          ['Data Proposta',fmtDate(row.proposal_date)],['Data Contrato',fmtDate(row.contract_date)],
+          ['Enviado CIP',fmtDate(row.cip_submission_date)],['Retorno Esperado CIP',fmtDate(row.origin_due_balance_expected_date)],
+          ['Retorno CIP (Real)',row.origin_due_balance_date?fmtDate(row.origin_due_balance_date):'—'],['Saldo Chegou?',row.origin_due_balance_returned?'✓ Sim':'Não'],
+          ['Número CIP',row.portability_number||'—'],['Assinado?',row.assigned?'✓ Sim':'Não']
+        ].map(([l,v])=><div key={l} style={{background:C.surface,borderRadius:6,padding:'8px 10px'}}>
+          <div style={{fontSize:8,color:C.muted,fontWeight:600,textTransform:'uppercase'}}>{l}</div>
+          <div style={{fontSize:12,fontWeight:600}}>{v||'—'}</div>
+        </div>)}
+      </div>}
+
+      {tab==='docs'&&<div style={{display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{background:C.accent+'11',border:'1px solid '+C.accent+'44',borderRadius:10,padding:14}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>📎 Anexar documento à proposta</div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:10}}>O arquivo será carregado no storage do OpsManager e associado à proposta na QualiBanking.</div>
+          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={e=>uploadFile(e.target.files?.[0])} disabled={uploading} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,padding:8,fontSize:11,width:'100%',boxSizing:'border-box'}}/>
+          {uploadMsg&&<div style={{marginTop:8,fontSize:11,padding:'6px 10px',borderRadius:6,background:uploadMsg.includes('✓')?C.accent2+'22':C.warn+'22',color:uploadMsg.includes('✓')?C.accent2:C.warn}}>{uploadMsg}</div>}
+        </div>
+      </div>}
+
+      {tab==='actions'&&<div style={{display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{background:canApprove?C.accent2+'11':C.muted+'11',border:'1px solid '+(canApprove?C.accent2+'44':C.muted+'44'),borderRadius:10,padding:14}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>✅ Aprovar Saldo</div>
+          {!canApprove&&<div style={{fontSize:11,color:C.warn,padding:'6px 10px',background:C.warn+'22',borderRadius:6,marginBottom:10}}>⚠️ Só é possível aprovar quando o saldo retornou da CIP e status permite.</div>}
+          {canApprove&&<>
+            <div style={{fontSize:10,color:C.muted,marginBottom:10}}>1. Simule as condições. 2. Revise. 3. Aceite.</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+              <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>TAXA (% a.m.)</label><input type="number" step="0.0001" value={rate} onChange={e=>setRate(e.target.value)} disabled={approving} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,padding:'6px 10px',fontSize:11,width:'100%',boxSizing:'border-box'}}/></div>
+              <div style={{display:'flex',gap:14,alignItems:'center'}}>
+                <label style={{fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}><input type="checkbox" checked={hasInsurance} onChange={e=>setHasInsurance(e.target.checked)} disabled={approving}/> Com seguro</label>
+                <label style={{fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}><input type="checkbox" checked={reformalize} onChange={e=>setReformalize(e.target.checked)} disabled={approving}/> Reformalizar</label>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:6}}>
+              <button onClick={doRecalc} disabled={approving} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:approving?'wait':'pointer',flex:1}}>🧮 Simular Recálculo</button>
+              <button onClick={doAccept} disabled={approving||!recalc} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:(approving||!recalc)?'not-allowed':'pointer',opacity:(approving||!recalc)?.4:1,flex:1}}>✅ Aceitar Saldo</button>
+            </div>
+            {recalcError&&<div style={{marginTop:8,fontSize:11,padding:'6px 10px',borderRadius:6,background:C.danger+'22',color:C.danger}}>{recalcError}</div>}
+            {approveMsg&&<div style={{marginTop:8,fontSize:11,padding:'6px 10px',borderRadius:6,background:approveMsg.includes('✓')?C.accent2+'22':C.warn+'22',color:approveMsg.includes('✓')?C.accent2:C.warn}}>{approveMsg}</div>}
+            {recalc&&<div style={{marginTop:10,background:C.surface,borderRadius:8,padding:12}}>
+              <div style={{fontSize:11,fontWeight:700,marginBottom:6,color:C.accent}}>📊 Resultado da Simulação</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:10}}>
+                {[['Valor Empréstimo',fmtCur(recalc.recalculation?.loanValue)],['Vl. Líquido',fmtCur(recalc.recalculation?.netValue)],['Parcela',fmtCur(recalc.recalculation?.installmentValue)],['Prazo',recalc.recalculation?.term+' meses'],['Taxa Mensal',(recalc.recalculation?.rate||0).toFixed(4)+'%'],['CET Anual',(recalc.recalculation?.totalEffectiveCostAnnual||0).toFixed(2)+'%'],['IOF',fmtCur(recalc.recalculation?.iofValue)],['Seguro',fmtCur(recalc.recalculation?.insuranceValue||0)]].map(([l,v])=><div key={l} style={{padding:'4px 8px',background:C.card,borderRadius:4}}><div style={{fontSize:8,color:C.muted,fontWeight:600}}>{l}</div><div style={{fontWeight:600}}>{v}</div></div>)}
+              </div>
+            </div>}
+          </>}
+        </div>
+      </div>}
+
+      {tab==='history'&&<div style={{display:'flex',flexDirection:'column',gap:8}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.muted}}>📜 Timeline de status (QualiBanking)</div>
+        {row.raw_data?.timeline?.length>0?row.raw_data.timeline.map((ev,i)=><div key={i} style={{background:C.surface,borderRadius:8,padding:10,borderLeft:'3px solid '+(ev.partnerStatus?.color||C.muted)}}>
+          <div style={{fontSize:11,fontWeight:700}}>{ev.partnerStatus?.displayText||ev.status}</div>
+          <div style={{fontSize:9,color:C.muted,marginTop:2}}>{new Date(ev.createdAt).toLocaleString('pt-BR')}</div>
+          {ev.description&&<div style={{fontSize:10,marginTop:4}}>{ev.description}</div>}
+        </div>):<div style={{fontSize:10,color:C.muted}}>Sem timeline disponível</div>}
+        <div style={{fontSize:12,fontWeight:700,color:C.muted,marginTop:10}}>⚡ Ações executadas no OpsManager</div>
+        {actions.length===0?<div style={{fontSize:10,color:C.muted}}>Nenhuma ação executada ainda</div>:actions.map(a=><div key={a.id} style={{background:C.surface,borderRadius:8,padding:10,borderLeft:'3px solid '+(a.success?C.accent2:C.danger)}}>
+          <div style={{fontSize:11,fontWeight:700}}>{a.action_type} {a.success?'✓':'✕'}</div>
+          <div style={{fontSize:9,color:C.muted,marginTop:2}}>{new Date(a.created_at).toLocaleString('pt-BR')}</div>
+          {a.error_message&&<div style={{fontSize:9,color:C.danger,marginTop:4}}>{a.error_message}</div>}
+        </div>)}
+      </div>}
+    </div>
   </div>
 }
 
