@@ -10,7 +10,7 @@ const CUR_M=localDate(NOW).slice(0,7),PREV_M=(()=>{const d=new Date(NOW.getFullY
 
 /* ═══ UTILS ═══ */
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
-const fmtDate=d=>{if(!d)return'—';const p=String(d).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d}
+const fmtDate=d=>{if(!d)return'—';const s=String(d).slice(0,10);const p=s.split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d}
 const PROD_SIT=['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PAGO C/PENDENCIA','PORTABILIDADE AVERBADA']
 const PROD_SITB=['FINALIZADO','PAGO','PAGA','AVERBADO','CONCRETIZADO','INTEGRADA','INTEGRADO','INT - FINALIZADO','INT - FINALIZADO REFIN','INT - TED EMITIDA','PAGO AO CLIENTE','PAGO C/PENDÊNCIA','PAGO C/PENDENCIA','PAGAMENTO REALIZADO','FINALIZADO / PAGO','PAGO - CRÉDITO ENVIADO','PORTABILIDADE AVERBADA']
 const isFin=o=>PROD_SIT.includes((o.situacao||'').toUpperCase())||PROD_SITB.includes((o.situacaoBanco||'').toUpperCase())
