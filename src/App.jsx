@@ -1651,7 +1651,10 @@ function Portabilidade({filterParceiroId,user}={}){
       term:r.term,
       origin_installments_paid:r.contract_installments_paid,
       origin_installments_remaining:r.term?(r.term-(r.contract_installments_paid||0)):null,
-      assigned:null
+      assigned:null,
+      // PARCEIRO real do Consig360 (squadUser = promotora)
+      parceiro_nome:r.squad_user_name||null,
+      agente_digitacao:r.squad_user_name||null
     }
   }
   useEffect(()=>{loadData()},[per,trigger,fParceiro])
@@ -1687,6 +1690,12 @@ function Portabilidade({filterParceiroId,user}={}){
   // Filtros
   const fd=rows.filter(r=>{
     if(fSource!=='all'&&r._source!==fSource)return false
+    // Filtro parceiro: para Quali vem via query SQL; para Consig360 comparamos squad_user_name com nome do parceiro selecionado
+    if(fParceiro&&r._source==='consig360'){
+      const selParc=allParceiros.find(p=>p.id===fParceiro)
+      if(!selParc)return false
+      if(!r.parceiro_nome||r.parceiro_nome.toUpperCase().trim()!==selParc.nome.toUpperCase().trim())return false
+    }
     if(fBanco&&r.origin_bank_name!==fBanco&&r.destination_bank_name!==fBanco)return false
     if(fStatus&&r.status_name!==fStatus)return false
     if(fOp&&r.operation_type!==fOp)return false
@@ -1908,12 +1917,13 @@ function Portabilidade({filterParceiroId,user}={}){
       <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Portabilidades — {fd.length} registros</div>
       <div style={{overflowX:'auto',maxHeight:500,borderRadius:8,border:'1px solid '+C.border}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
-          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Fonte','Data','Proposta','Cliente','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Link','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.surface,position:'sticky',top:0,zIndex:1}}>{['Fonte','Data','Proposta','Cliente','Parceiro','Banco Origem','Banco Destino','Saldo Dev.','Retorno CIP','Vl. Bruto','Troco','Status','Op.','Link','Ações'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
           <tbody>{fd.slice(0,500).map(r=><tr key={r._source+':'+r.id} onClick={()=>setSelRow(r)} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
             <td style={{padding:'5px 8px'}}><span style={{fontSize:8,padding:'2px 5px',borderRadius:3,background:r._src_color+'22',color:r._src_color,fontWeight:700}}>{r._source==='quali'?'🔵':'🟠'}</span></td>
             <td style={{padding:'5px 8px',whiteSpace:'nowrap'}}>{fmtDate(r.proposal_date)}</td>
             <td style={{padding:'5px 8px',fontWeight:600}}>{r.proposal_number||r.code}</td>
             <td style={{padding:'5px 8px',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.borrower_name}</td>
+            <td style={{padding:'5px 8px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9,fontWeight:600,color:C.accent}}>{r.parceiro_nome||'—'}</td>
             <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.origin_bank_name||'—'}</td>
             <td style={{padding:'5px 8px',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9}}>{r.destination_bank_name||'—'}</td>
             <td style={{padding:'5px 8px',fontWeight:600,color:C.accent}}>{fmtCur(r.origin_due_balance)}</td>
