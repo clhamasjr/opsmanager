@@ -1302,15 +1302,25 @@ function MeuPortal({user}){
 }
 
 /* ═══ PORTABILIDADE (API QualiBanking) ═══ */
-function Portabilidade(){
+function Portabilidade({filterParceiroId,user}={}){
   const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
   const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
   const[fDataRetornoDe,sFDataRetornoDe]=useState(''),[fDataRetornoAte,sFDataRetornoAte]=useState('')
   const[selRow,setSelRow]=useState(null),[lastSync,setLastSync]=useState(null)
+  const[parceiroInfo,setParceiroInfo]=useState(null)
+  const isParceiroView=!!filterParceiroId
+  useEffect(()=>{
+    if(filterParceiroId){
+      supabase.from('parceiros').select('nome,telefone').eq('id',filterParceiroId).single().then(({data})=>setParceiroInfo(data))
+    }
+  },[filterParceiroId])
   const loadData=async()=>{
     setLoading(true)
-    let q=supabase.from('portabilidades').select('*').order('proposal_date',{ascending:false}).limit(5000)
+    // Quando filtrado por parceiro, usa view enriched para fazer o JOIN
+    const table=filterParceiroId?'portabilidades_enriched':'portabilidades'
+    let q=supabase.from(table).select('*').order('proposal_date',{ascending:false}).limit(5000)
+    if(filterParceiroId)q=q.eq('parceiro_id',filterParceiroId)
     if(per!=='tudo'){
       const r=PERIODS[per]||PERIODS.tudo
       const df=per==='custom'?(customDf||'2000-01-01'):r.f
@@ -1416,11 +1426,12 @@ function Portabilidade(){
   }
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,alignItems:'center'}}>
-      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>Portabilidade</h2>
-      {lastSync&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>Última sync: {new Date(lastSync.started_at).toLocaleString('pt-BR')} — {lastSync.records_upserted||0} registros</div>}</div>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>{isParceiroView?'Meu Portal':'Portabilidade'}</h2>
+      {isParceiroView&&parceiroInfo&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>👤 {parceiroInfo.nome}{parceiroInfo.telefone?' · '+parceiroInfo.telefone:''}</div>}
+      {!isParceiroView&&lastSync&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>Última sync: {new Date(lastSync.started_at).toLocaleString('pt-BR')} — {lastSync.records_upserted||0} registros</div>}</div>
       <div style={{display:'flex',gap:6}}>
         <button onClick={exportPortab} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
-        <button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>
+        {!isParceiroView&&<button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>}
       </div>
     </div>
     {msg&&<div style={{background:msg.includes('✓')?C.accent2+'22':C.warn+'22',color:msg.includes('✓')?C.accent2:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:'inherit',cursor:'pointer'}}>×</button></div>}
@@ -2263,7 +2274,7 @@ export default function App(){
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
       {view==='portabilidade'&&<Portabilidade/>}
       {view==='notificacoes'&&<Notificacoes/>}
-      {view==='meuportal'&&<MeuPortal user={user}/>}
+      {view==='meuportal'&&(user.parceiro_id?<Portabilidade filterParceiroId={user.parceiro_id} user={user}/>:<div style={{padding:40,textAlign:'center',color:C.muted}}>⚠️ Seu usuário não está vinculado a um parceiro. Contate o administrador.</div>)}
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
