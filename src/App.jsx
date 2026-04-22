@@ -1833,6 +1833,25 @@ function Portabilidade({filterParceiroId,user}={}){
     fd.filter(isChegou).forEach(r=>{const k=r.origin_bank_name||'?';if(m[k])m[k].ch+=(Number(r.origin_due_balance)||0)})
     return Object.entries(m).filter(([,x])=>x.env>0).map(([k,x])=>[k,{pct:x.ch/x.env*100,env:x.env,ch:x.ch}]).sort((a,b)=>b[1].pct-a[1].pct).slice(0,10)
   })()
+  // BANCOS QUE MAIS RETÊM SALDO (pior % de retorno) - excluindo Quali/QI Tech
+  const bancosRetem=(()=>{
+    const m={}
+    fd.forEach(r=>{
+      const k=r.origin_bank_name||'?'
+      if(k==='?'||k==='Quali'||k==='QI Tech')return
+      if(!isEnviado(r))return
+      if(!m[k])m[k]={env:0,ch:0,envVal:0,chVal:0,pending:0,pendingVal:0}
+      m[k].env++
+      m[k].envVal+=(Number(r.origin_due_balance)||0)
+      if(isChegou(r)){m[k].ch++;m[k].chVal+=(Number(r.origin_due_balance)||0)}
+      else if(!TERMINAL_STATUS.includes(r.status_key)){m[k].pending++;m[k].pendingVal+=(Number(r.origin_due_balance)||0)}
+    })
+    return Object.entries(m)
+      .filter(([,x])=>x.env>=3)  // mínimo 3 propostas pra dar ranking
+      .map(([k,x])=>[k,{pct:x.ch/x.env*100,env:x.env,ch:x.ch,envVal:x.envVal,chVal:x.chVal,pending:x.pending,pendingVal:x.pendingVal}])
+      .sort((a,b)=>a[1].pct-b[1].pct)  // ordem crescente = pior primeiro
+      .slice(0,10)
+  })()
   const bancos=[...new Set(rows.flatMap(r=>[r.origin_bank_name,r.destination_bank_name]).filter(Boolean))].sort()
   const statuses=[...new Set(rows.map(r=>r.status_name).filter(Boolean))].sort()
   const operations=[...new Set(rows.map(r=>r.operation_type).filter(Boolean))].sort()
@@ -2074,6 +2093,35 @@ function Portabilidade({filterParceiroId,user}={}){
         {topPctChegou.length===0?<div style={{fontSize:10,color:C.muted}}>Sem dados</div>:topPctChegou.map(([k,x])=><BarRow key={k} label={k} value={x.pct} max={100} color={C.info} fmt={v=>v.toFixed(0)+'%'}/>)}
       </div>
     </div>
+
+    {/* RANKING: Bancos que MAIS RETÊM saldo */}
+    {bancosRetem.length>0&&<div style={{background:C.card,border:'2px solid '+C.danger+'44',borderRadius:14,padding:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:6}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:800,color:C.danger}}>⚠️ Bancos que Menos Mandam Saldo CIP</div>
+          <div style={{fontSize:10,color:C.muted}}>Ordenado do pior retorno ao melhor · mínimo 3 propostas enviadas</div>
+        </div>
+        <div style={{fontSize:10,color:C.muted}}>% = saldo retornado / total enviado</div>
+      </div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+          <thead><tr style={{background:C.surface}}>{['Banco Origem','Enviadas','Saldo Chegou','Pendentes','% Retorno','Valor Travado'].map(h=><th key={h} style={{padding:'7px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{bancosRetem.map(([k,x])=>{
+            const cor=x.pct<25?C.danger:x.pct<40?'#F97316':x.pct<60?C.warn:C.accent2
+            const emoji=x.pct<25?'🔴':x.pct<40?'🟠':x.pct<60?'🟡':'🟢'
+            return<tr key={k} style={{borderBottom:'1px solid '+C.border}}>
+              <td style={{padding:'7px 10px',fontWeight:600}}>{emoji} {k}</td>
+              <td style={{padding:'7px 10px'}}>{x.env}</td>
+              <td style={{padding:'7px 10px',color:C.accent2,fontWeight:600}}>{x.ch}</td>
+              <td style={{padding:'7px 10px',color:C.muted}}>{x.pending}</td>
+              <td style={{padding:'7px 10px',fontWeight:700,color:cor}}>{x.pct.toFixed(1)}%</td>
+              <td style={{padding:'7px 10px',fontWeight:600,color:C.danger}}>{fmtCur(x.pendingVal)}</td>
+            </tr>
+          })}</tbody>
+        </table>
+      </div>
+      <div style={{marginTop:8,fontSize:10,color:C.muted,fontStyle:'italic'}}>💡 Valor travado = saldo das propostas pendentes que ainda não retornaram</div>
+    </div>}
 
     {/* TABELA DETALHADA */}
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
