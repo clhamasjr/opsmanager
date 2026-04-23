@@ -1653,7 +1653,7 @@ function Portabilidade({filterParceiroId,user}={}){
       dt=per==='custom'?(customDt||'2099-12-31'):r.t
     }
     // Fonte 1: QualiBanking
-    const qualiTable=effectiveParceiroId?'portabilidades_enriched':'portabilidades'
+    const qualiTable='portabilidades_enriched'  // sempre usar view pra trazer parceiro
     let q1=supabase.from(qualiTable).select('*').order('proposal_date',{ascending:false}).limit(5000)
     if(effectiveParceiroId)q1=q1.eq('parceiro_id',effectiveParceiroId)
     if(per!=='tudo')q1=q1.gte('proposal_date',df).lte('proposal_date',dt)
