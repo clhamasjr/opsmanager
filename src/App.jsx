@@ -1934,7 +1934,6 @@ function Portabilidade({filterParceiroId,user}={}){
     {(()=>{
       const next5=[];const d=new Date(NOW);d.setDate(d.getDate()+1)
       while(next5.length<5){if(d.getDay()!==0&&d.getDay()!==6)next5.push(localDate(d));d.setDate(d.getDate()+1)}
-      // Filtra propostas em aguardo com data esperada futura
       const comData=rows.filter(r=>{
         if(!r.origin_due_balance_expected_date)return false
         if(r.origin_due_balance_returned)return false
@@ -1942,14 +1941,13 @@ function Portabilidade({filterParceiroId,user}={}){
         const dt=String(r.origin_due_balance_expected_date).slice(0,10)
         return next5.includes(dt)
       })
-      // Aguardando sem data prevista (fluxo ativo)
       const semData=rows.filter(r=>{
         if(r.origin_due_balance_expected_date)return false
         if(r.origin_due_balance_returned)return false
         if(!['awaiting_portability','awaiting_formalization','documents_not_found','proposal_cadastrada','accepted'].includes(r.status_key))return false
         return true
       })
-      // Agrupar por dia + por cliente (aglutina múltiplas propostas do mesmo cliente)
+      // Agrupar por dia (clientes)
       const byDay={};next5.forEach(dt=>byDay[dt]={clients:{},total:0,count:0})
       comData.forEach(r=>{
         const dt=String(r.origin_due_balance_expected_date).slice(0,10)
@@ -1960,28 +1958,42 @@ function Portabilidade({filterParceiroId,user}={}){
         byDay[dt].clients[k].total+=(Number(r.origin_due_balance)||0)
         byDay[dt].clients[k].count++
         byDay[dt].total+=(Number(r.origin_due_balance)||0)
-        byDay[dt].count++
       })
+      // Agrupar COM DATA (5 dias) por parceiro
+      const byParcComData={}
+      comData.forEach(r=>{
+        const p=r.parceiro_nome||'(Sem parceiro)'
+        const k=r.borrower_identity||r.client_cpf||r.borrower_name
+        if(!byParcComData[p])byParcComData[p]={parceiro:p,clients:{},total:0,items:[]}
+        if(!byParcComData[p].clients[k])byParcComData[p].clients[k]={name:r.borrower_name,total:0}
+        byParcComData[p].clients[k].total+=(Number(r.origin_due_balance)||0)
+        byParcComData[p].total+=(Number(r.origin_due_balance)||0)
+        byParcComData[p].items.push(r)
+      })
+      const parcComDataList=Object.values(byParcComData).map(p=>({...p,qtdClients:Object.keys(p.clients).length})).sort((a,b)=>b.total-a.total)
       // Por parceiro das sem data
-      const byParc={}
+      const byParcSem={}
       semData.forEach(r=>{
         const p=r.parceiro_nome||'(Sem parceiro)'
         const k=r.borrower_identity||r.client_cpf||r.borrower_name
-        if(!byParc[p])byParc[p]={parceiro:p,clients:{},total:0}
-        if(!byParc[p].clients[k])byParc[p].clients[k]={name:r.borrower_name,total:0};
-        byParc[p].clients[k].total+=(Number(r.origin_due_balance)||0)
-        byParc[p].total+=(Number(r.origin_due_balance)||0)
+        if(!byParcSem[p])byParcSem[p]={parceiro:p,clients:{},total:0,items:[]}
+        if(!byParcSem[p].clients[k])byParcSem[p].clients[k]={name:r.borrower_name,total:0}
+        byParcSem[p].clients[k].total+=(Number(r.origin_due_balance)||0)
+        byParcSem[p].total+=(Number(r.origin_due_balance)||0)
+        byParcSem[p].items.push(r)
       })
-      const parcList=Object.values(byParc).map(p=>({...p,qtdClients:Object.keys(p.clients).length})).sort((a,b)=>b.total-a.total)
+      const parcSemList=Object.values(byParcSem).map(p=>({...p,qtdClients:Object.keys(p.clients).length})).sort((a,b)=>b.total-a.total)
       const totalCom=Object.values(byDay).reduce((s,d)=>s+d.total,0)
       const totalClientsCom=Object.values(byDay).reduce((s,d)=>s+Object.keys(d.clients).length,0)
-      const totalSemClients=parcList.reduce((s,p)=>s+p.qtdClients,0)
-      const totalSem=parcList.reduce((s,p)=>s+p.total,0)
+      const totalSemClients=parcSemList.reduce((s,p)=>s+p.qtdClients,0)
+      const totalSem=parcSemList.reduce((s,p)=>s+p.total,0)
+      // Helper: clicar em parceiro abre KPI drilldown
+      const openParcDrilldown=(parc,items,label)=>setKpiDrilldown({type:'partner-days',label:label+': '+parc.parceiro+' — '+parc.qtdClients+' clientes',items,color:C.warn})
       return<div style={{background:C.card,border:'2px solid '+C.warn+'66',borderRadius:14,padding:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:6}}>
           <div>
             <div style={{fontSize:13,fontWeight:800,color:C.warn}}>⏳ CIP a Retornar — Próximos 5 Dias Úteis</div>
-            <div style={{fontSize:10,color:C.muted}}>Saldos aguardando retorno (agrupado por cliente)</div>
+            <div style={{fontSize:10,color:C.muted}}>Saldos aguardando retorno · Clique no parceiro para ver propostas</div>
           </div>
           <div style={{textAlign:'right'}}>
             <div style={{fontSize:10,color:C.muted}}>Total esperado</div>
@@ -1989,14 +2001,16 @@ function Portabilidade({filterParceiroId,user}={}){
             <div style={{fontSize:10,color:C.muted}}>{totalClientsCom+totalSemClients} clientes</div>
           </div>
         </div>
+        {/* GRID DIAS */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
           {next5.map(dt=>{const d=byDay[dt];const dtObj=new Date(dt+'T12:00:00');const label=dtObj.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const clients=Object.values(d.clients);const has=clients.length>0;return<div key={dt} style={{background:has?C.warn+'15':C.surface,border:'1px solid '+(has?C.warn+'44':C.border),borderRadius:10,padding:10,opacity:has?1:.5}}>
             <div style={{fontSize:10,fontWeight:700,color:C.warn,marginBottom:4,textTransform:'capitalize'}}>{label}</div>
             <div style={{fontSize:16,fontWeight:800,color:has?C.warn:C.muted}}>{clients.length}</div>
             <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{fmtCur(d.total)}</div>
-            {has&&<div style={{marginTop:6,fontSize:9,maxHeight:90,overflowY:'auto'}}>
+            {has&&<div style={{marginTop:6,fontSize:9,maxHeight:100,overflowY:'auto'}}>
               {clients.slice(0,5).map((c,i)=><div key={i} style={{padding:'3px 0',borderTop:i>0?'1px solid '+C.border:'none'}}>
                 <div style={{fontWeight:600,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                {c.parceiro&&<div style={{color:C.accent,fontSize:8,fontWeight:600,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>👤 {c.parceiro}</div>}
                 <div style={{color:C.muted,fontSize:8}}>{[...c.banks].join(', ')||'—'}{c.count>1?' ('+c.count+' prop.)':''}</div>
                 <div style={{fontWeight:600,color:C.warn,fontSize:9}}>{fmtCur(c.total)}</div>
               </div>)}
@@ -2004,11 +2018,26 @@ function Portabilidade({filterParceiroId,user}={}){
             </div>}
           </div>})}
         </div>
-        {parcList.length>0&&<div style={{marginTop:12,background:C.surface,borderRadius:10,padding:12}}>
+        {/* POR PARCEIRO - PRÓXIMOS 5 DIAS (COM DATA) */}
+        {parcComDataList.length>0&&<div style={{marginTop:14,background:C.warn+'08',borderRadius:10,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.warn,marginBottom:8}}>📅 Por Parceiro nos Próximos 5 Dias — {totalClientsCom} clientes · {fmtCur(totalCom)}</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
+            {parcComDataList.slice(0,12).map(pr=><div key={pr.parceiro} onClick={()=>openParcDrilldown(pr,pr.items,'Próximos 5 dias')} style={{background:C.card,border:'1px solid '+C.warn+'66',borderRadius:8,padding:'10px 12px',cursor:'pointer',transition:'transform .1s'}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.warn} onMouseLeave={e=>e.currentTarget.style.borderColor=C.warn+'66'}>
+              <div style={{fontSize:10,fontWeight:700,color:C.warn,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',justifyContent:'space-between'}}><span>{pr.parceiro}</span><span style={{fontSize:9,opacity:.6}}>→</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                <div style={{fontSize:16,fontWeight:800}}>{pr.qtdClients}</div>
+                <div style={{fontSize:10,color:C.muted}}>cliente{pr.qtdClients>1?'s':''}</div>
+              </div>
+              <div style={{fontSize:11,fontWeight:600,color:C.warn}}>{fmtCur(pr.total)}</div>
+            </div>)}
+          </div>
+        </div>}
+        {/* AGUARDANDO SEM DATA - POR PARCEIRO */}
+        {parcSemList.length>0&&<div style={{marginTop:12,background:C.surface,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>📋 Aguardando sem data prevista — {totalSemClients} clientes · {fmtCur(totalSem)}</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
-            {parcList.slice(0,12).map(pr=><div key={pr.parceiro} style={{background:C.card,border:'1px solid '+C.border,borderRadius:8,padding:'10px 12px'}}>
-              <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pr.parceiro}</div>
+            {parcSemList.slice(0,12).map(pr=><div key={pr.parceiro} onClick={()=>openParcDrilldown(pr,pr.items,'Aguardando')} style={{background:C.card,border:'1px solid '+C.border,borderRadius:8,padding:'10px 12px',cursor:'pointer',transition:'transform .1s'}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+              <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',justifyContent:'space-between'}}><span>{pr.parceiro}</span><span style={{fontSize:9,opacity:.6}}>→</span></div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
                 <div style={{fontSize:16,fontWeight:800}}>{pr.qtdClients}</div>
                 <div style={{fontSize:10,color:C.muted}}>cliente{pr.qtdClients>1?'s':''}</div>
@@ -2153,10 +2182,40 @@ function Portabilidade({filterParceiroId,user}={}){
     {/* MODAL DETALHE */}
     {selRow&&<PortabilityDetailModal row={selRow} onClose={()=>setSelRow(null)} onReload={loadData} user={user}/>}
 
-    {/* MODAL DRILLDOWN POR PARCEIRO */}
+    {/* MODAL DRILLDOWN */}
     {kpiDrilldown&&(()=>{
       const items=kpiDrilldown.items||[]
-      // Agrupa por parceiro_nome (ou agente_digitacao ou '-')
+      const isPartnerDays=kpiDrilldown.type==='partner-days'
+      // Se partner-days: mostra propostas individuais
+      if(isPartnerDays){
+        return<div onClick={()=>setKpiDrilldown(null)} style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'2px solid '+kpiDrilldown.color,borderRadius:14,width:900,maxWidth:'97vw',maxHeight:'92vh',overflowY:'auto',padding:20}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:kpiDrilldown.color}}>{kpiDrilldown.label}</div>
+                <div style={{fontSize:11,color:C.muted}}>{items.length} propostas</div>
+              </div>
+              <button onClick={()=>setKpiDrilldown(null)} style={{background:'none',border:'none',color:C.muted,fontSize:24,cursor:'pointer'}}>×</button>
+            </div>
+            <div style={{overflowX:'auto',borderRadius:8,border:'1px solid '+C.border,maxHeight:500,overflowY:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+                <thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Banco Origem','Proposta','Retorno Previsto','Saldo','Status'].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+                <tbody>{items.sort((a,b)=>(a.origin_due_balance_expected_date||'').localeCompare(b.origin_due_balance_expected_date||'')).map(r=><tr key={r.id} onClick={()=>{setSelRow(r);setKpiDrilldown(null)}} style={{borderBottom:'1px solid '+C.border,cursor:'pointer'}}>
+                  <td style={{padding:'5px 8px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.borrower_name}</td>
+                  <td style={{padding:'5px 8px',fontSize:9,fontFamily:'monospace'}}>{r.borrower_identity}</td>
+                  <td style={{padding:'5px 8px',fontSize:9,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.origin_bank_name||'—'}</td>
+                  <td style={{padding:'5px 8px',fontSize:9}}>{r.contract_number||r.proposal_number||'—'}</td>
+                  <td style={{padding:'5px 8px',fontSize:9,color:C.warn}}>{r.origin_due_balance_expected_date?fmtDate(r.origin_due_balance_expected_date):'—'}</td>
+                  <td style={{padding:'5px 8px',fontWeight:600,color:kpiDrilldown.color}}>{fmtCur(r.origin_due_balance)}</td>
+                  <td style={{padding:'5px 8px'}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(r.status_color||C.muted)+'22',color:r.status_color||C.muted,fontWeight:600}}>{r.status_name||'—'}</span></td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div style={{marginTop:10,fontSize:10,color:C.muted}}>💡 Clique na proposta pra ver detalhes completos</div>
+          </div>
+        </div>
+      }
+      // Caso padrão: agrupa por parceiro
       const byPartner={}
       items.forEach(r=>{
         const k=r.parceiro_nome||r.agente_digitacao||'(Sem parceiro identificado)'
@@ -2166,7 +2225,6 @@ function Portabilidade({filterParceiroId,user}={}){
         byPartner[k].value+=(Number(r.origin_due_balance)||Number(r.loan_value)||0)
       })
       const partnerRows=Object.values(byPartner).sort((a,b)=>b.value-a.value)
-      // Enriquecer com telefone dos parceiros
       partnerRows.forEach(pr=>{
         const match=allParceiros.find(p=>p.nome&&p.nome.toUpperCase().trim()===pr.nome.toUpperCase().trim())
         if(match){pr.phone=match.telefone;pr.email=match.email;pr.parceiro_id=match.id}
@@ -2191,13 +2249,13 @@ function Portabilidade({filterParceiroId,user}={}){
                 <td style={{padding:'8px 10px'}}>
                   <div style={{display:'flex',gap:4}}>
                     {pr.phone&&<a href={'https://wa.me/'+String(pr.phone).replace(/\D/g,'')+'?text='+encodeURIComponent('Olá '+pr.nome.split(' ')[0]+', referente às '+pr.count+' propostas com status "'+kpiDrilldown.label+'"...')} target="_blank" rel="noopener noreferrer" style={{background:'#25D366',color:'#fff',padding:'4px 8px',borderRadius:6,textDecoration:'none',fontSize:9,fontWeight:700}}>📱 WhatsApp</a>}
-                    <button onClick={()=>{sFParceiro(pr.parceiro_id||'');setKpiDrilldown(null)}} disabled={!pr.parceiro_id} style={{background:pr.parceiro_id?C.accent:C.surface,color:pr.parceiro_id?'#fff':C.muted,border:'none',borderRadius:6,padding:'4px 8px',fontSize:9,fontWeight:700,cursor:pr.parceiro_id?'pointer':'not-allowed',opacity:pr.parceiro_id?1:.5}}>👁 Ver propostas</button>
+                    <button onClick={()=>{setKpiDrilldown({type:'partner-days',label:'Propostas: '+pr.nome,items:pr.items,color:kpiDrilldown.color})}} style={{background:C.accent,color:'#fff',border:'none',borderRadius:6,padding:'4px 8px',fontSize:9,fontWeight:700,cursor:'pointer'}}>👁 Ver propostas</button>
                   </div>
                 </td>
               </tr>)}</tbody>
             </table>
           </div>
-          <div style={{marginTop:14,fontSize:10,color:C.muted}}>💡 Clique em "Ver propostas" para filtrar a tela pelo parceiro específico ou WhatsApp para contatar direto.</div>
+          <div style={{marginTop:14,fontSize:10,color:C.muted}}>💡 Clique em "Ver propostas" para ver a lista de propostas do parceiro.</div>
         </div>
       </div>
     })()}
