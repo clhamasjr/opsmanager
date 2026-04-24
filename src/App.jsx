@@ -36,6 +36,7 @@ async function fetchOps(per,onProgress,customDf,customDt){
   const PAGE=1000;let all=[],from=0
   while(true){
     let q=supabase.from('digitacoes').select(SEL).range(from,from+PAGE-1)
+      .not('agente','ilike','%teste%').not('cliente','ilike','%teste%').not('usuario','ilike','%teste%')
     if(per!=='tudo')q=q.gte('data',df).lte('data',dt)
     const{data,error}=await q
     if(error){console.error('fetchOps err:',error);break}
@@ -56,6 +57,7 @@ async function fetchProd(per,onProgress,customDf,customDt){
   while(true){
     let q=supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
+      .not('agente','ilike','%teste%').not('cliente','ilike','%teste%').not('usuario','ilike','%teste%')
       .range(from,from+PAGE-1)
     if(per!=='tudo')q=q.gte('crc_cliente',df).lte('crc_cliente',dt)
     const{data,error}=await q
@@ -75,6 +77,7 @@ async function fetchReceb(){
     const{data,error}=await supabase.from('digitacoes').select(SEL)
       .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
       .not('crc_cliente','is',null)
+      .not('agente','ilike','%teste%').not('cliente','ilike','%teste%').not('usuario','ilike','%teste%')
       .range(from,from+PAGE-1)
     if(error){console.error('fetchReceb err:',error);break}
     if(!data||!data.length)break
