@@ -25,6 +25,7 @@ const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cl
 
 /* ═══ PERIODS ═══ */
 const PERIODS=(()=>{const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>localDate(new Date(a,b,1)),e=(a,b)=>localDate(new Date(a,b+1,0));return{mes:{n:'Mês Atual',f:d(y,m),t:e(y,m)},ant:{n:'Mês Anterior',f:d(y,m-1),t:e(y,m-1)},tri:{n:'Trimestre',f:d(y,m-2),t:e(y,m)},sem:{n:'Semestre',f:d(y,m-5),t:e(y,m)},ano:{n:String(y),f:y+'-01-01',t:y+'-12-31'},tudo:{n:'Tudo',f:'2000-01-01',t:'2099-12-31'}}})()
+function prevRange(per,cdf,cdt){const y=NOW.getFullYear(),m=NOW.getMonth(),d=(a,b)=>localDate(new Date(a,b,1)),e=(a,b)=>localDate(new Date(a,b+1,0));if(per==='mes')return{df:d(y,m-1),dt:e(y,m-1),n:'Mês Anterior'};if(per==='ant')return{df:d(y,m-2),dt:e(y,m-2),n:'2 meses atrás'};if(per==='tri')return{df:d(y,m-5),dt:e(y,m-3),n:'Trimestre Anterior'};if(per==='sem')return{df:d(y,m-11),dt:e(y,m-6),n:'Semestre Anterior'};if(per==='ano')return{df:(y-1)+'-01-01',dt:(y-1)+'-12-31',n:String(y-1)};if(per==='custom'&&cdf&&cdt){const a=new Date(cdf+'T00:00:00'),b=new Date(cdt+'T00:00:00');const days=Math.round((b-a)/86400000)+1;const pb=new Date(a);pb.setDate(pb.getDate()-1);const pa=new Date(pb);pa.setDate(pa.getDate()-days+1);return{df:localDate(pa),dt:localDate(pb),n:'Período Anterior'}}return null}
 
 /* ═══ SERVER-SIDE FETCH ═══ */
 const SEL='id,banco,cpf,cliente,proposta,data,vr_bruto,vr_liquido,vr_repasse,vr_parcela,operacao,situacao,situacao_banco,convenio,agente,crc_cliente,data_nosso_credito'
@@ -1081,34 +1082,58 @@ function Operacoes({onImport,myAgents,onDone}){
 function Producao({myAgents}){
   const{per,setPer,ops,digOps,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}=useProd('mes',myAgents)
   const[tab,sTab]=useState('banco')
+  const[prevOps,setPrevOps]=useState([]),[prevDigOps,setPrevDigOps]=useState([]),[prevLoading,setPrevLoading]=useState(false)
   const fin=ops
   const totalDig=digOps.length
   const totalProd=fin.reduce((s,o)=>s+(o.vrBruto||0),0)
   const cv=totalDig?(fin.length/totalDig*100):0
+  const pr=useMemo(()=>prevRange(per,customDf,customDt),[per,customDf,customDt])
+  useEffect(()=>{
+    if(!pr){setPrevOps([]);setPrevDigOps([]);return}
+    let c=false;setPrevLoading(true)
+    Promise.all([fetchProd('custom',null,pr.df,pr.dt),fetchOps('custom',null,pr.df,pr.dt)]).then(([p,d])=>{
+      if(c)return
+      const fp=myAgents?p.filter(o=>myAgents.has(o.agente)):p
+      const fd=myAgents?d.filter(o=>myAgents.has(o.agente)):d
+      setPrevOps(fp);setPrevDigOps(fd)
+    }).catch(()=>{}).finally(()=>{if(!c)setPrevLoading(false)})
+    return()=>{c=true}
+  },[per,pr?.df,pr?.dt])
+  const prevTotalProd=prevOps.reduce((s,o)=>s+(o.vrBruto||0),0)
+  const prevTotalDig=prevDigOps.length
+  const prevCv=prevTotalDig?(prevOps.length/prevTotalDig*100):0
+  const pctVar=(a,b)=>b>0?((a-b)/b*100):(a>0?100:0)
+  const vProd=pctVar(totalProd,prevTotalProd)
+  const vDig=pctVar(totalDig,prevTotalDig)
+  const vCv=cv-prevCv
   const kFn=tab==='banco'?o=>o.banco:tab==='convenio'?o=>o.convenio:o=>o.operacao
   const m={};fin.forEach(o=>{const k=kFn(o)||'?';if(!m[k])m[k]={c:0,r:0};m[k].c++;m[k].r+=(o.vrBruto||0)})
   const md={};digOps.forEach(o=>{const k=kFn(o)||'?';md[k]=(md[k]||0)+1})
+  const pm={};prevOps.forEach(o=>{const k=kFn(o)||'?';if(!pm[k])pm[k]={c:0,r:0};pm[k].c++;pm[k].r+=(o.vrBruto||0)})
   const data=Object.entries(m).sort((a,b)=>b[1].r-a[1].r)
-  const finOps=fin
+  const VarBadge=({v,isPp,hasRef})=>{if(!hasRef||!isFinite(v))return<span style={{color:C.muted}}>—</span>;const col=v>0?C.accent2:v<0?C.danger:C.muted;const arr=v>0.01?'▲':v<-0.01?'▼':'■';return<span style={{color:col,fontWeight:700}}>{arr} {Math.abs(v).toFixed(isPp?1:0)}{isPp?'pp':'%'}</span>}
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><ExportBtn ops={finOps} name={'producao-'+per}/></div>
+    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Produção</h2><ExportBtn ops={fin} name={'producao-'+per}/></div>
     <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
+    {pr&&<div style={{fontSize:10,color:C.muted}}>📊 Comparando com <strong style={{color:C.text}}>{pr.n}</strong> ({fmtDate(pr.df)} → {fmtDate(pr.dt)}){prevLoading&&<span style={{color:C.warn,marginLeft:6}}>⏳</span>}</div>}
     <div className="rflex" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <Stat label="Produção (Pago)" value={fmtCur(totalProd)} color={C.accent2} sub={fin.length+' finalizadas'}/>
-      <Stat label="Digitadas" value={totalDig}/>
-      <Stat label="Conversão" value={cv.toFixed(0)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger}/>
+      <Stat label="Produção (Pago)" value={fmtCur(totalProd)} color={C.accent2} sub={<span>{fin.length} finalizadas {pr&&<>· <VarBadge v={vProd} hasRef={prevTotalProd>0||totalProd>0}/></>}</span>}/>
+      <Stat label="Digitadas" value={totalDig} sub={pr?<VarBadge v={vDig} hasRef={prevTotalDig>0||totalDig>0}/>:null}/>
+      <Stat label="Conversão" value={cv.toFixed(0)+'%'} color={cv>=50?C.accent2:cv>=30?C.warn:C.danger} sub={pr?<VarBadge v={vCv} isPp hasRef={prevTotalDig>0}/>:null}/>
     </div>
     <div style={{display:'flex',gap:4}}>{[{id:'banco',n:'🏦 Banco'},{id:'convenio',n:'📑 Convênio'},{id:'operacao',n:'⚡ Operação'}].map(t=><button key={t.id} onClick={()=>sTab(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(tab===t.id?C.accent:C.border),background:tab===t.id?C.abg:'transparent',color:tab===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer'}}>{t.n}</button>)}</div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-        <thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Produção (Pago)','%','Qtd Pagas','Digitadas','Conv.'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
-        <tbody>{data.map(([n,d])=>{const pct=totalProd?(d.r/totalProd*100):0;const dig=md[n]||0;const cvn=dig?(d.c/dig*100):0;return<tr key={n} style={{borderBottom:'1px solid '+C.border}}>
+        <thead><tr style={{background:C.surface}}>{[tab==='banco'?'Banco':tab==='convenio'?'Convênio':'Operação','Produção (Pago)','%','Qtd Pagas','Digitadas','Conv.',...(pr?['Anterior','Var.']:[])].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+        <tbody>{data.map(([n,d])=>{const pct=totalProd?(d.r/totalProd*100):0;const dig=md[n]||0;const cvn=dig?(d.c/dig*100):0;const prev=pm[n]||{c:0,r:0};const vv=pctVar(d.r,prev.r);return<tr key={n} style={{borderBottom:'1px solid '+C.border}}>
           <td style={{padding:'8px 10px',fontWeight:700}}>{n}</td>
           <td style={{padding:'8px 10px',fontWeight:600,color:C.accent2}}>{fmtCur(d.r)}</td>
           <td style={{padding:'8px 10px',color:C.muted}}>{pct.toFixed(0)}%</td>
           <td style={{padding:'8px 10px',fontWeight:600}}>{d.c}</td>
           <td style={{padding:'8px 10px',color:C.muted}}>{dig}</td>
           <td style={{padding:'8px 10px',fontWeight:600,color:cvn>=50?C.accent2:cvn>=30?C.warn:C.danger}}>{cvn.toFixed(0)}%</td>
+          {pr&&<td style={{padding:'8px 10px',color:C.muted}}>{prev.r?fmtCur(prev.r):'—'}</td>}
+          {pr&&<td style={{padding:'8px 10px'}}><VarBadge v={vv} hasRef={prev.r>0||d.r>0}/></td>}
         </tr>})}</tbody>
       </table>
     </div>
