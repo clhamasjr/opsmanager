@@ -1651,6 +1651,7 @@ function Consig360({user}){
 
 function Portabilidade({filterParceiroId,user}={}){
   const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
+  const[pendRows,setPendRows]=useState([])  // TODAS pendências (sem filtro de período) para card CIP a Retornar
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
   const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
   const[fDataRetornoDe,sFDataRetornoDe]=useState(''),[fDataRetornoAte,sFDataRetornoAte]=useState('')
@@ -1699,10 +1700,20 @@ function Portabilidade({filterParceiroId,user}={}){
     let q2=supabase.from('consig_proposals').select('*').ilike('product','%portab%').order('created_at_api',{ascending:false}).limit(6000)
     if(per!=='tudo')q2=q2.gte('created_at_api',df).lte('created_at_api',dt+'T23:59:59')
     if(parceiroNomeFilter)q2=q2.ilike('squad_user_name',parceiroNomeFilter)
-    const [r1,r2]=await Promise.all([q1,q2])
+    // Fonte 3: Pendências CIP (TUDO, sem filtro de período) — pra card "CIP a Retornar"
+    const ACTIVE_QUALI_STATUS=['awaiting_portability','awaiting_formalization','awaiting_cip','awaiting_send_to_cip','awaiting_endorsement','awaiting_manual_analysis','documents_not_found','proposal_cadastrada','accepted']
+    const ACTIVE_CONSIG_STATUS=['Aguardando Saldo CIP','Aguardando Finalização da portabilidade','Aguardando documentação','Pendente de Formalização','Aguardando assinatura','Aguardando CCB','Aguardando a finalização do contrato de portabilidade']
+    let qP1=supabase.from(qualiTable).select('*').eq('origin_due_balance_returned',false).in('status_key',ACTIVE_QUALI_STATUS).limit(5000)
+    if(effectiveParceiroId)qP1=qP1.eq('parceiro_id',effectiveParceiroId)
+    let qP2=supabase.from('consig_proposals').select('*').ilike('product','%portab%').in('partner_status_text',ACTIVE_CONSIG_STATUS).limit(5000)
+    if(parceiroNomeFilter)qP2=qP2.ilike('squad_user_name',parceiroNomeFilter)
+    const [r1,r2,rP1,rP2]=await Promise.all([q1,q2,qP1,qP2])
     const qualiRows=(r1.data||[]).map(r=>normalizeQuali(r))
     const consigRows=(r2.data||[]).map(r=>normalizeConsig(r))
     setRows([...qualiRows,...consigRows].sort((a,b)=>(b.proposal_date||'').localeCompare(a.proposal_date||'')))
+    const qualiPend=(rP1.data||[]).map(r=>normalizeQuali(r))
+    const consigPend=(rP2.data||[]).map(r=>normalizeConsig(r))
+    setPendRows([...qualiPend,...consigPend])
     const{data:sl}=await supabase.from('sync_logs').select('*').in('source',['qualibanking','consig360']).order('started_at',{ascending:false}).limit(1)
     if(sl&&sl[0])setLastSync(sl[0])
     setLoading(false)
@@ -1962,17 +1973,16 @@ function Portabilidade({filterParceiroId,user}={}){
     {(()=>{
       const next5=[];const d=new Date(NOW);d.setDate(d.getDate()+1)
       while(next5.length<5){if(d.getDay()!==0&&d.getDay()!==6)next5.push(localDate(d));d.setDate(d.getDate()+1)}
-      const comData=rows.filter(r=>{
+      const comData=pendRows.filter(r=>{
         if(!r.origin_due_balance_expected_date)return false
         if(r.origin_due_balance_returned)return false
         if(TERMINAL_STATUS.includes(r.status_key))return false
         const dt=String(r.origin_due_balance_expected_date).slice(0,10)
         return next5.includes(dt)
       })
-      const semData=rows.filter(r=>{
+      const semData=pendRows.filter(r=>{
         if(r.origin_due_balance_expected_date)return false
         if(r.origin_due_balance_returned)return false
-        if(!['awaiting_portability','awaiting_formalization','documents_not_found','proposal_cadastrada','accepted'].includes(r.status_key))return false
         return true
       })
       // Agrupar por dia (clientes)
