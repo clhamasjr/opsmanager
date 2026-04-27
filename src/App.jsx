@@ -1915,7 +1915,7 @@ function Portabilidade({filterParceiroId,user}={}){
     <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,alignItems:'center'}}>
       <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>{isParceiroView?'Meu Portal':'Portabilidade'}</h2>
       {isParceiroView&&parceiroInfo&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>👤 {parceiroInfo.nome}{parceiroInfo.telefone?' · '+parceiroInfo.telefone:''}</div>}
-      {!isParceiroView&&lastSync&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>Última sync: {new Date(lastSync.started_at).toLocaleString('pt-BR')} — {lastSync.records_upserted||0} registros</div>}</div>
+      {!isParceiroView&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{rows.length} registros no período · {pendRows.length} pendências abertas{lastSync?` · última sync: ${new Date(lastSync.started_at).toLocaleString('pt-BR')} (${lastSync.records_upserted||0} novas/atualizadas)`:''}</div>}</div>
       <div style={{display:'flex',gap:6}}>
         <button onClick={exportPortab} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
         {!isParceiroView&&<button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>}
