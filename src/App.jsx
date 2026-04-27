@@ -2962,7 +2962,8 @@ export default function App(){
   useEffect(()=>{if(user?.perfil==='parceiro'&&view!=='meuportal')setView('meuportal')},[user,view])
   useEffect(()=>{if(!user)return
     if(user.cod_supervisor){
-      supabase.from('parceiros').select('nome').eq('cod_supervisor',user.cod_supervisor).then(({data})=>{
+      // Inclui agentes sob o supervisor + o próprio supervisor (parceiro com cod_agente=cod_supervisor)
+      supabase.from('parceiros').select('nome').or(`cod_supervisor.eq.${user.cod_supervisor},cod_agente.eq.${user.cod_supervisor}`).then(({data})=>{
         if(data&&data.length)setMyAgents(new Set(data.map(p=>p.nome)))
       })
     }
