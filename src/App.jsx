@@ -651,8 +651,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
         ...(q1||[]).map(r=>({date:String(r.origin_due_balance_expected_date).slice(0,10),client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:r.parceiro_nome||null,source:'quali'})),
         ...(q2||[]).map(r=>({date:String(r.expected_balance_date).slice(0,10),client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,source:'consig360'}))
       ]
-      const teamFlt=arr=>myAgents?arr.filter(r=>r.parceiro&&myAgents.has(r.parceiro)):arr
-      setCipNext(teamFlt(merged))
+      setCipNext(merged)
       // Aguardando sem data
       const{data:q3a}=await supabase.from('portabilidades_enriched').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_returned,borrower_identity,parceiro_nome,status_key').is('origin_due_balance_expected_date',null).eq('origin_due_balance_returned',false).in('status_key',['awaiting_portability','awaiting_formalization','awaiting_cip','documents_not_found','accepted','proposal_cadastrada']).limit(3000)
       const{data:q3b}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,partner_status_text,client_cpf,squad_user_name').is('expected_balance_date',null).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade']).limit(3000)
@@ -660,7 +659,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
         ...(q3a||[]).map(r=>({client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:r.parceiro_nome||null,status:r.status_key,source:'quali'})),
         ...(q3b||[]).map(r=>({client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,status:r.partner_status_text,source:'consig360'}))
       ]
-      setCipSemData(teamFlt(semData))
+      setCipSemData(semData)
     })()
   },[myAgents])
   // Use fast RPC data when available, fallback to computed
@@ -747,15 +746,19 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
 
       {/* PRÓXIMOS 5 DIAS ÚTEIS — CIP a Retornar */}
       {(cipNext.length>0||cipSemData.length>0)&&(()=>{
+        // Filtro de equipe: aplica AQUI no render para garantir que myAgents já está populado
+        const teamFlt=arr=>myAgents?arr.filter(r=>r.parceiro&&myAgents.has(r.parceiro)):arr
+        const cipNextF=teamFlt(cipNext)
+        const cipSemDataF=teamFlt(cipSemData)
         const next5=[];const d=new Date(NOW);d.setDate(d.getDate()+1)
         while(next5.length<5){if(d.getDay()!==0&&d.getDay()!==6)next5.push(localDate(d));d.setDate(d.getDate()+1)}
         const byDay={};next5.forEach(dt=>byDay[dt]={items:[],total:0})
-        cipNext.forEach(c=>{if(byDay[c.date]){byDay[c.date].items.push(c);byDay[c.date].total+=c.value}})
+        cipNextF.forEach(c=>{if(byDay[c.date]){byDay[c.date].items.push(c);byDay[c.date].total+=c.value}})
         const totalCip=Object.values(byDay).reduce((s,d)=>s+d.total,0)
         const totalCount=Object.values(byDay).reduce((s,d)=>s+d.items.length,0)
         // Aguardando sem data - agrupar por cliente (CPF) para aglutinar duplicadas
         const byCliAgg={}
-        cipSemData.forEach(c=>{const k=c.cpf||c.client;if(!byCliAgg[k])byCliAgg[k]={client:c.client,parceiro:c.parceiro,bank:c.bank,value:0,count:0,status:c.status};byCliAgg[k].value+=c.value;byCliAgg[k].count++})
+        cipSemDataF.forEach(c=>{const k=c.cpf||c.client;if(!byCliAgg[k])byCliAgg[k]={client:c.client,parceiro:c.parceiro,bank:c.bank,value:0,count:0,status:c.status};byCliAgg[k].value+=c.value;byCliAgg[k].count++})
         const totalSemData=Object.values(byCliAgg).reduce((s,c)=>s+c.value,0)
         // Agrupa por parceiro
         const byParc={}
