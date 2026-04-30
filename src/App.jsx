@@ -2972,33 +2972,38 @@ export default function App(){
     const antF=localDate(new Date(y,mo-1,1)),antT=localDate(new Date(y,mo,0))
     const todayStr=localDate(now)
     const yest=new Date(now);yest.setDate(yest.getDate()-1);const yesterdayStr=localDate(yest)
+    // ⚠ Visão restrita por supervisor (Fabricio/NEWS): pula RPCs agregadas (sem filtro de agente)
+    // O Dashboard usa fallback dos arrays brutos (já filtrados via myAgents)
+    const isRestrita=!!user.cod_supervisor
     // 1. Dashboard summary — 1 query
-    supabase.rpc('dashboard_summary',{dt_from:mesF,dt_to:mesT,prev_from:antF,prev_to:antT}).then(({data,error})=>{
+    if(!isRestrita)supabase.rpc('dashboard_summary',{dt_from:mesF,dt_to:mesT,prev_from:antF,prev_to:antT}).then(({data,error})=>{
       if(!error&&data)setDash(typeof data==='string'?JSON.parse(data):data)
     })
     // 2. Digitações diárias — 1 query
     const d30=new Date(now);d30.setDate(d30.getDate()-30)
-    supabase.rpc('daily_stats',{dt_from:localDate(d30),dt_to:todayStr}).then(({data,error})=>{if(!error&&data)setDailyData(data)})
+    if(!isRestrita)supabase.rpc('daily_stats',{dt_from:localDate(d30),dt_to:todayStr}).then(({data,error})=>{if(!error&&data)setDailyData(data)})
     // 3. Produção 12 meses — 1 query
     const y12f=localDate(new Date(y,mo-11,1))
-    supabase.rpc('monthly_prod',{dt_from:y12f,dt_to:mesT}).then(({data,error})=>{if(!error&&data)setMonthlyData(data)})
-    // 4. Últimos 5 dias úteis
-    const loadBizDays=async()=>{
-      const days=[],d=new Date(now)
-      while(days.length<5){
-        if(d.getDay()!==0&&d.getDay()!==6)days.push(localDate(d))
-        d.setDate(d.getDate()-1)
+    if(!isRestrita)supabase.rpc('monthly_prod',{dt_from:y12f,dt_to:mesT}).then(({data,error})=>{if(!error&&data)setMonthlyData(data)})
+    // 4. Últimos 5 dias úteis (skip se visão restrita — RPC não filtra agente)
+    if(!isRestrita){
+      const loadBizDays=async()=>{
+        const days=[],d=new Date(now)
+        while(days.length<5){
+          if(d.getDay()!==0&&d.getDay()!==6)days.push(localDate(d))
+          d.setDate(d.getDate()-1)
+        }
+        const results=[]
+        for(const dt of days){
+          const{data,error}=await supabase.rpc('day_detail',{target_date:dt})
+          if(!error&&data){const p=typeof data==='string'?JSON.parse(data):data;results.push({date:dt,...p})}
+          else results.push({date:dt,total_dig:0,total_val:0,parceiros:0,top_parceiros:null,top_bancos:null})
+        }
+        setBizDays(results)
       }
-      const results=[]
-      for(const dt of days){
-        const{data,error}=await supabase.rpc('day_detail',{target_date:dt})
-        if(!error&&data){const p=typeof data==='string'?JSON.parse(data):data;results.push({date:dt,...p})}
-        else results.push({date:dt,total_dig:0,total_val:0,parceiros:0,top_parceiros:null,top_bancos:null})
-      }
-      setBizDays(results)
+      loadBizDays()
     }
-    loadBizDays()
-    // 5. Análise semanal — semana atual vs anterior
+    // 5. Análise semanal — semana atual vs anterior (filtramos por myAgents pós-RPC)
     const loadWeek=async()=>{
       const dow=now.getDay()||7 // 1=seg..7=dom
       const wStart=new Date(now);wStart.setDate(now.getDate()-(dow-1))
@@ -3011,33 +3016,37 @@ export default function App(){
       if(d2)setWeekPrev(d2)
     }
     loadWeek()
-    // 6. Bancos — semanal + mensal
-    const loadBanks=async()=>{
-      const dow=now.getDay()||7
-      const wStart=new Date(now);wStart.setDate(now.getDate()-(dow-1))
-      const wEnd=new Date(now)
-      const pwStart=new Date(wStart);pwStart.setDate(pwStart.getDate()-7)
-      const pwEnd=new Date(wStart);pwEnd.setDate(pwEnd.getDate()-1)
-      const{data:bw1}=await supabase.rpc('bank_stats',{dt_from:localDate(wStart),dt_to:localDate(wEnd)})
-      const{data:bw2}=await supabase.rpc('bank_stats',{dt_from:localDate(pwStart),dt_to:localDate(pwEnd)})
-      if(bw1)setBankWeekCur(bw1)
-      if(bw2)setBankWeekPrev(bw2)
-      const m6f=localDate(new Date(y,mo-5,1))
-      const{data:bm}=await supabase.rpc('bank_monthly',{dt_from:m6f,dt_to:mesT})
-      if(bm)setBankMonthly(bm)
-    }
-    loadBanks()
-    // 5. Comparativo proporcional — 3 queries
-    const loadComp=async()=>{
-      const comp={}
-      for(let i=1;i<=3;i++){
-        const mDate=localDate(new Date(y,mo-i,1))
-        const{data,error}=await supabase.rpc('prod_proporcional',{target_month:mDate,ate_dia:day})
-        if(!error&&data)comp['m'+i]=typeof data==='string'?JSON.parse(data):data
+    // 6. Bancos — semanal + mensal (skip se restrita: RPC bank_stats não filtra agente)
+    if(!isRestrita){
+      const loadBanks=async()=>{
+        const dow=now.getDay()||7
+        const wStart=new Date(now);wStart.setDate(now.getDate()-(dow-1))
+        const wEnd=new Date(now)
+        const pwStart=new Date(wStart);pwStart.setDate(pwStart.getDate()-7)
+        const pwEnd=new Date(wStart);pwEnd.setDate(pwEnd.getDate()-1)
+        const{data:bw1}=await supabase.rpc('bank_stats',{dt_from:localDate(wStart),dt_to:localDate(wEnd)})
+        const{data:bw2}=await supabase.rpc('bank_stats',{dt_from:localDate(pwStart),dt_to:localDate(pwEnd)})
+        if(bw1)setBankWeekCur(bw1)
+        if(bw2)setBankWeekPrev(bw2)
+        const m6f=localDate(new Date(y,mo-5,1))
+        const{data:bm}=await supabase.rpc('bank_monthly',{dt_from:m6f,dt_to:mesT})
+        if(bm)setBankMonthly(bm)
       }
-      setPropComp(comp)
+      loadBanks()
     }
-    loadComp()
+    // 5. Comparativo proporcional (skip se restrita)
+    if(!isRestrita){
+      const loadComp=async()=>{
+        const comp={}
+        for(let i=1;i<=3;i++){
+          const mDate=localDate(new Date(y,mo-i,1))
+          const{data,error}=await supabase.rpc('prod_proporcional',{target_month:mDate,ate_dia:day})
+          if(!error&&data)comp['m'+i]=typeof data==='string'?JSON.parse(data):data
+        }
+        setPropComp(comp)
+      }
+      loadComp()
+    }
     // Legacy — carrega dados brutos para outras telas
     fetchOps('mes').then(d=>setCurOps(d))
     fetchOps('ant').then(d=>setPrevOps(d))
@@ -3053,6 +3062,9 @@ export default function App(){
   const tM2Prop=myAgents?m2Prop.filter(o=>myAgents.has(o.agente)):m2Prop
   const tM3Prop=myAgents?m3Prop.filter(o=>myAgents.has(o.agente)):m3Prop
   const tProdYear=myAgents?prodYear.filter(o=>myAgents.has(o.agente)):prodYear
+  // Filtra retornos de agent_period_stats (weekCur/weekPrev) por agentes do supervisor
+  const tWeekCur=myAgents?weekCur.filter(r=>myAgents.has(r.agente||r.nome)):weekCur
+  const tWeekPrev=myAgents?weekPrev.filter(r=>myAgents.has(r.agente||r.nome)):weekPrev
 
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||'',parceiro_id:data.parceiro_id||null};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){
@@ -3094,7 +3106,7 @@ export default function App(){
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
-      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} bizDays={bizDays} propComp={propComp} weekCur={weekCur} weekPrev={weekPrev} bankWeekCur={bankWeekCur} bankWeekPrev={bankWeekPrev} bankMonthly={bankMonthly}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} bizDays={bizDays} propComp={propComp} weekCur={tWeekCur} weekPrev={tWeekPrev} bankWeekCur={bankWeekCur} bankWeekPrev={bankWeekPrev} bankMonthly={bankMonthly}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents} onDone={refreshAll}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
       {view==='analise'&&<Analise myAgents={myAgents}/>}
