@@ -1649,7 +1649,7 @@ function Consig360({user}){
   </div>
 }
 
-function Portabilidade({filterParceiroId,user}={}){
+function Portabilidade({filterParceiroId,user,myAgents}={}){
   const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
   const[pendRows,setPendRows]=useState([])  // TODAS pendências (sem filtro de período) para card CIP a Retornar
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
@@ -1710,10 +1710,15 @@ function Portabilidade({filterParceiroId,user}={}){
     const [r1,r2,rP1,rP2]=await Promise.all([q1,q2,qP1,qP2])
     const qualiRows=(r1.data||[]).map(r=>normalizeQuali(r))
     const consigRows=(r2.data||[]).map(r=>normalizeConsig(r))
-    setRows([...qualiRows,...consigRows].sort((a,b)=>(b.proposal_date||'').localeCompare(a.proposal_date||'')))
+    // Filtro por equipe (cod_supervisor): só mantém propostas dos agentes do supervisor
+    const teamFilter=(arr)=>myAgents?arr.filter(r=>{
+      const p=r.parceiro_nome||r.squad_user_name||''
+      return myAgents.has(p)
+    }):arr
+    setRows(teamFilter([...qualiRows,...consigRows]).sort((a,b)=>(b.proposal_date||'').localeCompare(a.proposal_date||'')))
     const qualiPend=(rP1.data||[]).map(r=>normalizeQuali(r))
     const consigPend=(rP2.data||[]).map(r=>normalizeConsig(r))
-    setPendRows([...qualiPend,...consigPend])
+    setPendRows(teamFilter([...qualiPend,...consigPend]))
     const{data:sl}=await supabase.from('sync_logs').select('*').in('source',['qualibanking','consig360']).order('started_at',{ascending:false}).limit(1)
     if(sl&&sl[0])setLastSync(sl[0])
     setLoading(false)
@@ -1791,7 +1796,7 @@ function Portabilidade({filterParceiroId,user}={}){
       agente_digitacao:r.squad_user_name||null
     }
   }
-  useEffect(()=>{loadData()},[per,trigger,fParceiro,parceiroInfo,allParceiros.length])
+  useEffect(()=>{loadData()},[per,trigger,fParceiro,parceiroInfo,allParceiros.length,myAgents])
   const applyCustom=()=>setTrigger(t=>t+1)
   const doSync=async()=>{
     setSyncing(true);setMsg('Sincronizando com QualiBanking...')
@@ -3112,7 +3117,7 @@ export default function App(){
       {view==='analise'&&<Analise myAgents={myAgents}/>}
       {view==='estrategico'&&<Estrategico myAgents={myAgents}/>}
       {view==='ranking'&&<Ranking myAgents={myAgents}/>}
-      {view==='portabilidade'&&<Portabilidade/>}
+      {view==='portabilidade'&&<Portabilidade myAgents={myAgents}/>}
       {view==='consig360'&&<Consig360 user={user}/>}
       {view==='notificacoes'&&<Notificacoes/>}
       {view==='meuportal'&&(user.parceiro_id?<Portabilidade filterParceiroId={user.parceiro_id} user={user}/>:<div style={{padding:40,textAlign:'center',color:C.muted}}>⚠️ Seu usuário não está vinculado a um parceiro. Contate o administrador.</div>)}
