@@ -534,7 +534,7 @@ function Parceiros({curOps,curProd,myAgents}){
 function useOps(defaultPer,myAgents){
   const[per,setPer]=useState(defaultPer||'mes'),[ops,setOps]=useState([]),[loading,setLoading]=useState(false),[count,setCount]=useState(0)
   const[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
-  useEffect(()=>{let c=false;setLoading(true);fetchOps(per,n=>{if(!c)setCount(n)},customDf,customDt).then(d=>{if(!c){const fd=myAgents?d.filter(o=>myAgents.has(o.agente)):d;setOps(fd);setCount(fd.length)}}).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger])
+  useEffect(()=>{let c=false;setLoading(true);fetchOps(per,n=>{if(!c)setCount(n)},customDf,customDt).then(d=>{if(!c){const fd=myAgents?d.filter(o=>myAgents.has(o.agente)):d;setOps(fd);setCount(fd.length)}}).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger,myAgents])
   const applyCustom=()=>setTrigger(t=>t+1)
   return{per,setPer,ops,loading,count,customDf,setCustomDf,customDt,setCustomDt,applyCustom}
 }
@@ -544,7 +544,7 @@ function useProd(defaultPer,myAgents){
   useEffect(()=>{let c=false;setLoading(true)
     Promise.all([fetchProd(per,null,customDf,customDt),fetchOps(per,null,customDf,customDt)]).then(([p,d])=>{
       if(!c){const fp=myAgents?p.filter(o=>myAgents.has(o.agente)):p;const fd=myAgents?d.filter(o=>myAgents.has(o.agente)):d;setOps(fp);setDigOps(fd)}
-    }).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger])
+    }).catch(()=>{}).finally(()=>{if(!c)setLoading(false)});return()=>{c=true}},[per,trigger,myAgents])
   const applyCustom=()=>setTrigger(t=>t+1)
   return{per,setPer,ops,digOps,loading,customDf,setCustomDf,customDt,setCustomDt,applyCustom}
 }
