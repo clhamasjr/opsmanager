@@ -693,8 +693,9 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   return(
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       <h2 style={{fontWeight:800,fontSize:20}}>Dashboard</h2>
+      {myAgents&&<div style={{background:C.accent+'18',border:'1px solid '+C.accent+'66',borderRadius:10,padding:'10px 14px',fontSize:12,color:C.accent,fontWeight:600}}>👥 Visão restrita à equipe — {myAgents.size} parceiros · {[...myAgents].slice(0,5).join(', ')}{myAgents.size>5?` +${myAgents.size-5}`:''}</div>}
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
-      <div style={{fontSize:10,color:C.muted}}>{dash?`${dash.dig_count} digitações · ${dash.prod_count} produção`:count+' digitações no período'}</div>
+      <div style={{fontSize:10,color:C.muted}}>{dash?`${dash.dig_count} digitações · ${dash.prod_count} produção`:count+' digitações no período'}{myAgents?' · filtrado por equipe':''}</div>
 
       {/* ÚLTIMOS 5 DIAS ÚTEIS */}
       {bizDays.length>0&&<>
@@ -2962,7 +2963,18 @@ export default function App(){
   const[bankWeekCur,setBankWeekCur]=useState([])
   const[bankWeekPrev,setBankWeekPrev]=useState([])
   const[bankMonthly,setBankMonthly]=useState([])
-  useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome)setUser(u)}}catch(e){}},[])
+  useEffect(()=>{try{const s=localStorage.getItem('om-session');if(s){const u=JSON.parse(s);if(u?.nome){setUser(u);
+    // Refresh dos campos críticos do banco (corrige cache stale: cod_supervisor, telas, perfil, parceiro_id)
+    supabase.from('usuarios').select('cod_supervisor,telas,perfil,parceiro_id,ativo').eq('id',u.id).single().then(({data})=>{
+      if(data&&data.ativo!==false){
+        const fresh={...u,cod_supervisor:data.cod_supervisor||'',telas:data.telas||u.telas,perfil:data.perfil||u.perfil,parceiro_id:data.parceiro_id||null}
+        if(JSON.stringify(fresh)!==JSON.stringify(u)){
+          localStorage.setItem('om-session',JSON.stringify(fresh))
+          setUser(fresh)
+        }
+      }
+    })
+  }}}catch(e){}},[])
   // Se parceiro logado, força view=meuportal
   useEffect(()=>{if(user?.perfil==='parceiro'&&view!=='meuportal')setView('meuportal')},[user,view])
   useEffect(()=>{if(!user)return
