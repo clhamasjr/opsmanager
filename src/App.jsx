@@ -124,7 +124,8 @@ function exportXlsx(ops,filename){
   const ws=XLSX.utils.json_to_sheet(ops.map(o=>({Data:o.data,Banco:o.banco,CPF:o.cpf,Cliente:o.cliente,Proposta:o.proposta,'Operação':o.operacao,'Situação':o.situacao,'Sit.Banco':o.situacaoBanco,'Convênio':o.convenio,Agente:o.agente,Bruto:o.vrBruto,Líquido:o.vrLiquido,Repasse:o.vrRepasse,Parcela:o.vrParcela,CRC:o.crcCliente,'Nosso Crédito':o.dataNossoCredito})))
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Dados');XLSX.writeFile(wb,filename+'.xlsx')
 }
-function ExportBtn({ops,name}){return<button onClick={()=>exportXlsx(ops,name||'export')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 ({ops.length})</button>}
+function canManage(){try{const s=JSON.parse(localStorage.getItem('om-session')||'{}');return s.perfil==='admin'||s.perfil==='gestor'}catch(e){return false}}
+function ExportBtn({ops,name}){if(!canManage())return null;return<button onClick={()=>exportXlsx(ops,name||'export')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 ({ops.length})</button>}
 
 function ExportModal({open,onClose,ops}){
   const[fBanco,sFBanco]=useState(''),[fAgente,sFAgente]=useState(''),[fOp,sFOp]=useState(''),[fSit,sFSit]=useState(''),[fConv,sFConv]=useState('')
@@ -1096,10 +1097,10 @@ function Operacoes({onImport,myAgents,onDone}){
   return(
     <div style={{display:'flex',flexDirection:'column',gap:12}}>
       <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Opera\u00e7\u00f5es</h2><div style={{display:'flex',gap:6}}>
-        <button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button>
+        {canManage()&&<><button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button>
         <button onClick={()=>quickRef.current?.click()} disabled={importing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:importing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:importing?.6:1}}>📥 {importing?'Importando...':'Importar WorkBank'}</button>
         <input ref={quickRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>quickImport(e.target.files?.[0])}/>
-        <button onClick={()=>sio(true)} style={{background:C.surface,border:'1px solid '+C.accent,borderRadius:8,color:C.accent,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>Importar Manual</button>
+        <button onClick={()=>sio(true)} style={{background:C.surface,border:'1px solid '+C.accent,borderRadius:8,color:C.accent,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>Importar Manual</button></>}
       </div></div>
       {importMsg&&<div style={{background:importMsg.includes('\u2713')?C.accent2+'22':importMsg.includes('Erro')?C.danger+'22':C.warn+'22',color:importMsg.includes('\u2713')?C.accent2:importMsg.includes('Erro')?C.danger:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>{importMsg}</span>{!importing&&<button onClick={()=>setImportMsg('')} style={{background:'none',border:'none',color:'inherit',cursor:'pointer',fontSize:14}}>\u00d7</button>}</div>}
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
@@ -1954,8 +1955,8 @@ function Portabilidade({filterParceiroId,user,myAgents}={}){
       {isParceiroView&&parceiroInfo&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>👤 {parceiroInfo.nome}{parceiroInfo.telefone?' · '+parceiroInfo.telefone:''}</div>}
       {!isParceiroView&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{rows.length} registros no período · {pendRows.length} pendências abertas{lastSync?` · última sync: ${new Date(lastSync.started_at).toLocaleString('pt-BR')} (${lastSync.records_upserted||0} novas/atualizadas)`:''}</div>}</div>
       <div style={{display:'flex',gap:6}}>
-        <button onClick={exportPortab} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
-        {!isParceiroView&&<button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>}
+        {canManage()&&<button onClick={exportPortab} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>}
+        {!isParceiroView&&canManage()&&<button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>}
       </div>
     </div>
     {msg&&<div style={{background:msg.includes('✓')?C.accent2+'22':C.warn+'22',color:msg.includes('✓')?C.accent2:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:'inherit',cursor:'pointer'}}>×</button></div>}
