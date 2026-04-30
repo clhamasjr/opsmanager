@@ -3101,6 +3101,18 @@ export default function App(){
     fetchOps('ant').then(d=>setPrevOps(d))
     fetchProd('mes').then(d=>setCurProd(d))
     fetchProd('ant').then(d=>setPrevProd(d))
+    // Modo restrito: popula 12 meses para cálculos locais (RPCs agregadas não filtram agente)
+    if(isRestrita){
+      const m12f=localDate(new Date(y,mo-11,1))
+      const m1f=localDate(new Date(y,mo-1,1)),m1t=localDate(new Date(y,mo,0))
+      const m2f=localDate(new Date(y,mo-2,1)),m2t=localDate(new Date(y,mo-1,0))
+      const m3f=localDate(new Date(y,mo-3,1)),m3t=localDate(new Date(y,mo-2,0))
+      fetchProd('custom',null,m12f,mesT).then(d=>setProdYear(d))
+      // Comparativos proporcionais — fetchProd até o mesmo dia do mês
+      fetchProd('custom',null,m1f,localDate(new Date(y,mo-1,Math.min(day,new Date(y,mo,0).getDate())))).then(d=>setPrevProdProp(d))
+      fetchProd('custom',null,m2f,localDate(new Date(y,mo-2,Math.min(day,new Date(y,mo-1,0).getDate())))).then(d=>setM2Prop(d))
+      fetchProd('custom',null,m3f,localDate(new Date(y,mo-3,Math.min(day,new Date(y,mo-2,0).getDate())))).then(d=>setM3Prop(d))
+    }
   },[user,refreshKey])
   // Filter by team - stable refs when no filter
   const tCurOps=myAgents?curOps.filter(o=>myAgents.has(o.agente)):curOps
@@ -3114,6 +3126,41 @@ export default function App(){
   // Filtra retornos de agent_period_stats (weekCur/weekPrev) por agentes do supervisor
   const tWeekCur=myAgents?weekCur.filter(r=>myAgents.has(r.agente||r.nome)):weekCur
   const tWeekPrev=myAgents?weekPrev.filter(r=>myAgents.has(r.agente||r.nome)):weekPrev
+  // Modo restrito: agrega localmente os dados que viriam das RPCs
+  const tMonthlyData=useMemo(()=>{
+    if(!myAgents||monthlyData.length>0)return monthlyData
+    const byMes={}
+    tProdYear.forEach(o=>{const mes=(o.crcCliente||o.data||'').slice(0,7);if(!mes)return;if(!byMes[mes])byMes[mes]={mes,qtd:0,total:0};byMes[mes].qtd++;byMes[mes].total+=(o.vrBruto||0)})
+    return Object.values(byMes).sort((a,b)=>a.mes.localeCompare(b.mes))
+  },[myAgents,monthlyData,tProdYear])
+  const tBankMonthly=useMemo(()=>{
+    if(!myAgents||bankMonthly.length>0)return bankMonthly
+    const byMB={}
+    const now=new Date(),y=now.getFullYear(),mo=now.getMonth()
+    const m6=new Date(y,mo-5,1)
+    tProdYear.forEach(o=>{const dt=new Date((o.crcCliente||o.data||'')+'T00:00:00');if(dt<m6||isNaN(dt))return;const mes=localDate(dt).slice(0,7);const banco=o.banco||'?';const k=mes+'|'+banco;if(!byMB[k])byMB[k]={mes,banco,dig_total:0,qtd:0};byMB[k].dig_total+=(o.vrBruto||0);byMB[k].qtd++})
+    return Object.values(byMB)
+  },[myAgents,bankMonthly,tProdYear])
+  const tBankWeek=useMemo(()=>{
+    if(!myAgents)return{cur:bankWeekCur,prev:bankWeekPrev}
+    const now=new Date(),dow=now.getDay()||7
+    const wStart=new Date(now);wStart.setDate(now.getDate()-(dow-1));wStart.setHours(0,0,0,0)
+    const pwStart=new Date(wStart);pwStart.setDate(pwStart.getDate()-7)
+    const pwEnd=new Date(wStart);pwEnd.setDate(pwEnd.getDate()-1);pwEnd.setHours(23,59,59,999)
+    const agg=(arr)=>{const m={};arr.forEach(o=>{const b=o.banco||'?';if(!m[b])m[b]={banco:b,dig_count:0,dig_total:0};m[b].dig_count++;m[b].dig_total+=(o.vrBruto||0)});return Object.values(m)}
+    const inRange=(o,a,b)=>{const dt=new Date((o.data||'')+'T00:00:00');return dt>=a&&dt<=b}
+    const cur=agg(tCurOps.filter(o=>{const dt=new Date((o.data||'')+'T00:00:00');return dt>=wStart&&dt<=now}))
+    const prev=agg([...tCurOps,...tPrevOps].filter(o=>inRange(o,pwStart,pwEnd)))
+    return{cur,prev}
+  },[myAgents,bankWeekCur,bankWeekPrev,tCurOps,tPrevOps])
+  const tPropComp=useMemo(()=>{
+    if(!myAgents||Object.keys(propComp).length>0)return propComp
+    return{
+      m1:{total:tPrevProdProp.reduce((s,o)=>s+(o.vrBruto||0),0),qtd:tPrevProdProp.length},
+      m2:{total:tM2Prop.reduce((s,o)=>s+(o.vrBruto||0),0),qtd:tM2Prop.length},
+      m3:{total:tM3Prop.reduce((s,o)=>s+(o.vrBruto||0),0),qtd:tM3Prop.length}
+    }
+  },[myAgents,propComp,tPrevProdProp,tM2Prop,tM3Prop])
 
   async function handleLogin(e){e.preventDefault();setLoginError('');const fd=new FormData(e.target);const{data,error}=await supabase.from('usuarios').select('*').eq('email',fd.get('email')).eq('senha',fd.get('senha')).eq('ativo',true).single();if(error||!data){setLoginError('Email/senha incorretos');return}supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});const session={id:data.id,nome:data.nome,email:data.email,perfil:data.perfil,telas:data.telas||["dashboard","ops","producao"],cod_supervisor:data.cod_supervisor||'',parceiro_id:data.parceiro_id||null};localStorage.setItem('om-session',JSON.stringify(session));setUser(session)}
   async function handleImport(batch){
@@ -3155,7 +3202,7 @@ export default function App(){
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
-      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={monthlyData} bizDays={bizDays} propComp={propComp} weekCur={tWeekCur} weekPrev={tWeekPrev} bankWeekCur={bankWeekCur} bankWeekPrev={bankWeekPrev} bankMonthly={bankMonthly}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={tMonthlyData} bizDays={bizDays} propComp={tPropComp} weekCur={tWeekCur} weekPrev={tWeekPrev} bankWeekCur={tBankWeek.cur} bankWeekPrev={tBankWeek.prev} bankMonthly={tBankMonthly}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents} onDone={refreshAll}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
       {view==='analise'&&<Analise myAgents={myAgents}/>}
