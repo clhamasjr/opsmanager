@@ -642,20 +642,27 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       const today=new Date()
       const in14=new Date(today);in14.setDate(in14.getDate()+14)
       const toISO=d=>d.toISOString().slice(0,10)
-      // Quali com data
-      const{data:q1}=await supabase.from('portabilidades').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_expected_date,origin_due_balance_returned,borrower_identity').gte('origin_due_balance_expected_date',toISO(today)).lte('origin_due_balance_expected_date',toISO(in14)).eq('origin_due_balance_returned',false).limit(500)
+      // Quali com data — usa view enriched pra trazer parceiro_nome
+      let qQ1=supabase.from('portabilidades_enriched').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_expected_date,origin_due_balance_returned,borrower_identity,parceiro_nome').gte('origin_due_balance_expected_date',toISO(today)).lte('origin_due_balance_expected_date',toISO(in14)).eq('origin_due_balance_returned',false).limit(500)
+      const{data:q1}=await qQ1
       // Consig360 com data
       const{data:q2}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,expected_balance_date,partner_status_text,client_cpf,squad_user_name').gte('expected_balance_date',toISO(today)).lte('expected_balance_date',toISO(in14)).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade','Aguardando documentação','Pendente de Formalização']).limit(500)
       const merged=[
-        ...(q1||[]).map(r=>({date:String(r.origin_due_balance_expected_date).slice(0,10),client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:null,source:'quali'})),
+        ...(q1||[]).map(r=>({date:String(r.origin_due_balance_expected_date).slice(0,10),client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:r.parceiro_nome||null,source:'quali'})),
         ...(q2||[]).map(r=>({date:String(r.expected_balance_date).slice(0,10),client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,source:'consig360'}))
       ]
-      setCipNext(merged)
-      // Aguardando sem data - por parceiro
-      const{data:q3}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,partner_status_text,client_cpf,squad_user_name').is('expected_balance_date',null).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade']).limit(2000)
-      setCipSemData((q3||[]).map(r=>({client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,status:r.partner_status_text,source:'consig360'})))
+      const teamFlt=arr=>myAgents?arr.filter(r=>r.parceiro&&myAgents.has(r.parceiro)):arr
+      setCipNext(teamFlt(merged))
+      // Aguardando sem data
+      const{data:q3a}=await supabase.from('portabilidades_enriched').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_returned,borrower_identity,parceiro_nome,status_key').is('origin_due_balance_expected_date',null).eq('origin_due_balance_returned',false).in('status_key',['awaiting_portability','awaiting_formalization','awaiting_cip','documents_not_found','accepted','proposal_cadastrada']).limit(3000)
+      const{data:q3b}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,partner_status_text,client_cpf,squad_user_name').is('expected_balance_date',null).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade']).limit(3000)
+      const semData=[
+        ...(q3a||[]).map(r=>({client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:r.parceiro_nome||null,status:r.status_key,source:'quali'})),
+        ...(q3b||[]).map(r=>({client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,status:r.partner_status_text,source:'consig360'}))
+      ]
+      setCipSemData(teamFlt(semData))
     })()
-  },[])
+  },[myAgents])
   // Use fast RPC data when available, fallback to computed
   const f=ops,tR=f.reduce((s,o)=>s+(o.vrBruto||0),0)
   const fin=f.filter(isFin),fR=fin.reduce((s,o)=>s+(o.vrBruto||0),0)
@@ -697,17 +704,37 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
       <div style={{fontSize:10,color:C.muted}}>{dash?`${dash.dig_count} digitações · ${dash.prod_count} produção`:count+' digitações no período'}{myAgents?' · filtrado por equipe':''}</div>
 
-      {/* ÚLTIMOS 5 DIAS ÚTEIS */}
-      {bizDays.length>0&&<>
+      {/* ÚLTIMOS 5 DIAS ÚTEIS — se visão restrita (myAgents), calcula localmente a partir de ops já filtrado */}
+      {(()=>{
+        let daysToShow=bizDays
+        if(myAgents){
+          // Calcula localmente os últimos 5 dias úteis a partir de ops (curOps/digitações filtradas)
+          const days=[];const d=new Date()
+          while(days.length<5){
+            if(d.getDay()!==0&&d.getDay()!==6)days.push(localDate(d))
+            d.setDate(d.getDate()-1)
+          }
+          daysToShow=days.map(dt=>{
+            const dayOps=ops.filter(o=>(o.data||'').slice(0,10)===dt)
+            const total_val=dayOps.reduce((s,o)=>s+(o.vrBruto||0),0)
+            const parcMap={};dayOps.forEach(o=>{const a=o.agente||'?';if(!parcMap[a])parcMap[a]={qtd:0,total:0};parcMap[a].qtd++;parcMap[a].total+=(o.vrBruto||0)})
+            const top_parceiros=Object.entries(parcMap).map(([nome,v])=>({nome,...v})).sort((a,b)=>b.total-a.total).slice(0,5)
+            const banMap={};dayOps.forEach(o=>{const b=o.banco||'?';if(!banMap[b])banMap[b]={qtd:0,total:0};banMap[b].qtd++;banMap[b].total+=(o.vrBruto||0)})
+            const top_bancos=Object.entries(banMap).map(([nome,v])=>({nome,...v})).sort((a,b)=>b.total-a.total).slice(0,5)
+            return{date:dt,total_dig:dayOps.length,total_val,parceiros:Object.keys(parcMap).length,top_parceiros,top_bancos}
+          })
+        }
+        if(daysToShow.length===0)return null
+        return<>
         <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}}>
-          {bizDays.map((d,i)=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;const label=dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const hasMov=d.total_dig>0;return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'66':C.border),borderRadius:12,padding:12,opacity:hasMov?1:.5}}>
+          {daysToShow.map((d,i)=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;const label=dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}).replace('.','');const hasMov=d.total_dig>0;return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'66':C.border),borderRadius:12,padding:12,opacity:hasMov?1:.5}}>
             <div style={{fontSize:10,fontWeight:700,color:isToday?C.accent2:C.info,marginBottom:6}}>{isToday?'🟢 Hoje':'📋'} {label}</div>
             <div style={{fontSize:16,fontWeight:800,color:hasMov?C.accent:C.muted}}>{fmtCur(d.total_val||0)}</div>
             <div style={{fontSize:10,color:C.muted}}>{d.total_dig||0} digitações · {d.parceiros||0} parceiros</div>
           </div>})}
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:10}}>
-          {bizDays.filter(d=>d.total_dig>0).slice(0,3).map(d=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'33':C.border),borderRadius:14,padding:14}}>
+          {daysToShow.filter(d=>d.total_dig>0).slice(0,3).map(d=>{const dt=new Date(d.date+'T12:00:00');const isToday=d.date===TODAY_STR;return<div key={d.date} style={{background:C.card,border:'1px solid '+(isToday?C.accent2+'33':C.border),borderRadius:14,padding:14}}>
             <div style={{fontSize:11,fontWeight:700,color:isToday?C.accent2:C.info,marginBottom:8}}>{isToday?'🟢 Hoje':'📋'} — {fmtDate(d.date)} · {fmtCur(d.total_val||0)}</div>
             {d.top_parceiros&&<div style={{marginBottom:8}}><div style={{fontSize:9,fontWeight:600,color:C.muted,marginBottom:3}}>Top Parceiros</div>
               {d.top_parceiros.map((p,j)=><div key={p.nome} style={{display:'flex',justifyContent:'space-between',fontSize:9,padding:'1px 0'}}><span style={{color:j<3?C.accent:C.text}}>{j+1}. {p.nome} ({p.qtd})</span><span style={{fontWeight:600,color:C.accent2}}>{fmtCur(p.total)}</span></div>)}</div>}
@@ -715,7 +742,8 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
               {d.top_bancos.map(b=><div key={b.nome} style={{display:'flex',justifyContent:'space-between',fontSize:9,padding:'1px 0'}}><span>{b.nome} ({b.qtd})</span><span style={{fontWeight:600,color:C.accent}}>{fmtCur(b.total)}</span></div>)}</div>}
           </div>})}
         </div>
-      </>}
+      </>
+      })()}
 
       {/* PRÓXIMOS 5 DIAS ÚTEIS — CIP a Retornar */}
       {(cipNext.length>0||cipSemData.length>0)&&(()=>{
