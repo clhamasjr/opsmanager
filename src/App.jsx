@@ -3202,7 +3202,7 @@ export default function App(){
     </div>
     {/* CONTENT */}
     <div className="main-content" style={{flex:1,padding:'20px 24px',overflowY:'auto',overflowX:'hidden'}}>
-      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={tMonthlyData} bizDays={bizDays} propComp={tPropComp} weekCur={tWeekCur} weekPrev={tWeekPrev} bankWeekCur={tBankWeek.cur} bankWeekPrev={tBankWeek.prev} bankMonthly={tBankMonthly}/>}
+      {view==='dashboard'&&<Dashboard curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd} prevProdProp={tPrevProdProp} m2Prop={tM2Prop} m3Prop={tM3Prop} myAgents={myAgents} prodYear={tProdYear} dash={dash} dailyData={dailyData} monthlyData={myAgents?tMonthlyData:monthlyData} bizDays={bizDays} propComp={myAgents?{}:propComp} weekCur={tWeekCur} weekPrev={tWeekPrev} bankWeekCur={myAgents?tBankWeek.cur:bankWeekCur} bankWeekPrev={myAgents?tBankWeek.prev:bankWeekPrev} bankMonthly={myAgents?tBankMonthly:bankMonthly}/>}
       {view==='ops'&&<Operacoes onImport={handleImport} myAgents={myAgents} onDone={refreshAll}/>}
       {view==='producao'&&<Producao myAgents={myAgents}/>}
       {view==='analise'&&<Analise myAgents={myAgents}/>}
