@@ -2160,6 +2160,66 @@ function Portabilidade({filterParceiroId,user,myAgents}={}){
       </div>)}
     </div>
 
+    {/* ═══ ANÁLISE DOS RETORNOS — FUNIL + PERFORMANCE POR BANCO ═══ */}
+    {(()=>{
+      // Funil consolidado
+      const tot=fd.length
+      const sk=k=>fd.filter(r=>r.status_key===k).length
+      const skSet=arr=>fd.filter(r=>arr.includes(r.status_key)).length
+      const pagas=sk('integrated'),retidas=sk('retained'),canceladas=sk('canceled'),rejeitadas=sk('rejected_ctc')
+      const andamento=skSet(['awaiting_portability','awaiting_cip','awaiting_send_to_cip','awaiting_formalization','awaiting_endorsement','awaiting_payment','awaiting_manual_analysis','documents_not_found','accepted','proposal_cadastrada','awaiting_portability_endorsement','balance_returned_awaiting_manual_approval','balance_awaiting_auto_payment'])
+      const pct=v=>tot?(v/tot*100):0
+      // Performance por banco origem
+      const bm={}
+      fd.forEach(r=>{const k=r.origin_bank_name;if(!k||k==='?')return;if(!bm[k])bm[k]={total:0,pagas:0,retidas:0,canceladas:0,rejeitadas:0,andamento:0,vl:0}
+        bm[k].total++;bm[k].vl+=(Number(r.origin_due_balance)||0)
+        if(r.status_key==='integrated')bm[k].pagas++
+        else if(r.status_key==='retained')bm[k].retidas++
+        else if(r.status_key==='canceled')bm[k].canceladas++
+        else if(r.status_key==='rejected_ctc')bm[k].rejeitadas++
+        else bm[k].andamento++
+      })
+      const bankRows=Object.entries(bm).filter(([,d])=>d.total>=10).map(([k,d])=>({banco:k,...d,pctRet:d.total?d.retidas/d.total*100:0,pctPago:d.total?d.pagas/d.total*100:0,pctCanc:d.total?d.canceladas/d.total*100:0})).sort((a,b)=>b.total-a.total)
+      const colRet=v=>v>=40?C.danger:v>=25?C.warn:v>=15?C.info:C.accent2
+      const colPago=v=>v>=20?C.accent2:v>=10?C.warn:C.danger
+      return<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'flex',flexDirection:'column',gap:14}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>📊 Análise dos Retornos — Funil Consolidado</div>
+          <div style={{fontSize:10,color:C.muted}}>Distribuição por desfecho final · base {tot} propostas</div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8}}>
+          <div style={{background:C.accent2+'15',borderLeft:'4px solid '+C.accent2,borderRadius:8,padding:'10px 12px'}}><div style={{fontSize:9,fontWeight:700,color:C.accent2}}>🟢 INTEGRADAS (PAGAS)</div><div style={{fontSize:18,fontWeight:800,color:C.accent2}}>{pagas} <span style={{fontSize:11}}>({pct(pagas).toFixed(1)}%)</span></div></div>
+          <div style={{background:C.warn+'15',borderLeft:'4px solid '+C.warn,borderRadius:8,padding:'10px 12px'}}><div style={{fontSize:9,fontWeight:700,color:C.warn}}>🟠 RETIDAS</div><div style={{fontSize:18,fontWeight:800,color:C.warn}}>{retidas} <span style={{fontSize:11}}>({pct(retidas).toFixed(1)}%)</span></div></div>
+          <div style={{background:C.danger+'15',borderLeft:'4px solid '+C.danger,borderRadius:8,padding:'10px 12px'}}><div style={{fontSize:9,fontWeight:700,color:C.danger}}>🔴 CANCELADAS</div><div style={{fontSize:18,fontWeight:800,color:C.danger}}>{canceladas} <span style={{fontSize:11}}>({pct(canceladas).toFixed(1)}%)</span></div></div>
+          <div style={{background:'#F9731615',borderLeft:'4px solid #F97316',borderRadius:8,padding:'10px 12px'}}><div style={{fontSize:9,fontWeight:700,color:'#F97316'}}>🔻 REJEITADAS CIP</div><div style={{fontSize:18,fontWeight:800,color:'#F97316'}}>{rejeitadas} <span style={{fontSize:11}}>({pct(rejeitadas).toFixed(1)}%)</span></div></div>
+          <div style={{background:C.info+'15',borderLeft:'4px solid '+C.info,borderRadius:8,padding:'10px 12px'}}><div style={{fontSize:9,fontWeight:700,color:C.info}}>🟡 EM ANDAMENTO</div><div style={{fontSize:18,fontWeight:800,color:C.info}}>{andamento} <span style={{fontSize:11}}>({pct(andamento).toFixed(1)}%)</span></div></div>
+        </div>
+        {bankRows.length>0&&<>
+          <div style={{borderTop:'1px solid '+C.border,paddingTop:10}}>
+            <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>🏦 Performance por Banco Origem</div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Mín. 10 propostas · % retido (vermelho = alta retenção) · % pago (verde = boa conversão)</div>
+            <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                <thead><tr style={{background:C.surface}}>{['Banco','Total','Vl. Total','% Retido','% Pago','% Cancel.','Em Andam.','Pagas','Retidas','Cancel.'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead>
+                <tbody>{bankRows.map(b=><tr key={b.banco} style={{borderBottom:'1px solid '+C.border}}>
+                  <td style={{padding:'7px 10px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.banco}</td>
+                  <td style={{padding:'7px 10px',fontWeight:700}}>{b.total}</td>
+                  <td style={{padding:'7px 10px',color:C.muted}}>{fmtCur(b.vl)}</td>
+                  <td style={{padding:'7px 10px',fontWeight:700,color:colRet(b.pctRet)}}>{b.pctRet.toFixed(0)}%</td>
+                  <td style={{padding:'7px 10px',fontWeight:700,color:colPago(b.pctPago)}}>{b.pctPago.toFixed(0)}%</td>
+                  <td style={{padding:'7px 10px',color:C.muted}}>{b.pctCanc.toFixed(0)}%</td>
+                  <td style={{padding:'7px 10px',color:C.info}}>{b.andamento}</td>
+                  <td style={{padding:'7px 10px',color:C.accent2}}>{b.pagas}</td>
+                  <td style={{padding:'7px 10px',color:C.warn}}>{b.retidas}</td>
+                  <td style={{padding:'7px 10px',color:C.danger}}>{b.canceladas}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>
+        </>}
+      </div>
+    })()}
+
     {/* FILTROS */}
     <div style={{display:'flex',gap:6,flexWrap:'wrap',background:C.card,border:'1px solid '+C.border,borderRadius:10,padding:'10px 14px',alignItems:'center'}}>
       <input value={se} onChange={e=>sSe(e.target.value)} placeholder="🔍 Cliente, CPF ou proposta..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11,flex:1,minWidth:180}}/>
