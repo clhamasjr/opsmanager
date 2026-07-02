@@ -3073,14 +3073,30 @@ function cfParsePlanilha(wb){
   }
   return rows
 }
+const cfCpf11=v=>{const d=cfDig(v);return d.length>=9&&d.length<=11?d.padStart(11,'0'):d}
+function cfParseAcordos(wb){
+  const ws=wb.Sheets[wb.SheetNames[0]]
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''})
+  let hi=aoa.findIndex(r=>Array.isArray(r)&&r.some(c=>cfNorm(c)==='statuspagto'))
+  if(hi<0)return[]
+  const H=aoa[hi].map(cfNorm)
+  const ix=n=>H.indexOf(n)
+  const ci={anoMes:ix('anomes'),usuario:ix('nomeusuario'),cliente:ix('nomecliente'),cpf:ix('cpf'),tel:ix('tel'),acordo:ix('numeroacordo'),dataAcordo:ix('dataacordo'),atraso:ix('diasatraso'),status:ix('statuspagto'),vlrPago:ix('vlrpago'),plano:ix('plano'),faixa:ix('faixaatraso'),vlrCom:ix('valorcalculadoporfaixacomissao')}
+  const rows=[]
+  for(let r=hi+1;r<aoa.length;r++){const row=aoa[r];if(!Array.isArray(row))continue
+    const cpf=cfCpf11(row[ci.cpf]);if(!cpf)continue
+    rows.push({anoMes:String(row[ci.anoMes]||''),usuario:String(row[ci.usuario]||'(sem)'),cliente:String(row[ci.cliente]||''),cpf,tel:String(row[ci.tel]||''),acordo:String(row[ci.acordo]||''),dataAcordo:String(row[ci.dataAcordo]||''),atraso:parseInt(cfDig(row[ci.atraso])||'0',10),status:String(row[ci.status]||'').toUpperCase(),vlrPago:pNum(row[ci.vlrPago]),plano:String(row[ci.plano]||''),faixa:String(row[ci.faixa]||''),vlrCom:pNum(row[ci.vlrCom])})}
+  return rows
+}
 function ConferenciaCrefisa(){
   const[inad,setInad]=useState(null),[adim,setAdim]=useState(null)
   const[cart,setCart]=useState(null)
   const[loading,setLoading]=useState(false),[prog,setProg]=useState(''),[err,setErr]=useState('')
   const[sub,setSub]=useState('cobertura')
   const[selSafra,setSelSafra]=useState(null),[selAg,setSelAg]=useState(null)
-  const inadRef=useRef(),adimRef=useRef()
-  const readFile=(file,setter,tipo)=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=cfParsePlanilha(wb);setter({nome:file.name,rows});setErr('')}catch(e){setErr('Erro lendo '+tipo+': '+e.message)}};rd.readAsArrayBuffer(file)}
+  const[acordos,setAcordos]=useState(null)
+  const inadRef=useRef(),adimRef=useRef(),acRef=useRef()
+  const readFile=(file,setter,tipo,parser)=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=(parser||cfParsePlanilha)(wb);if(!rows.length){setErr('Não reconheci o formato de '+tipo+' — confira se é o arquivo certo.');return}setter({nome:file.name,rows});setErr('')}catch(e){setErr('Erro lendo '+tipo+': '+e.message)}};rd.readAsArrayBuffer(file)}
   const fetchCarteira=async()=>{
     setLoading(true);setErr('');setCart(null)
     const d12=new Date();d12.setMonth(d12.getMonth()-12);const piso=d12.toISOString().slice(0,10)
@@ -3168,6 +3184,7 @@ function ConferenciaCrefisa(){
     <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
       <FileBox label="📋 Planilha Crefisa — safra (inadimplência)" state={inad} onPick={f=>readFile(f,setInad,'inadimplência')} inputRef={inadRef} color={C.danger}/>
       <FileBox label="📗 Adimplência (opcional — normalmente já vem na de cima)" state={adim} onPick={f=>readFile(f,setAdim,'adimplência')} inputRef={adimRef} color={C.accent2}/>
+      <FileBox label="🤝 Acordos de cobrança (RelAcordosCrefisa — opcional)" state={acordos} onPick={f=>readFile(f,setAcordos,'acordos',cfParseAcordos)} inputRef={acRef} color={C.info}/>
       <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:6,minWidth:170}}>
         <button onClick={fetchCarteira} disabled={loading||(!inad&&!adim)} style={{padding:'12px 18px',borderRadius:10,border:'none',background:(loading||(!inad&&!adim))?C.border:C.accent,color:'#fff',fontWeight:700,fontSize:13,cursor:(loading||(!inad&&!adim))?'default':'pointer'}}>{loading?'Processando...':'▶ Confrontar carteira'}</button>
         {prog&&<div style={{fontSize:10,color:C.warn}}>{prog}</div>}
@@ -3192,7 +3209,7 @@ function ConferenciaCrefisa(){
         {ofA?<> Maior ofensor: <b style={{color:C.danger}}>{(ofA.key||'').split(' ').slice(0,3).join(' ')}</b> ({cfMoney(ofA.vencido)}).</>:null}
       </div>})()}
       <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
-        {[{id:'cobertura',l:'🧩 Cobertura (o que falta)'},{id:'inadimplencia',l:'📕 Inadimplência'},{id:'safras',l:'📅 Safras & Ofensores'},{id:'valores',l:'💵 Safra'}].map(t=><button key={t.id} onClick={()=>setSub(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(sub===t.id?C.accent:C.border),background:sub===t.id?C.abg:'transparent',color:sub===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sub===t.id?600:400}}>{t.l}</button>)}
+        {[{id:'cobertura',l:'🧩 Cobertura (o que falta)'},{id:'inadimplencia',l:'📕 Inadimplência'},{id:'safras',l:'📅 Safras & Ofensores'},{id:'cobranca',l:'🤝 Cobrança'},{id:'valores',l:'💵 Safra'}].map(t=><button key={t.id} onClick={()=>setSub(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(sub===t.id?C.accent:C.border),background:sub===t.id?C.abg:'transparent',color:sub===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sub===t.id?600:400}}>{t.l}</button>)}
       </div>
       {sub==='cobertura'&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
         <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
@@ -3291,6 +3308,49 @@ function ConferenciaCrefisa(){
           </div>
           <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:340,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Safra','Vencido','Atraso'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{devList.sort((a,b)=>(b._r.vencido||0)-(a._r.vencido||0)).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{(c.cliente||'').slice(0,28)}</td><td style={td}>{(c.data||'').slice(0,7)}</td><td style={{...td,fontWeight:700,color:C.danger}}>{cfMoney(c._r.vencido)}</td><td style={td}>{c._r.atraso||0}d</td></tr>)}</tbody></table></div>
         </div>}
+      </div>})()}
+      {sub==='cobranca'&&(()=>{
+        if(!acordos)return<div style={{background:C.card,border:'1px dashed '+C.border,borderRadius:14,padding:36,textAlign:'center',color:C.muted,fontSize:12}}>Suba o relatório <b>RelAcordosCrefisa</b> (exportado do painel da Crefisa) no box 🤝 acima para conferir a cobrança.</div>
+        const rows=acordos.rows
+        const pagos=rows.filter(r=>r.status==='PAGO')
+        const conv=rows.length?pagos.length/rows.length*100:0
+        const vlrRec=pagos.reduce((s,r)=>s+r.vlrPago,0)
+        const comReal=pagos.reduce((s,r)=>s+r.vlrCom,0)
+        // Cruzamento por CPF: inadimplentes da safra BR × acordos
+        const acCpf=new Set(rows.map(r=>r.cpf))
+        const inadSem=R.inadimplentes.filter(c=>!acCpf.has(cfCpf11(c.cpf))).sort((a,b)=>(b._r.vencido||0)-(a._r.vencido||0))
+        const inadCom=R.inadimplentes.length-inadSem.length
+        const vencSem=inadSem.reduce((s,c)=>s+(c._r.vencido||0),0)
+        // Ranking operadores de cobrança
+        const ops=new Map()
+        rows.forEach(r=>{const e=ops.get(r.usuario)||{key:r.usuario,tot:0,pagos:0,vlr:0,com:0};e.tot++;if(r.status==='PAGO'){e.pagos++;e.vlr+=r.vlrPago;e.com+=r.vlrCom}ops.set(r.usuario,e)})
+        const opsRank=[...ops.values()].map(e=>({...e,conv:e.tot?e.pagos/e.tot*100:0})).sort((a,b)=>b.vlr-a.vlr)
+        return<div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Stat label="Acordos (grupo todo)" value={rows.length} sub={acordos.nome.slice(0,28)}/>
+          <Stat label="Pagos" value={pagos.length} sub={conv.toFixed(1)+'% de conversão'} color={C.accent2}/>
+          <Stat label="Recuperado" value={cfMoney(vlrRec)} color={C.accent2}/>
+          <Stat label="Comissão de cobrança" value={cfMoney(comReal)} sub="sobre acordos pagos" color={C.accent}/>
+        </div>
+        <div style={{background:inadSem.length>0?'#EF444412':C.abg,border:'1px solid '+(inadSem.length>0?C.danger:C.accent2),borderRadius:12,padding:'12px 16px',fontSize:12,lineHeight:1.7}}>
+          <b>📌 Conferência Bolsa Família × Cobrança:</b> dos <b style={{color:C.danger}}>{R.inadimplentes.length}</b> inadimplentes da safra BR, <b style={{color:C.accent2}}>{inadCom}</b> têm acordo de cobrança e <b style={{color:C.danger}}>{inadSem.length}</b> estão <b>SEM NENHUM ACORDO</b> — {cfMoney(vencSem)} vencido sem ninguém cobrando.
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.danger}}>🚨 Inadimplentes BR sem acordo de cobrança ({inadSem.length})</div>
+            <button onClick={()=>cfExport(inadSem.map(c=>({contrato:c.contrato,cpf:c.cpf,cliente:c.cliente,vencido:c._r.vencido,dias_atraso:c._r.atraso,safra:(c.data||'').slice(0,7),agente:c.agente})),'crefisa-inadimplentes-sem-cobranca')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.danger,background:'#EF444410',color:C.danger,fontWeight:600,cursor:'pointer'}}>⬇ Exportar para acionar cobrança</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Clientes devendo na safra Bolsa Família que não aparecem no relatório de acordos — ordenados do maior vencido. Cruzamento por CPF.</div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:360,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Safra','Vencido','Atraso','Agente'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{inadSem.slice(0,500).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{(c.cliente||'').slice(0,26)}</td><td style={td}>{(c.data||'').slice(0,7)}</td><td style={{...td,fontWeight:700,color:C.danger}}>{cfMoney(c._r.vencido)}</td><td style={td}>{c._r.atraso||0}d</td><td style={{...td,color:C.muted}}>{(c.agente||'').slice(0,16)}</td></tr>)}</tbody></table></div>
+          {inadSem.length>500&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Mostrando 500 de {inadSem.length}. Exporte para ver todos.</div>}
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700}}>🏆 Operadores de cobrança — por valor recuperado</div>
+            <button onClick={()=>cfExport(opsRank.map(o=>({operador:o.key,acordos:o.tot,pagos:o.pagos,conversao:+o.conv.toFixed(1),recuperado:+o.vlr.toFixed(2),comissao:+o.com.toFixed(2)})),'crefisa-operadores-cobranca')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:320,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['#','Operador','Acordos','Pagos','Conv.','Recuperado','Comissão'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{opsRank.slice(0,100).map((o,i)=><tr key={i}><td style={{...td,color:C.muted}}>{i+1}</td><td style={{...td,fontWeight:600}}>{(o.key||'').slice(0,32)}</td><td style={td}>{o.tot}</td><td style={{...td,color:C.accent2}}>{o.pagos}</td><td style={{...td,fontWeight:700,color:o.conv>=70?C.accent2:o.conv>=50?C.warn:C.danger}}>{o.conv.toFixed(0)}%</td><td style={{...td,fontWeight:600,color:C.accent2}}>{cfMoney(o.vlr)}</td><td style={{...td,color:C.accent}}>{cfMoney(o.com)}</td></tr>)}</tbody></table></div>
+        </div>
       </div>})()}
       {sub==='valores'&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
         <div style={{fontSize:12,fontWeight:700}}>💵 Safra dos contratos que constam</div>
