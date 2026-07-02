@@ -2611,7 +2611,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3031,7 +3031,292 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'usuarios',l:'Usuários',i:'👤'}]
+
+/* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
+const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
+const cfDig=v=>String(v==null?'':v).replace(/\D/g,'')
+const cfPct=v=>{if(v==null||v==='')return null;const n=parseFloat(String(v).replace('%','').replace(',','.').replace(/[^\d.\-]/g,''));return isNaN(n)?null:n}
+const cfMoney=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+const cfOwn=k=>!!k&&(k.startsWith('50471')||k.startsWith('50472'))  // carteira própria LhamasCred (demais prefixos = outra carteira)
+const cfExport=(rows,name)=>{if(!rows||!rows.length)return;const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'dados');XLSX.writeFile(wb,name+'.xlsx')}
+function cfParsePlanilha(wb){
+  const ws=wb.Sheets[wb.SheetNames[0]]
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''})
+  if(!aoa.length)return[]
+  let hi=aoa.findIndex(row=>Array.isArray(row)&&row.some(c=>cfNorm(c)==='cpf')&&row.some(c=>cfNorm(c).includes('contrato')))
+  if(hi<0)hi=0
+  const H=aoa[hi].map(cfNorm)
+  const col=(...nd)=>{for(let i=0;i<H.length;i++)if(nd.some(n=>H[i].includes(n)))return i;return -1}
+  const colAll=(...nd)=>{for(let i=0;i<H.length;i++)if(nd.every(n=>H[i].includes(n)))return i;return -1}
+  const ci={
+    cpf:col('cpf'),contrato:col('contrato'),
+    projSafra:colAll('projetad','safra'),proj:col('projetad'),
+    vencido:col('vencid'),atraso:col('atraso'),
+    inadbr:colAll('inad','br'),zerobr:colAll('zero','pag','br'),
+    produto:col('tipoproduto','produto'),bancodeb:col('bancodebito','bancodeb','bancodebit')
+  }
+  const projIdx=ci.projSafra>=0?ci.projSafra:ci.proj
+  const rows=[]
+  for(let r=hi+1;r<aoa.length;r++){
+    const row=aoa[r];if(!Array.isArray(row))continue
+    const contrato=cfDig(row[ci.contrato]),cpf=cfDig(row[ci.cpf])
+    if(!contrato&&!cpf)continue
+    rows.push({contrato,cpf,
+      projSafra:projIdx>=0?pNum(row[projIdx]):0,
+      vencido:ci.vencido>=0?pNum(row[ci.vencido]):0,
+      atraso:ci.atraso>=0?parseInt(cfDig(row[ci.atraso])||'0',10):0,
+      inadBR:ci.inadbr>=0?cfPct(row[ci.inadbr]):null,
+      zeroBR:ci.zerobr>=0?cfPct(row[ci.zerobr]):null,
+      produto:ci.produto>=0?String(row[ci.produto]||''):'',
+      bancoDeb:ci.bancodeb>=0?String(row[ci.bancodeb]||''):''})
+  }
+  return rows
+}
+function ConferenciaCrefisa(){
+  const[inad,setInad]=useState(null),[adim,setAdim]=useState(null)
+  const[cart,setCart]=useState(null)
+  const[loading,setLoading]=useState(false),[prog,setProg]=useState(''),[err,setErr]=useState('')
+  const[sub,setSub]=useState('cobertura')
+  const[selSafra,setSelSafra]=useState(null),[selAg,setSelAg]=useState(null)
+  const inadRef=useRef(),adimRef=useRef()
+  const readFile=(file,setter,tipo)=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=cfParsePlanilha(wb);setter({nome:file.name,rows});setErr('')}catch(e){setErr('Erro lendo '+tipo+': '+e.message)}};rd.readAsArrayBuffer(file)}
+  const fetchCarteira=async()=>{
+    setLoading(true);setErr('');setCart(null)
+    const d12=new Date();d12.setMonth(d12.getMonth()-12);const piso=d12.toISOString().slice(0,10)
+    const PAGE=1000;let all=[],from=0
+    try{
+      while(true){
+        const{data,error}=await supabase.from('digitacoes')
+          .select('contrato,cpf,cliente,vr_bruto,vr_parcela,prazo,situacao,produto,data,agente')
+          .eq('banco','CREFISACP').gte('data',piso).not('contrato','is',null)
+          .or('contrato.like.50471*,contrato.like.50472*')
+          .in('situacao',['CONCRETIZADO','CRC CLIENTE','PAGO','INTEGRADA','PAGO C/PENDÊNCIA','PORTABILIDADE AVERBADA'])
+          .not('agente','ilike','%teste%').not('cliente','ilike','%teste%')
+          .range(from,from+PAGE-1)
+        if(error){setErr('Erro carteira: '+error.message);break}
+        if(!data||!data.length)break
+        all=all.concat(data);setProg('Carregando carteira... '+all.length)
+        if(data.length<PAGE)break;from+=PAGE
+      }
+      setCart({piso,rows:all})
+    }catch(e){setErr('Erro: '+e.message)}
+    setLoading(false);setProg('')
+  }
+  const R=useMemo(()=>{
+    if(!cart)return null
+    // Une as DUAS planilhas num único conjunto "reportados pela Crefisa", por contrato.
+    // Status real (devendo) vem de Valor Vencido / Dias em Atraso, NÃO da planilha de origem.
+    const rep=new Map()
+    const addRep=(rows,origem)=>{(rows||[]).forEach(r=>{if(!r.contrato||!cfOwn(r.contrato))return;const e=rep.get(r.contrato)||{contrato:r.contrato,cpf:r.cpf,vencido:0,atraso:0,projSafra:0,inadBR:null,origens:new Set()};e.vencido=Math.max(e.vencido,r.vencido||0);e.atraso=Math.max(e.atraso,r.atraso||0);if((r.projSafra||0)>e.projSafra)e.projSafra=r.projSafra||0;if(r.inadBR!=null)e.inadBR=r.inadBR;e.origens.add(origem);rep.set(r.contrato,e)})}
+    addRep(inad?.rows,'Inadimplência');addRep(adim?.rows,'Adimplência')
+    const isDevendo=e=>(e.vencido>0)  // inadimplente = SÓ quem tem valor vencido em aberto > 0
+    // Base = finalizados próprios (own)
+    const constam=[],naoConsta=[]
+    const own=cart.rows.filter(c=>cfOwn(cfDig(c.contrato)))  // só carteira própria (50471/50472)
+    const cartM=new Map()
+    own.forEach(c=>{const k=cfDig(c.contrato);if(!k)return;cartM.set(k,c)
+      const r=rep.get(k)
+      if(r)constam.push({...c,_r:r,dev:isDevendo(r)})
+      else naoConsta.push(c)})
+    // Mês de corte = safra mais recente presente na planilha. O que é posterior ainda não entrou (não é "falta").
+    const cutoff=constam.reduce((m,c)=>{const s=(c.data||'').slice(0,7);return s>m?s:m},'')
+    const posterior=naoConsta.filter(c=>(c.data||'').slice(0,7)>cutoff)  // originado após o corte da planilha
+    const faltaReal=naoConsta.filter(c=>!((c.data||'').slice(0,7)>cutoff))  // dentro do período → falta de verdade
+    const inadimplentes=constam.filter(c=>c.dev)
+    const adimplentes=constam.filter(c=>!c.dev)
+    // Safra fora do padrão: parcela ≠ R$159 ou prazo ≠ 12 (possível anomalia)
+    const anomalias=own.filter(c=>{const p=Number(c.vr_parcela)||0,pz=String(c.prazo||'').trim();return (p>0&&Math.abs(p-159)>0.5)||(pz!==''&&pz!=='12')})
+    // Reportados pela Crefisa que NÃO estão entre os finalizados próprios (em análise, cancelado, fora 12m ou nº divergente)
+    const foraFinal=[];rep.forEach((r,k)=>{if(!cartM.has(k))foraFinal.push({contrato:k,cpf:r.cpf,projSafra:r.projSafra,vencido:r.vencido,atraso:r.atraso,origem:[...r.origens].join(' + ')})})
+    const total=own.length
+    const noPeriodo=constam.length+faltaReal.length  // universo dentro do período coberto pela planilha
+    const cobertura=noPeriodo>0?(constam.length/noPeriodo*100):0
+    const taxaInad=constam.length>0?(inadimplentes.length/constam.length*100):0
+    const taxaTotal=total>0?(inadimplentes.length/total*100):0
+    const vencidoTot=constam.reduce((s,c)=>s+(c._r.vencido||0),0)
+    const projConstam=constam.reduce((s,c)=>s+(c._r.projSafra||0),0)
+    const valCart=own.reduce((s,c)=>s+(Number(c.vr_bruto)||0),0)
+    const inadReport=[...rep.values()].map(r=>r.inadBR).filter(v=>v!=null)
+    const inadReportAvg=inadReport.length?(inadReport.reduce((a,b)=>a+b,0)/inadReport.length):null
+    const faixas={'só vencido':0,'1-30':0,'31-60':0,'61-90':0,'90+':0}
+    inadimplentes.forEach(c=>{const d=c._r.atraso||0;if(d<=0)faixas['só vencido']++;else if(d<=30)faixas['1-30']++;else if(d<=60)faixas['31-60']++;else if(d<=90)faixas['61-90']++;else faixas['90+']++})
+    // Agrupa por SAFRA (mês de originação) e por USUÁRIO/agente — inadimplência sobre os que constam
+    const finBySafra=new Map(),finByAg=new Map()
+    own.forEach(c=>{const s=(c.data||'').slice(0,7)||'?';finBySafra.set(s,(finBySafra.get(s)||0)+1);const a=c.agente||'(sem agente)';finByAg.set(a,(finByAg.get(a)||0)+1)})
+    const grpS=new Map(),grpA=new Map()
+    const bump=(m,key,c)=>{const e=m.get(key)||{key,constam:0,inad:0,vencido:0,proj:0};e.constam++;if(c.dev)e.inad++;e.vencido+=(c._r.vencido||0);e.proj+=(c._r.projSafra||0);m.set(key,e)}
+    constam.forEach(c=>{bump(grpS,(c.data||'').slice(0,7)||'?',c);bump(grpA,c.agente||'(sem agente)',c)})
+    const safras=[...grpS.values()].map(e=>({...e,fin:finBySafra.get(e.key)||e.constam,pctInad:e.constam?e.inad/e.constam*100:0})).sort((a,b)=>a.key.localeCompare(b.key))
+    const usuarios=[...grpA.values()].map(e=>({...e,fin:finByAg.get(e.key)||e.constam,pctInad:e.constam?e.inad/e.constam*100:0})).sort((a,b)=>b.vencido-a.vencido)
+    return{constam,naoConsta,posterior,faltaReal,cutoff,noPeriodo,inadimplentes,adimplentes,anomalias,foraFinal,total,cobertura,taxaInad,taxaTotal,vencidoTot,projConstam,valCart,inadReportAvg,faixas,safras,usuarios,repCount:rep.size}
+  },[cart,inad,adim])
+  const FileBox=({label,state,onPick,inputRef,color})=>(
+    <div style={{flex:1,minWidth:200,background:C.card,border:'1px dashed '+(state?color:C.border),borderRadius:12,padding:14}}>
+      <div style={{fontSize:11,fontWeight:700,color:state?color:C.muted,marginBottom:6}}>{label}</div>
+      {state?<div style={{fontSize:11,color:C.text}}>✓ {state.nome}<div style={{fontSize:10,color:C.muted,marginTop:2}}>{state.rows.length} contratos lidos</div></div>:<div style={{fontSize:10,color:C.muted}}>Nenhuma planilha carregada</div>}
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];if(f)onPick(f)}}/>
+      <button onClick={()=>inputRef.current?.click()} style={{marginTop:8,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.border,background:C.surface,color:C.text,fontSize:11,cursor:'pointer'}}>📂 {state?'Trocar':'Selecionar'} arquivo</button>
+    </div>
+  )
+  const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
+  const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🔍 Conferência Crefisa</h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Baixa Renda / Bolsa Família · FINALIZADOS dos últimos 12 meses · só carteira própria (contratos 50471/50472) · cruzado por nº de contrato</div></div>
+    </div>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+      <FileBox label="📋 Planilha Crefisa — safra (inadimplência)" state={inad} onPick={f=>readFile(f,setInad,'inadimplência')} inputRef={inadRef} color={C.danger}/>
+      <FileBox label="📗 Adimplência (opcional — normalmente já vem na de cima)" state={adim} onPick={f=>readFile(f,setAdim,'adimplência')} inputRef={adimRef} color={C.accent2}/>
+      <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:6,minWidth:170}}>
+        <button onClick={fetchCarteira} disabled={loading||(!inad&&!adim)} style={{padding:'12px 18px',borderRadius:10,border:'none',background:(loading||(!inad&&!adim))?C.border:C.accent,color:'#fff',fontWeight:700,fontSize:13,cursor:(loading||(!inad&&!adim))?'default':'pointer'}}>{loading?'Processando...':'▶ Confrontar carteira'}</button>
+        {prog&&<div style={{fontSize:10,color:C.warn}}>{prog}</div>}
+        {cart&&!loading&&<div style={{fontSize:10,color:C.accent2}}>✓ {cart.rows.length} finalizados na carteira (desde {cart.piso})</div>}
+      </div>
+    </div>
+    {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
+    {R&&<>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Stat label="Finalizados 12m" value={R.total} sub={cfMoney(R.valCart)}/>
+        <Stat label="Constam na Crefisa" value={R.constam.length} sub={R.cobertura.toFixed(1)+'% de cobertura'} color={C.accent2}/>
+        <Stat label="Falta reportar" value={R.faltaReal.length} sub={R.posterior.length?('+'+R.posterior.length+' de período novo'):('até '+(R.cutoff||'—'))} color={C.warn}/>
+        <Stat label="Inadimplentes" value={R.inadimplentes.length} sub={'Vencido '+cfMoney(R.vencidoTot)} color={C.danger}/>
+        <Stat label="Taxa inad. real" value={R.taxaInad.toFixed(1)+'%'} sub={'dos '+R.constam.length+' que constam'} color={C.danger}/>
+        <Stat label="% inad. Crefisa (planilha)" value={R.inadReportAvg!=null?R.inadReportAvg.toFixed(1)+'%':'—'} sub="média reportada"/>
+      </div>
+      {(()=>{const ofS=R.safras.reduce((a,b)=>b.vencido>((a&&a.vencido)||-1)?b:a,null);const ofA=R.usuarios[0];const perda=R.projConstam>0?(R.vencidoTot/R.projConstam*100):0
+      return<div style={{background:C.abg,border:'1px solid '+C.accent+'44',borderRadius:12,padding:'12px 16px',fontSize:12,lineHeight:1.7}}>
+        <b>📌 Leitura rápida:</b> dos <b>{R.noPeriodo}</b> finalizados até <b>{R.cutoff||'—'}</b>, <b style={{color:C.accent2}}>{R.constam.length}</b> constam na Crefisa ({R.cobertura.toFixed(1)}%) e <b style={{color:C.warn}}>{R.faltaReal.length}</b> faltam.
+        {' '}Devendo: <b style={{color:C.danger}}>{R.inadimplentes.length}</b> ({R.taxaInad.toFixed(1)}%) — <b style={{color:C.danger}}>{cfMoney(R.vencidoTot)}</b> vencido de {cfMoney(R.projConstam)} projetado (<b style={{color:perda>=30?C.danger:C.warn}}>{perda.toFixed(1)}% de perda</b>).
+        {ofS?<> Safra ofensora: <b style={{color:C.danger}}>{ofS.key}</b> ({cfMoney(ofS.vencido)}).</>:null}
+        {ofA?<> Maior ofensor: <b style={{color:C.danger}}>{(ofA.key||'').split(' ').slice(0,3).join(' ')}</b> ({cfMoney(ofA.vencido)}).</>:null}
+      </div>})()}
+      <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+        {[{id:'cobertura',l:'🧩 Cobertura (o que falta)'},{id:'inadimplencia',l:'📕 Inadimplência'},{id:'safras',l:'📅 Safras & Ofensores'},{id:'valores',l:'💵 Safra'}].map(t=><button key={t.id} onClick={()=>setSub(t.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(sub===t.id?C.accent:C.border),background:sub===t.id?C.abg:'transparent',color:sub===t.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sub===t.id?600:400}}>{t.l}</button>)}
+      </div>
+      {sub==='cobertura'&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>Dos {R.noPeriodo} finalizados até {R.cutoff||'—'} (período da planilha), quantos a Crefisa está acompanhando?</div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:10}}>{R.posterior.length>0?R.posterior.length+' contratos originados depois de '+R.cutoff+' foram excluídos da cobertura — ainda não entraram na planilha (não é falta).':'A planilha cobre até '+(R.cutoff||'—')+'.'}</div>
+          <div style={{display:'flex',height:26,borderRadius:8,overflow:'hidden',border:'1px solid '+C.border}}>
+            <div style={{width:R.cobertura+'%',background:C.accent2,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:11,fontWeight:700}} title="Constam na planilha">{R.cobertura>=10?R.cobertura.toFixed(1)+'%':''}</div>
+            <div style={{flex:1,background:C.warn,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:11,fontWeight:700}} title="Falta">{(100-R.cobertura)>=8?(100-R.cobertura).toFixed(1)+'%':''}</div>
+          </div>
+          <div style={{display:'flex',gap:16,marginTop:10,fontSize:12,flexWrap:'wrap'}}>
+            <span><b style={{color:C.accent2}}>{R.constam.length}</b> constam</span>
+            <span><b style={{color:C.warn}}>{R.faltaReal.length}</b> faltam de verdade (dentro do período)</span>
+            {R.posterior.length>0&&<span><b style={{color:C.info}}>{R.posterior.length}</b> de período novo (após {R.cutoff})</span>}
+          </div>
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.warn}}>🧩 Faltam de verdade — finalizados até {R.cutoff||'—'} que a Crefisa NÃO reportou ({R.faltaReal.length})</div>
+            <button onClick={()=>cfExport(R.faltaReal.map(c=>({contrato:c.contrato,cpf:c.cpf,cliente:c.cliente,valor:c.vr_bruto,parcela:c.vr_parcela,prazo:c.prazo,situacao:c.situacao,data:c.data,agente:c.agente})),'crefisa-falta-reportar')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Contratos finalizados dentro do período da planilha que não aparecem nela — a Crefisa pode não estar considerando essa safra. Investigar.</div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:360,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Valor','Situação','Data','Agente'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{R.faltaReal.slice(0,500).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{(c.cliente||'').slice(0,28)}</td><td style={td}>{cfMoney(c.vr_bruto)}</td><td style={td}><Badge text={c.situacao||'—'} color={C.info}/></td><td style={td}>{fmtDate?fmtDate(c.data):c.data}</td><td style={{...td,color:C.muted}}>{(c.agente||'').slice(0,18)}</td></tr>)}</tbody></table></div>
+          {R.faltaReal.length>500&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Mostrando 500 de {R.faltaReal.length}. Exporte para ver todos.</div>}
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.info}}>📤 Na planilha da Crefisa mas NÃO entre os finalizados 12m ({R.foraFinal.length})</div>
+            <button onClick={()=>cfExport(R.foraFinal,'crefisa-fora-finalizados')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Contratos que a Crefisa reportou mas não achamos entre os finalizados dos últimos 12 meses (em análise, cancelado, período anterior ou nº divergente).</div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:300,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Proj. Safra','Vencido','Atraso','Planilha'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{R.foraFinal.slice(0,500).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{cfMoney(c.projSafra)}</td><td style={td}>{cfMoney(c.vencido)}</td><td style={td}>{c.atraso||0}d</td><td style={td}><Badge text={c.origem} color={C.info}/></td></tr>)}</tbody></table></div>
+        </div>
+      </div>}
+      {sub==='inadimplencia'&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Taxa de inadimplência</div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Devendo = só quem tem Valor Vencido em aberto &gt; 0.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,fontSize:12}}>
+              <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.muted}}>Real (devendo / finalizados que constam)</span><b style={{color:C.danger}}>{R.taxaInad.toFixed(2)}%</b></div>
+              <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.muted}}>Devendo sobre todos os finalizados 12m</span><b>{R.taxaTotal.toFixed(2)}%</b></div>
+              <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.muted}}>Reportada Crefisa (% inad BR média)</span><b>{R.inadReportAvg!=null?R.inadReportAvg.toFixed(2)+'%':'—'}</b></div>
+              {R.inadReportAvg!=null&&<div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid '+C.border,paddingTop:8}}><span style={{color:C.muted}}>Diferença (real − reportada)</span><b style={{color:Math.abs(R.taxaInad-R.inadReportAvg)>5?C.danger:C.accent2}}>{(R.taxaInad-R.inadReportAvg>=0?'+':'')+(R.taxaInad-R.inadReportAvg).toFixed(2)} pp</b></div>}
+            </div>
+          </div>
+          <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Inadimplentes por dias em atraso</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {Object.entries(R.faixas).map(([k,v])=>{const pct=R.inadimplentes.length?(v/R.inadimplentes.length*100):0;return<div key={k} style={{display:'flex',alignItems:'center',gap:8,fontSize:11}}><span style={{width:66,color:C.muted}}>{k==='só vencido'?k:k+' dias'}</span><div style={{flex:1,background:C.surface,borderRadius:5,height:14,overflow:'hidden'}}><div style={{width:pct+'%',height:'100%',background:k==='só vencido'?C.muted:k==='90+'?C.danger:C.warn}}/></div><span style={{width:60,textAlign:'right'}}>{v} ({pct.toFixed(0)}%)</span></div>})}
+            </div>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Stat label="Devendo (inadimplentes)" value={R.inadimplentes.length} small color={C.danger}/>
+          <Stat label="Em dia (adimplentes)" value={R.adimplentes.length} small color={C.accent2}/>
+          <Stat label="Valor vencido total" value={cfMoney(R.vencidoTot)} small color={C.danger}/>
+          <Stat label="Proj. safra (constam)" value={cfMoney(R.projConstam)} small/>
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.danger}}>📕 Finalizados devendo ({R.inadimplentes.length})</div>
+            <button onClick={()=>cfExport(R.inadimplentes.map(c=>({contrato:c.contrato,cpf:c.cpf,cliente:c.cliente,valor:c.vr_bruto,vencido:c._r.vencido,dias_atraso:c._r.atraso,situacao:c.situacao,agente:c.agente})),'crefisa-inadimplentes')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:360,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Valor','Vencido','Atraso','Agente'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{R.inadimplentes.slice(0,500).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{(c.cliente||'').slice(0,26)}</td><td style={td}>{cfMoney(c.vr_bruto)}</td><td style={{...td,color:C.danger,fontWeight:600}}>{cfMoney(c._r.vencido)}</td><td style={td}>{c._r.atraso||0}d</td><td style={{...td,color:C.muted}}>{(c.agente||'').slice(0,16)}</td></tr>)}</tbody></table></div>
+        </div>
+      </div>}
+      {sub==='safras'&&(()=>{
+        const ofS=R.safras.reduce((a,b)=>b.vencido>((a&&a.vencido)||-1)?b:a,null)
+        // Drill-down: base filtrada pela safra selecionada
+        const base=selSafra?R.constam.filter(c=>(c.data||'').slice(0,7)===selSafra):R.constam
+        const grp=new Map()
+        base.forEach(c=>{const a=c.agente||'(sem agente)';const e=grp.get(a)||{key:a,constam:0,inad:0,venc:0};e.constam++;if(c.dev){e.inad++;e.venc+=(c._r.vencido||0)}grp.set(a,e)})
+        const ags=[...grp.values()].map(e=>({...e,pct:e.constam?e.inad/e.constam*100:0})).sort((a,b)=>b.venc-a.venc)
+        const devList=selAg?base.filter(c=>c.dev&&(c.agente||'(sem agente)')===selAg):[]
+        return<div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700}}>📅 Inadimplência por safra (mês de originação){ofS?<span style={{color:C.danger,fontWeight:400}}> · ofensora: {ofS.key}</span>:''}</div>
+            <button onClick={()=>cfExport(R.safras.map(s=>({safra:s.key,finalizados:s.fin,constam:s.constam,inadimplentes:s.inad,pct_inad:+s.pctInad.toFixed(1),vencido:+s.vencido.toFixed(2),proj_safra:+s.proj.toFixed(2),pct_perda:s.proj>0?+(s.vencido/s.proj*100).toFixed(1):0})),'crefisa-safras')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>👆 Clique numa safra para ver os ofensores só daquele mês. % Perda = vencido ÷ projetado. Safra ofensora = maior vencido.</div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:400,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Safra','Finalizados','Constam','Inadimpl.','% Inad','Vencido','Proj. Safra','% Perda'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{R.safras.map((s,i)=>{const perda=s.proj>0?(s.vencido/s.proj*100):0;const sel=selSafra===s.key;return<tr key={i} onClick={()=>{setSelSafra(sel?null:s.key);setSelAg(null)}} style={{cursor:'pointer',background:sel?C.abg:ofS&&s.key===ofS.key?'#EF444410':'transparent',outline:sel?'1px solid '+C.accent:'none'}}><td style={{...td,fontWeight:600,color:sel?C.accent:C.text}}>{sel?'▶ ':''}{s.key}</td><td style={td}>{s.fin}</td><td style={td}>{s.constam}</td><td style={{...td,color:C.danger}}>{s.inad}</td><td style={{...td,fontWeight:700,color:s.pctInad>=30?C.danger:s.pctInad>=15?C.warn:C.text}}>{s.pctInad.toFixed(1)}%</td><td style={{...td,fontWeight:600,color:C.danger}}>{cfMoney(s.vencido)}</td><td style={td}>{cfMoney(s.proj)}</td><td style={{...td,fontWeight:700,color:perda>=30?C.danger:perda>=15?C.warn:C.accent2}}>{perda.toFixed(1)}%</td></tr>})}</tbody></table></div>
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700}}>👤 Agentes ofensores{selSafra?<span style={{color:C.accent}}> · safra {selSafra}</span>:' · todas as safras'}{selSafra&&<button onClick={()=>{setSelSafra(null);setSelAg(null)}} style={{marginLeft:8,fontSize:9,padding:'2px 8px',borderRadius:5,border:'1px solid '+C.border,background:C.surface,color:C.muted,cursor:'pointer'}}>✕ limpar filtro</button>}</div>
+            <button onClick={()=>cfExport(ags.map(u=>({agente:u.key,constam:u.constam,inadimplentes:u.inad,pct_inad:+u.pct.toFixed(1),vencido:+u.venc.toFixed(2)})),'crefisa-ofensores'+(selSafra?'-'+selSafra:''))} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>👆 Clique num agente para abrir os contratos devendo dele (lista de cobrança). Ordenado por vencido.</div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:340,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['#','Agente','Constam','Inadimpl.','% Inad','Vencido'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{ags.slice(0,200).map((u,i)=>{const sel=selAg===u.key;return<tr key={i} onClick={()=>setSelAg(sel?null:u.key)} style={{cursor:'pointer',background:sel?C.abg:'transparent',outline:sel?'1px solid '+C.accent:'none'}}><td style={{...td,color:C.muted}}>{i+1}</td><td style={{...td,fontWeight:600,color:sel?C.accent:C.text}}>{sel?'▶ ':''}{(u.key||'').slice(0,34)}</td><td style={td}>{u.constam}</td><td style={{...td,color:C.danger}}>{u.inad}</td><td style={{...td,fontWeight:700,color:u.pct>=30?C.danger:u.pct>=15?C.warn:C.text}}>{u.pct.toFixed(1)}%</td><td style={{...td,fontWeight:600,color:C.danger}}>{cfMoney(u.venc)}</td></tr>})}</tbody></table></div>
+        </div>
+        {selAg&&<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.danger}}>📞 Contratos devendo de {(selAg||'').slice(0,34)}{selSafra?' · safra '+selSafra:''} ({devList.length})</div>
+            <button onClick={()=>cfExport(devList.map(c=>({contrato:c.contrato,cpf:c.cpf,cliente:c.cliente,vencido:c._r.vencido,dias_atraso:c._r.atraso,safra:(c.data||'').slice(0,7),valor:c.vr_bruto})),'cobranca-'+(selAg||'').split(' ')[0].toLowerCase()+(selSafra?'-'+selSafra:''))} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.danger,background:'#EF444410',color:C.danger,fontWeight:600,cursor:'pointer'}}>⬇ Exportar lista de cobrança</button>
+          </div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:340,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Safra','Vencido','Atraso'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{devList.sort((a,b)=>(b._r.vencido||0)-(a._r.vencido||0)).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{(c.cliente||'').slice(0,28)}</td><td style={td}>{(c.data||'').slice(0,7)}</td><td style={{...td,fontWeight:700,color:C.danger}}>{cfMoney(c._r.vencido)}</td><td style={td}>{c._r.atraso||0}d</td></tr>)}</tbody></table></div>
+        </div>}
+      </div>})()}
+      {sub==='valores'&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{fontSize:12,fontWeight:700}}>💵 Safra dos contratos que constam</div>
+        <div style={{fontSize:10,color:C.muted}}>Safra padrão = parcela R$ 159,00 × 12x. "Valor Projetado Safra" é o recebível projetado da planilha (não o valor do empréstimo).</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Stat label="Contratos na safra (constam)" value={R.constam.length}/>
+          <Stat label="Valor Projetado Safra" value={cfMoney(R.projConstam)} color={C.accent2}/>
+          <Stat label="Valor Vencido total" value={cfMoney(R.vencidoTot)} color={C.danger}/>
+        </div>
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.warn}}>⚠️ Finalizados com safra fora do padrão — parcela ≠ R$159 ou prazo ≠ 12 ({R.anomalias.length})</div>
+            <button onClick={()=>cfExport(R.anomalias.map(c=>({contrato:c.contrato,cpf:c.cpf,cliente:c.cliente,parcela:c.vr_parcela,prazo:c.prazo,valor:c.vr_bruto,situacao:c.situacao})),'crefisa-safra-anomalias')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Contratos próprios cuja parcela ou prazo destoam do padrão de safra Baixa Renda — verificar.</div>
+          {R.anomalias.length===0?<div style={{padding:24,textAlign:'center',color:C.accent2,fontSize:13}}>✓ Todos com parcela R$ 159,00 e prazo 12x.</div>:
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:420,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Parcela','Prazo','Valor','Situação'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{R.anomalias.slice(0,500).map((c,i)=><tr key={i}><td style={td}>{c.contrato}</td><td style={{...td,color:C.muted}}>{c.cpf}</td><td style={td}>{(c.cliente||'').slice(0,24)}</td><td style={{...td,fontWeight:600,color:Math.abs((Number(c.vr_parcela)||0)-159)>0.5?C.danger:C.text}}>{cfMoney(c.vr_parcela)}</td><td style={{...td,fontWeight:600,color:String(c.prazo).trim()!=='12'?C.danger:C.text}}>{c.prazo||'—'}</td><td style={td}>{cfMoney(c.vr_bruto)}</td><td style={td}><Badge text={c.situacao||'—'} color={C.info}/></td></tr>)}</tbody></table></div>}
+        </div>
+      </div>}
+    </>}
+    {!R&&!loading&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:40,textAlign:'center',color:C.muted}}>
+      <div style={{fontSize:13,marginBottom:6}}>Suba a planilha de <b>inadimplência (safra)</b> da Crefisa e clique em <b style={{color:C.accent}}>Confrontar carteira</b>. A de adimplência é opcional.</div>
+      <div style={{fontSize:11}}>O sistema cruza por número de contrato (504720…) com os contratos FINALIZADOS da CREFISACP dos últimos 12 meses e mostra cobertura (o que falta a Crefisa reportar), taxa de inadimplência real e divergências de valor.</div>
+    </div>}
+  </div>
+}
 
 /* ═══ MAIN APP ═══ */
 export default function App(){
@@ -3275,6 +3560,7 @@ export default function App(){
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
+      {view==='crefisa'&&<ConferenciaCrefisa/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
