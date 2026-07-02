@@ -2611,7 +2611,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa','parcob']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3031,7 +3031,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'parcob',l:'Parceiro Cobrança',i:'📞'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -3081,11 +3081,11 @@ function cfParseAcordos(wb){
   if(hi<0)return[]
   const H=aoa[hi].map(cfNorm)
   const ix=n=>H.indexOf(n)
-  const ci={anoMes:ix('anomes'),usuario:ix('nomeusuario'),cliente:ix('nomecliente'),cpf:ix('cpf'),tel:ix('tel'),acordo:ix('numeroacordo'),dataAcordo:ix('dataacordo'),atraso:ix('diasatraso'),status:ix('statuspagto'),vlrPago:ix('vlrpago'),plano:ix('plano'),faixa:ix('faixaatraso'),vlrCom:ix('valorcalculadoporfaixacomissao')}
+  const ci={anoMes:ix('anomes'),usuario:ix('nomeusuario'),cliente:ix('nomecliente'),cpf:ix('cpf'),tel:ix('tel'),contrato:ix('codcontrato'),acordo:ix('numeroacordo'),dataAcordo:ix('dataacordo'),atraso:ix('diasatraso'),status:ix('statuspagto'),vlrPago:ix('vlrpago'),plano:ix('plano'),faixa:ix('faixaatraso'),vlrCom:ix('valorcalculadoporfaixacomissao')}
   const rows=[]
   for(let r=hi+1;r<aoa.length;r++){const row=aoa[r];if(!Array.isArray(row))continue
     const cpf=cfCpf11(row[ci.cpf]);if(!cpf)continue
-    rows.push({anoMes:String(row[ci.anoMes]||''),usuario:String(row[ci.usuario]||'(sem)'),cliente:String(row[ci.cliente]||''),cpf,tel:String(row[ci.tel]||''),acordo:String(row[ci.acordo]||''),dataAcordo:String(row[ci.dataAcordo]||''),atraso:parseInt(cfDig(row[ci.atraso])||'0',10),status:String(row[ci.status]||'').toUpperCase(),vlrPago:pNum(row[ci.vlrPago]),plano:String(row[ci.plano]||''),faixa:String(row[ci.faixa]||''),vlrCom:pNum(row[ci.vlrCom])})}
+    rows.push({anoMes:String(row[ci.anoMes]||''),usuario:String(row[ci.usuario]||'(sem)'),cliente:String(row[ci.cliente]||''),cpf,tel:String(row[ci.tel]||''),contrato:cfDig(row[ci.contrato]),acordo:String(row[ci.acordo]||''),dataAcordo:String(row[ci.dataAcordo]||''),atraso:parseInt(cfDig(row[ci.atraso])||'0',10),status:String(row[ci.status]||'').toUpperCase(),vlrPago:pNum(row[ci.vlrPago]),plano:String(row[ci.plano]||''),faixa:String(row[ci.faixa]||''),vlrCom:pNum(row[ci.vlrCom])})}
   return rows
 }
 function ConferenciaCrefisa(){
@@ -3378,6 +3378,135 @@ function ConferenciaCrefisa(){
   </div>
 }
 
+/* ═══ PARCEIRO COBRANÇA (funil: vendeu → efetivou → recebeu) ═══ */
+const cfNum=v=>{if(v==null||v==='')return 0;if(typeof v==='number')return v;const t=String(v).replace(/[R$\s]/g,'');if(t.includes(','))return parseFloat(t.replace(/\./g,'').replace(',','.'))||0;return parseFloat(t)||0}
+const cfCt=v=>cfDig(v).replace(/^0+/,'')  // contrato normalizado p/ cruzamento
+const cfMes=v=>{if(typeof v==='number'&&v>45000&&v<47000)return new Date(Math.round((v-25569)*86400000)).toISOString().slice(0,7);const s=String(v||'').trim();return /^\d{4}-\d{2}/.test(s)?s.slice(0,7):null}
+function cfParseVendas(wb){
+  const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''})
+  let hi=aoa.findIndex(r=>Array.isArray(r)&&r.some(c=>cfNorm(c)==='cpf')&&r.some(c=>cfNorm(c)==='contrato'))
+  if(hi<0)return[]
+  const H=aoa[hi].map(cfNorm)
+  const ci={cpf:H.indexOf('cpf'),ct:H.indexOf('contrato'),vt:H.indexOf('valortotal'),tel:H.indexOf('telefone')}
+  const rows=[]
+  for(let r=hi+1;r<aoa.length;r++){const row=aoa[r];if(!Array.isArray(row))continue
+    const ct=cfCt(row[ci.ct]);if(!ct)continue
+    // data pode mudar de coluna (linhas de junho têm coluna extra) — procura na linha
+    let mes=null;for(const cell of row){const m=cfMes(cell);if(m){mes=m;break}}
+    rows.push({ct,cpf:cfCpf11(row[ci.cpf]),vt:cfNum(row[ci.vt]),tel:cfDig(row[ci.tel]),mes:mes||'?'})}
+  return rows
+}
+function cfParseComissao(wb){
+  const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''})
+  let hi=aoa.findIndex(r=>Array.isArray(r)&&r.some(c=>{const n=cfNorm(c);return n.includes('numerocontrato')||n.includes('numcontrato')}))
+  if(hi<0)return[]
+  const H=aoa[hi].map(cfNorm)
+  const find=(...names)=>{for(const n of names){const i=H.findIndex(h=>h.includes(n));if(i>=0)return i}return -1}
+  const ci={ct:find('numerocontrato','numcontrato'),ac:find('numeroacordo','numacordo'),vp:find('valorpagocnab','vlrpagocnab'),vc:find('valorcomissao','vlrcalcomissao'),np:find('numparcreneg'),us:find('nomeusuarioacordo','nomeusuario'),login:find('loginusuario')}
+  if(ci.us<0&&ci.login>=0)ci.us=ci.login+1  // no formato .ods o nome vem logo após o login
+  const rows=[]
+  for(let r=hi+1;r<aoa.length;r++){const row=aoa[r];if(!Array.isArray(row))continue
+    const ct=cfCt(row[ci.ct]);if(!ct)continue
+    rows.push({ct,ac:cfDig(row[ci.ac]),vp:cfNum(row[ci.vp]),vc:cfNum(row[ci.vc]),np:parseInt(cfDig(row[ci.np])||'1',10),us:String(row[ci.us]||'(sem)')})}
+  return rows
+}
+function ParceiroCobranca(){
+  const[vendas,setVendas]=useState(null),[acomp,setAcomp]=useState(null),[coms,setComs]=useState([])
+  const[err,setErr]=useState('')
+  const vRef=useRef(),aRef=useRef(),cRef=useRef()
+  const read=(file,parser,cb,tipo)=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=parser(wb);if(!rows.length){setErr('Não reconheci o formato de '+tipo+' ('+file.name+')');return}setErr('');cb({nome:file.name,rows})}catch(e){setErr('Erro lendo '+tipo+': '+e.message)}};rd.readAsArrayBuffer(file)}
+  const R=useMemo(()=>{
+    if(!vendas)return null
+    const vCt=new Set(vendas.rows.map(v=>v.ct)),vCpf=new Set(vendas.rows.map(v=>v.cpf))
+    const vTot=vendas.rows.reduce((s,v)=>s+v.vt,0)
+    const porMes={};vendas.rows.forEach(v=>porMes[v.mes]=(porMes[v.mes]||0)+1)
+    // efetivação
+    let efet=[],efetPagos=[],semReg=0,vlrCliente=0
+    if(acomp){
+      efet=acomp.rows.filter(a=>vCt.has(a.ct)||vCpf.has(a.cpf))
+      efetPagos=efet.filter(a=>a.st==='PAGO')
+      vlrCliente=efetPagos.reduce((s,a)=>s+(a.vlrPago||0),0)
+      const acCt=new Set(acomp.rows.map(a=>a.ct))
+      semReg=[...vCt].filter(c=>!acCt.has(c)).length
+    }
+    // comissões
+    const com=coms.flatMap(f=>f.rows.map(r=>({...r,arq:f.nome})))
+    const comTot=com.reduce((s,c)=>s+c.vc,0)
+    const comV=com.filter(c=>vCt.has(c.ct)),comO=com.filter(c=>!vCt.has(c.ct))
+    const p2=com.filter(c=>c.np>1)
+    const comCt=new Set(com.map(c=>c.ct))
+    const pipeline=vendas.rows.filter(v=>!comCt.has(v.ct))
+    const pipeCt=new Set(pipeline.map(p=>p.ct))
+    const porArq=coms.map(f=>({nome:f.nome,n:f.rows.length,v:f.rows.reduce((s,r)=>s+r.vc,0)}))
+    const porUs=new Map();com.forEach(c=>{const e=porUs.get(c.us)||{key:c.us,n:0,v:0};e.n++;e.v+=c.vc;porUs.set(c.us,e)})
+    const usRank=[...porUs.values()].sort((a,b)=>b.v-a.v)
+    return{vCt,vTot,porMes,efet,efetPagos,semReg,vlrCliente,com,comTot,comV,comO,p2,pipeline:[...pipeCt],pipelineN:pipeCt.size,porArq,usRank,
+      comVTot:comV.reduce((s,c)=>s+c.vc,0),comOTot:comO.reduce((s,c)=>s+c.vc,0),p2Tot:p2.reduce((s,c)=>s+c.vc,0)}
+  },[vendas,acomp,coms])
+  const Box=({label,state,onPick,inputRef,color,multi})=>(
+    <div style={{flex:1,minWidth:190,background:C.card,border:'1px dashed '+(state&&(!multi||state.length)?color:C.border),borderRadius:12,padding:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:(state&&(!multi||state.length))?color:C.muted,marginBottom:5}}>{label}</div>
+      {multi?(state.length?state.map((f,i)=><div key={i} style={{fontSize:10,color:C.text}}>✓ {f.nome} ({f.rows.length})</div>):<div style={{fontSize:10,color:C.muted}}>Nenhum arquivo</div>)
+        :(state?<div style={{fontSize:10,color:C.text}}>✓ {state.nome}<div style={{color:C.muted}}>{state.rows.length} linhas</div></div>:<div style={{fontSize:10,color:C.muted}}>Nenhum arquivo</div>)}
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];if(f)onPick(f);e.target.value=''}}/>
+      <div style={{display:'flex',gap:6,marginTop:7}}>
+        <button onClick={()=>inputRef.current?.click()} style={{padding:'5px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.surface,color:C.text,fontSize:10,cursor:'pointer'}}>📂 {multi?'Adicionar':'Selecionar'}</button>
+        {multi&&state.length>0&&<button onClick={()=>setComs([])} style={{padding:'5px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.surface,color:C.danger,fontSize:10,cursor:'pointer'}}>✕ Limpar</button>}
+      </div>
+    </div>
+  )
+  const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
+  const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const pct=(a,b)=>b>0?(a/b*100).toFixed(1)+'%':'—'
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🤝 Parceiro Cobrança</h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Funil do parceiro de cobrança Crefisa: vendeu → efetivou → recebemos · cruzado por nº de contrato</div></div>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+      <Box label="1️⃣ Vendas do parceiro" state={vendas} onPick={f=>read(f,cfParseVendas,setVendas,'vendas')} inputRef={vRef} color={C.accent}/>
+      <Box label="2️⃣ Acompanhamento (RelAcordosCrefisa)" state={acomp} onPick={f=>read(f,w=>cfParseAcordos(w).map(r=>({...r,ct:cfCt(r.contrato||''),st:r.status})),setAcomp,'acompanhamento')} inputRef={aRef} color={C.info}/>
+      <Box label="3️⃣ Apurações de comissão (pode somar vários meses)" state={coms} onPick={f=>read(f,cfParseComissao,x=>setComs(p=>[...p,x]),'comissão')} inputRef={cRef} color={C.accent2} multi/>
+    </div>
+    {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
+    {!R&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:36,textAlign:'center',color:C.muted,fontSize:12}}>Suba pelo menos a planilha de <b>vendas do parceiro</b>. Acompanhamento e apurações completam o funil.</div>}
+    {R&&<>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Stat label="Vendeu (acordos)" value={vendas.rows.length} sub={cfMoney(R.vTot)+' · '+Object.entries(R.porMes).sort().map(([m,n])=>m+': '+n).join(' · ')}/>
+        <Stat label="Efetivou (PAGO)" value={acomp?R.efetPagos.length:'—'} sub={acomp?pct(R.efetPagos.length,R.efet.length)+' de conversão':'suba o acompanhamento'} color={C.accent2}/>
+        <Stat label="Cliente pagou" value={acomp?cfMoney(R.vlrCliente):'—'} color={C.accent2}/>
+        <Stat label="Recebemos (comissão)" value={coms.length?cfMoney(R.comTot):'—'} sub={coms.length?coms.length+' apuração(ões)':'suba as apurações'} color={C.accent}/>
+        <Stat label="Das vendas dele" value={coms.length?cfMoney(R.comVTot):'—'} sub={coms.length?pct(R.comVTot,R.comTot)+' do recebido':''} color={C.accent2}/>
+        <Stat label="Cauda (de trás)" value={coms.length?cfMoney(R.p2Tot):'—'} sub="2ª+ parcela de acordo antigo" color={C.warn}/>
+      </div>
+      {coms.length>0&&<div style={{background:C.abg,border:'1px solid '+C.accent+'44',borderRadius:12,padding:'12px 16px',fontSize:12,lineHeight:1.7}}>
+        <b>📌 Leitura rápida:</b> o parceiro vendeu <b>{vendas.rows.length}</b> acordos ({cfMoney(R.vTot)}).
+        {acomp?<> Efetivação: <b style={{color:C.accent2}}>{pct(R.efetPagos.length,R.efet.length)}</b> pagos, cliente pagou <b>{cfMoney(R.vlrCliente)}</b>.</>:null}
+        {' '}Recebemos <b>{cfMoney(R.comTot)}</b> de comissão — <b style={{color:C.accent2}}>{cfMoney(R.comVTot)}</b> das vendas dele e <b style={{color:C.warn}}>{cfMoney(R.comOTot)}</b> de fora (inclui {cfMoney(R.p2Tot)} de cauda de acordos antigos).
+        {' '}<b style={{color:C.accent}}>{R.pipelineN}</b> contratos vendidos ainda não geraram comissão — pipeline das próximas apurações.
+      </div>}
+      {coms.length>0&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Comissão por apuração</div>
+          <table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface}}>{['Arquivo','Linhas','Comissão'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+            {R.porArq.map((f,i)=><tr key={i}><td style={td}>{f.nome.slice(0,34)}</td><td style={td}>{f.n}</td><td style={{...td,fontWeight:600,color:C.accent2}}>{cfMoney(f.v)}</td></tr>)}
+          </tbody></table>
+        </div>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Comissão por operador</div>
+          <div style={{maxHeight:200,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface}}>{['Operador','Linhas','Comissão'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+            {R.usRank.slice(0,15).map((u,i)=><tr key={i}><td style={td}>{(u.key||'').slice(0,28)}</td><td style={td}>{u.n}</td><td style={{...td,fontWeight:600,color:C.accent2}}>{cfMoney(u.v)}</td></tr>)}
+          </tbody></table></div>
+        </div>
+      </div>}
+      {coms.length>0&&<div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.accent}}>⏳ Pipeline — contratos vendidos que ainda não geraram comissão ({R.pipelineN})</div>
+          <button onClick={()=>cfExport(vendas.rows.filter(v=>R.pipeline.includes(v.ct)).map(v=>({contrato:v.ct,cpf:v.cpf,telefone:v.tel,valor_acordo:v.vt,mes_venda:v.mes})),'parceiro-pipeline-sem-comissao')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted}}>É o dinheiro que ainda vem: acordos vendidos cujas parcelas ainda não apareceram em nenhuma apuração carregada.</div>
+      </div>}
+    </>}
+  </div>
+}
+
 /* ═══ MAIN APP ═══ */
 export default function App(){
   const[user,setUser]=useState(null),[view,setView]=useState('dashboard'),[loginError,setLoginError]=useState('')
@@ -3621,6 +3750,7 @@ export default function App(){
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
       {view==='crefisa'&&<ConferenciaCrefisa/>}
+      {view==='parcob'&&<ParceiroCobranca/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
