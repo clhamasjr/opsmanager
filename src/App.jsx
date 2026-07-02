@@ -3412,7 +3412,7 @@ function cfParseComissao(wb){
 }
 function ParceiroCobranca(){
   const[vendas,setVendas]=useState(null),[acomp,setAcomp]=useState(null),[coms,setComs]=useState([])
-  const[err,setErr]=useState('')
+  const[err,setErr]=useState(''),[fSt,setFSt]=useState('todos')
   const vRef=useRef(),aRef=useRef(),cRef=useRef()
   const read=(file,parser,cb,tipo)=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=parser(wb);if(!rows.length){setErr('Não reconheci o formato de '+tipo+' ('+file.name+')');return}setErr('');cb({nome:file.name,rows})}catch(e){setErr('Erro lendo '+tipo+': '+e.message)}};rd.readAsArrayBuffer(file)}
   const R=useMemo(()=>{
@@ -3440,7 +3440,24 @@ function ParceiroCobranca(){
     const porArq=coms.map(f=>({nome:f.nome,n:f.rows.length,v:f.rows.reduce((s,r)=>s+r.vc,0)}))
     const porUs=new Map();com.forEach(c=>{const e=porUs.get(c.us)||{key:c.us,n:0,v:0};e.n++;e.v+=c.vc;porUs.set(c.us,e)})
     const usRank=[...porUs.values()].sort((a,b)=>b.v-a.v)
+    // Status venda a venda + recorrência (precisa do acompanhamento)
+    let stRows=[],nPago=0,nNaoPago=0,nNaoConsta=0,pagoComRecN=0,pagoComRecV=0,pagoSemRecN=0,recorrentes=[]
+    if(acomp){
+      const acSt=new Map()
+      acomp.rows.forEach(a=>{const e=acSt.get(a.ct)||{st:'',cli:'',vp:0};e.cli=e.cli||a.cliente||'';if(a.st==='PAGO'){e.st='PAGO';e.vp+=(a.vlrPago||0)}else if(!e.st)e.st=a.st||'';acSt.set(a.ct,e)})
+      const comCt=new Map()
+      com.forEach(c=>{const e=comCt.get(c.ct)||{n:0,v:0,maxNp:0};e.n++;e.v+=c.vc;e.maxNp=Math.max(e.maxNp,c.np);comCt.set(c.ct,e)})
+      const seen=new Set()
+      vendas.rows.forEach(v=>{if(seen.has(v.ct))return;seen.add(v.ct)
+        const a=acSt.get(v.ct),c=comCt.get(v.ct)
+        const st=a?(a.st||'—'):'NÃO CONSTA'
+        if(!a)nNaoConsta++;else if(a.st==='PAGO')nPago++;else nNaoPago++
+        if(a&&a.st==='PAGO'){if(c){pagoComRecN++;pagoComRecV+=c.v;if(c.n>=2||c.maxNp>=2)recorrentes.push({ct:v.ct,cli:a.cli,cpf:v.cpf,tel:v.tel,parc:c.n,maxNp:c.maxNp,rec:c.v})}else pagoSemRecN++}
+        stRows.push({ct:v.ct,cpf:v.cpf,cli:a?a.cli:'',vt:v.vt,st,cliPagou:a?a.vp:0,recN:c?c.n:0,recV:c?c.v:0})})
+      recorrentes.sort((a,b)=>b.rec-a.rec)
+    }
     return{vCt,vTot,porMes,efet,efetPagos,semReg,vlrCliente,com,comTot,comV,comO,p2,pipeline:[...pipeCt],pipelineN:pipeCt.size,porArq,usRank,
+      stRows,nPago,nNaoPago,nNaoConsta,pagoComRecN,pagoComRecV,pagoSemRecN,recorrentes,
       comVTot:comV.reduce((s,c)=>s+c.vc,0),comOTot:comO.reduce((s,c)=>s+c.vc,0),p2Tot:p2.reduce((s,c)=>s+c.vc,0)}
   },[vendas,acomp,coms])
   const Box=({label,state,onPick,inputRef,color,multi})=>(
@@ -3480,7 +3497,33 @@ function ParceiroCobranca(){
         <b>📌 Leitura rápida:</b> o parceiro vendeu <b>{vendas.rows.length}</b> acordos ({cfMoney(R.vTot)}).
         {acomp?<> Efetivação: <b style={{color:C.accent2}}>{pct(R.efetPagos.length,R.efet.length)}</b> pagos, cliente pagou <b>{cfMoney(R.vlrCliente)}</b>.</>:null}
         {' '}Recebemos <b>{cfMoney(R.comTot)}</b> de comissão — <b style={{color:C.accent2}}>{cfMoney(R.comVTot)}</b> das vendas dele e <b style={{color:C.warn}}>{cfMoney(R.comOTot)}</b> de fora (inclui {cfMoney(R.p2Tot)} de cauda de acordos antigos).
+        {acomp?<> Dos <b style={{color:C.accent2}}>{R.nPago}</b> pagos: <b>{R.pagoComRecN}</b> já geraram comissão ({cfMoney(R.pagoComRecV)}) e <b style={{color:C.warn}}>{R.pagoSemRecN}</b> pagaram mas a comissão ainda não veio.</>:null}
         {' '}<b style={{color:C.accent}}>{R.pipelineN}</b> contratos vendidos ainda não geraram comissão — pipeline das próximas apurações.
+      </div>}
+      {acomp&&<div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}}>
+          <div style={{fontSize:12,fontWeight:700}}>🔎 Status venda a venda ({R.stRows.length} contratos)</div>
+          <button onClick={()=>cfExport(R.stRows.map(r=>({contrato:r.ct,cpf:r.cpf,cliente:r.cli,valor_acordo:r.vt,status:r.st,cliente_pagou:+(r.cliPagou||0).toFixed(2),parcelas_comissao:r.recN,comissao_recebida:+(r.recV||0).toFixed(2)})),'parceiro-status-vendas')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar tudo</button>
+        </div>
+        <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
+          {[{id:'todos',l:'Todos ('+R.stRows.length+')'},{id:'PAGO',l:'✅ Pagos ('+R.nPago+')'},{id:'NAOPAGO',l:'❌ Não pagos ('+R.nNaoPago+')'},{id:'PAGOSEM',l:'⏳ Pagos sem comissão ('+R.pagoSemRecN+')'},{id:'NAOCONSTA',l:'❓ Não constam ('+R.nNaoConsta+')'}].map(t=>
+            <button key={t.id} onClick={()=>setFSt(t.id)} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+(fSt===t.id?C.accent:C.border),background:fSt===t.id?C.abg:'transparent',color:fSt===t.id?C.accent:C.muted,fontSize:10,cursor:'pointer',fontWeight:fSt===t.id?600:400}}>{t.l}</button>)}
+        </div>
+        {(()=>{const fr=R.stRows.filter(r=>fSt==='todos'?true:fSt==='PAGO'?r.st==='PAGO':fSt==='NAOPAGO'?(r.st!=='PAGO'&&r.st!=='NÃO CONSTA'):fSt==='PAGOSEM'?(r.st==='PAGO'&&r.recN===0):r.st==='NÃO CONSTA')
+        return<><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:380,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Vlr acordo','Status','Cliente pagou','Parc. com.','Recebido'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {fr.slice(0,500).map((r,i)=><tr key={i}><td style={td}>{r.ct}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={td}>{(r.cli||'—').slice(0,26)}</td><td style={td}>{cfMoney(r.vt)}</td><td style={td}><Badge text={r.st} color={r.st==='PAGO'?C.accent2:r.st==='NÃO CONSTA'?C.muted:C.danger}/></td><td style={{...td,color:C.accent2}}>{r.cliPagou?cfMoney(r.cliPagou):'—'}</td><td style={{...td,textAlign:'center'}}>{r.recN||'—'}</td><td style={{...td,fontWeight:600,color:r.recV?C.accent:C.muted}}>{r.recV?cfMoney(r.recV):'—'}</td></tr>)}
+        </tbody></table></div>
+        {fr.length>500&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Mostrando 500 de {fr.length}. Exporte para ver todos.</div>}</>})()}
+      </div>}
+      {acomp&&coms.length>0&&<div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.accent2}}>🔁 Clientes de recorrência — pagos com 2+ parcelas de comissão ({R.recorrentes.length})</div>
+          <button onClick={()=>cfExport(R.recorrentes.map(r=>({contrato:r.ct,cliente:r.cli,cpf:r.cpf,telefone:r.tel,parcelas_comissao:r.parc,max_parcela_reneg:r.maxNp,comissao_recebida:+r.rec.toFixed(2)})),'parceiro-clientes-recorrencia')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:600,cursor:'pointer'}}>⬇ Exportar recorrentes</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Clientes que pagaram o acordo e continuam pagando parcelas — a receita recorrente da carteira. Comissão total deles: <b style={{color:C.accent2}}>{cfMoney(R.recorrentes.reduce((s,r)=>s+r.rec,0))}</b></div>
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:340,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Telefone','Parc. com.','Máx. parc. reneg','Recebido'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {R.recorrentes.slice(0,300).map((r,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(r.cli||'—').slice(0,30)}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={{...td,color:C.muted}}>{r.tel||'—'}</td><td style={{...td,textAlign:'center'}}>{r.parc}</td><td style={{...td,textAlign:'center'}}>{r.maxNp}</td><td style={{...td,fontWeight:700,color:C.accent2}}>{cfMoney(r.rec)}</td></tr>)}
+        </tbody></table></div>
       </div>}
       {coms.length>0&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
