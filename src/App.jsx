@@ -20,6 +20,9 @@ const sitCol=s=>{s=(s||'').toUpperCase();if(['FINALIZADO','PAGO','AVERBADO','APR
 function nDate(v){if(!v)return'';if(typeof v==='number'){const days=Math.floor(v-25569);const y=1970;const d=new Date(Date.UTC(y,0,1+days));return!isNaN(d.getTime())?(d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0')):''}const s=String(v).trim(),m=s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);if(m)return(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);return''}
 function pNum(v){if(v==null||v==='')return 0;if(typeof v==='number')return v;return parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.'))||0}
 const fixDate=v=>{if(!v)return'';const s=String(v).trim();return s.length>=10&&s[4]==='-'?s.slice(0,10):s}
+// Pendência "expirada": sem atividade há mais de N dias (sync parado / proposta morta) — sai dos cards, não é apagada
+const OLD_PEND_DAYS=60
+const isOldPend=d=>{if(!d)return false;const dt=new Date(String(d).slice(0,10)+'T00:00:00');return !isNaN(dt.getTime())&&(NOW-dt)/86400000>OLD_PEND_DAYS}
 const fromDb=r=>({id:r.id,id_ext:r.id_ext||'',banco:r.banco||'',cpf:r.cpf||'',cliente:r.cliente||'',proposta:r.proposta||'',contrato:r.contrato||'',data:fixDate(r.data),prazo:r.prazo||'',vrBruto:Number(r.vr_bruto)||0,vrParcela:Number(r.vr_parcela)||0,vrLiquido:Number(r.vr_liquido)||0,vrRepasse:Number(r.vr_repasse)||0,vrSeguro:Number(r.vr_seguro)||0,taxa:r.taxa||'',operacao:r.operacao||'',situacao:r.situacao||'',produto:r.produto||'',convenio:r.convenio||'',agente:r.agente||'',situacaoBanco:r.situacao_banco||'',obsSituacao:r.obs_situacao||'',usuario:r.usuario||'',crcCliente:fixDate(r.crc_cliente),dataNossoCredito:fixDate(r.data_nosso_credito)})
 const toDb=o=>({id_ext:o.id_ext||'',banco:o.banco||'',cpf:o.cpf||'',cliente:o.cliente||'',proposta:o.proposta||'',contrato:o.contrato||'',data:o.data||null,prazo:o.prazo||'',vr_bruto:o.vrBruto||0,vr_parcela:o.vrParcela||0,vr_liquido:o.vrLiquido||0,vr_repasse:o.vrRepasse||0,vr_seguro:o.vrSeguro||0,taxa:o.taxa||'',operacao:o.operacao||'',situacao:o.situacao||'',produto:o.produto||'',convenio:o.convenio||'',agente:o.agente||'',situacao_banco:o.situacaoBanco||'',obs_situacao:o.obsSituacao||'',usuario:o.usuario||'',crc_cliente:o.crcCliente||null,data_nosso_credito:o.dataNossoCredito||null})
 
@@ -638,6 +641,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
   // CIP próximos 5 dias úteis (com e sem data esperada)
   const[cipNext,setCipNext]=useState([])
   const[cipSemData,setCipSemData]=useState([])  // aguardando CIP sem data prevista
+  const[cipExpiradas,setCipExpiradas]=useState(0)  // pendências sem atividade +60d (ocultas)
   useEffect(()=>{
     (async()=>{
       const today=new Date()
@@ -654,13 +658,14 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
       ]
       setCipNext(merged)
       // Aguardando sem data
-      const{data:q3a}=await supabase.from('portabilidades_enriched').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_returned,borrower_identity,parceiro_nome,status_key').is('origin_due_balance_expected_date',null).eq('origin_due_balance_returned',false).in('status_key',['awaiting_portability','awaiting_formalization','awaiting_cip','documents_not_found','accepted','proposal_cadastrada']).limit(3000)
-      const{data:q3b}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,partner_status_text,client_cpf,squad_user_name').is('expected_balance_date',null).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade']).limit(3000)
+      const{data:q3a}=await supabase.from('portabilidades_enriched').select('id,borrower_name,origin_bank_name,origin_due_balance,origin_due_balance_returned,borrower_identity,parceiro_nome,status_key,status_date').is('origin_due_balance_expected_date',null).eq('origin_due_balance_returned',false).in('status_key',['awaiting_portability','awaiting_formalization','awaiting_cip','documents_not_found','accepted','proposal_cadastrada']).limit(3000)
+      const{data:q3b}=await supabase.from('consig_proposals').select('id,title,contract_bank_name,bank_name,value,debit_balance,partner_status_text,client_cpf,squad_user_name,updated_at_api,created_at_api').is('expected_balance_date',null).in('partner_status_text',['Aguardando Saldo CIP','Aguardando Finalização da portabilidade']).limit(3000)
       const semData=[
-        ...(q3a||[]).map(r=>({client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:r.parceiro_nome||null,status:r.status_key,source:'quali'})),
-        ...(q3b||[]).map(r=>({client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,status:r.partner_status_text,source:'consig360'}))
+        ...(q3a||[]).map(r=>({client:r.borrower_name,bank:r.origin_bank_name,value:Number(r.origin_due_balance||0),cpf:r.borrower_identity,parceiro:r.parceiro_nome||null,status:r.status_key,source:'quali',_old:isOldPend(r.status_date)})),
+        ...(q3b||[]).map(r=>({client:r.title,bank:r.contract_bank_name||r.bank_name,value:Number(r.debit_balance||r.value||0),cpf:r.client_cpf,parceiro:r.squad_user_name,status:r.partner_status_text,source:'consig360',_old:isOldPend(r.updated_at_api||r.created_at_api)}))
       ]
-      setCipSemData(semData)
+      setCipSemData(semData.filter(x=>!x._old))
+      setCipExpiradas(semData.filter(x=>x._old).length)
     })()
   },[myAgents])
   // Use fast RPC data when available, fallback to computed
@@ -769,7 +774,7 @@ function Dashboard({curOps,prevOps,curProd,prevProd,prevProdProp,m2Prop,m3Prop,m
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:6}}>
             <div>
               <div style={{fontSize:14,fontWeight:800,color:C.warn}}>⏳ CIP a Retornar — Próximos 5 Dias Úteis</div>
-              <div style={{fontSize:10,color:C.muted}}>Saldos aguardando retorno da Câmara</div>
+              <div style={{fontSize:10,color:C.muted}}>Saldos aguardando retorno da Câmara{cipExpiradas>0?` · 🗄️ ${cipExpiradas} antigas ocultas (+${OLD_PEND_DAYS}d sem atividade)`:''}</div>
             </div>
             <div style={{textAlign:'right'}}>
               <div style={{fontSize:10,color:C.muted}}>Total esperado</div>
@@ -1684,7 +1689,8 @@ function Consig360({user}){
 
 function Portabilidade({filterParceiroId,user,myAgents}={}){
   const[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[msg,setMsg]=useState('')
-  const[pendRows,setPendRows]=useState([])  // TODAS pendências (sem filtro de período) para card CIP a Retornar
+  const[pendRows,setPendRows]=useState([])  // pendências ATIVAS (com atividade recente) para card CIP a Retornar
+  const[pendExpiradas,setPendExpiradas]=useState(0)  // pendências sem atividade +60d (fora dos cards)
   const[per,setPer]=useState('mes'),[customDf,setCustomDf]=useState(''),[customDt,setCustomDt]=useState(''),[trigger,setTrigger]=useState(0)
   const[fBanco,sFBanco]=useState(''),[fStatus,sFStatus]=useState(''),[fOp,sFOp]=useState(''),[se,sSe]=useState('')
   const[fDataRetornoDe,sFDataRetornoDe]=useState(''),[fDataRetornoAte,sFDataRetornoAte]=useState('')
@@ -1751,7 +1757,11 @@ function Portabilidade({filterParceiroId,user,myAgents}={}){
     setRows(teamFilter([...qualiRows,...consigRows]).sort((a,b)=>(b.proposal_date||'').localeCompare(a.proposal_date||'')))
     const qualiPend=(rP1.data||[]).map(r=>normalizeQuali(r))
     const consigPend=(rP2.data||[]).map(r=>normalizeConsig(r))
-    setPendRows(teamFilter([...qualiPend,...consigPend]))
+    const allPend=teamFilter([...qualiPend,...consigPend])
+    // Corte de atividade: pendência sem update há +60d = expirada (sync parado / proposta morta) — sai dos cards
+    const freshPend=allPend.filter(r=>!isOldPend(r._source==='quali'?(r.status_date||r.updated_at):(r.updated_at_api||r.created_at_api)))
+    setPendRows(freshPend)
+    setPendExpiradas(allPend.length-freshPend.length)
     const{data:sl}=await supabase.from('sync_logs').select('*').in('source',['qualibanking','consig360']).order('started_at',{ascending:false}).limit(1)
     if(sl&&sl[0])setLastSync(sl[0])
     setLoading(false)
@@ -1953,7 +1963,7 @@ function Portabilidade({filterParceiroId,user,myAgents}={}){
     <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,alignItems:'center'}}>
       <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>{isParceiroView?'Meu Portal':'Portabilidade'}</h2>
       {isParceiroView&&parceiroInfo&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>👤 {parceiroInfo.nome}{parceiroInfo.telefone?' · '+parceiroInfo.telefone:''}</div>}
-      {!isParceiroView&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{rows.length} registros no período · {pendRows.length} pendências abertas{lastSync?` · última sync: ${new Date(lastSync.started_at).toLocaleString('pt-BR')} (${lastSync.records_upserted||0} novas/atualizadas)`:''}</div>}</div>
+      {!isParceiroView&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{rows.length} registros no período · {pendRows.length} pendências abertas{pendExpiradas>0?` · 🗄️ ${pendExpiradas} expiradas ocultas (+${OLD_PEND_DAYS}d sem atividade)`:''}{lastSync?` · última sync: ${new Date(lastSync.started_at).toLocaleString('pt-BR')} (${lastSync.records_upserted||0} novas/atualizadas)`:''}</div>}</div>
       <div style={{display:'flex',gap:6}}>
         {canManage()&&<button onClick={exportPortab} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>}
         {!isParceiroView&&canManage()&&<button onClick={doSync} disabled={syncing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:syncing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:syncing?.6:1}}>{syncing?'⏳ Sincronizando...':'🔄 Sync QualiBanking'}</button>}
