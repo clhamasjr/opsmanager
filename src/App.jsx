@@ -202,10 +202,11 @@ function parseParceiros(wb){
     // Deduplicar nomes — adiciona código se houver duplicata
     const nameCount={};parsed.forEach(p=>nameCount[p.nome]=(nameCount[p.nome]||0)+1)
     parsed.forEach(p=>{if(nameCount[p.nome]>1&&p.cod_agente)p.nome=p.nome+' ('+p.cod_agente+')'})
-    return parsed
+    // Dedup final: mesmo nome+código repetido na planilha quebra o upsert (ON CONFLICT ... row a second time) — funde mantendo campos preenchidos
+    return dedupeByNome(parsed)
   }
   const jsonRows=XLSX.utils.sheet_to_json(ws,{defval:''})
-  return jsonRows.map(r=>({
+  return dedupeByNome(jsonRows.map(r=>({
     nome:String(r.Nome||r.nome||r.NOME||r.Agente||r.agente||'').trim(),
     cpf_cnpj:String(r.CPF||r.CNPJ||r.cpf_cnpj||r['CPF/CNPJ']||'').trim(),
     telefone:String(r.Telefone||r.telefone||r.Tel||r.Celular||'').trim(),
@@ -214,7 +215,16 @@ function parseParceiros(wb){
     uf:String(r.UF||r.uf||'').trim(),
     responsavel:String(r.Responsavel||r.responsavel||r.Supervisor||'').trim(),
     observacao:String(r.Obs||r.obs||r['Observação']||'').trim()
-  })).filter(r=>r.nome)
+  })).filter(r=>r.nome))
+}
+function dedupeByNome(arr){
+  const m=new Map()
+  arr.forEach(p=>{
+    const e=m.get(p.nome)
+    if(!e){m.set(p.nome,p);return}
+    Object.keys(p).forEach(f=>{const v=p[f];if(v!==''&&v!=null&&(e[f]===''||e[f]==null))e[f]=v})
+  })
+  return[...m.values()]
 }
 
 function Parceiros({curOps,curProd,myAgents}){
