@@ -3473,20 +3473,29 @@ function ParceiroCobranca(){
         const st=a?(a.st||'—'):'NÃO CONSTA'
         if(!a)nNaoConsta++;else if(a.st==='PAGO')nPago++;else nNaoPago++
         if(a&&a.st==='PAGO'){if(c){pagoComRecN++;pagoComRecV+=c.v;if(c.n>=2||c.maxNp>=2)recorrentes.push({ct:v.ct,cli:a.cli,cpf:v.cpf,tel:v.tel,parc:c.n,maxNp:c.maxNp,rec:c.v,mes:v.mes})}else pagoSemRecN++}
-        stRows.push({ct:v.ct,cpf:v.cpf,cli:a?a.cli:'',vt:v.vt,st,cliPagou:a?a.vp:0,recN:c?c.n:0,recV:c?c.v:0,mes:v.mes||'?'})})
+        stRows.push({ct:v.ct,cpf:v.cpf,cli:a?a.cli:'',vt:v.vt,st,cliPagou:a?a.vp:0,recN:c?c.n:0,recV:c?c.v:0,maxNp:c?c.maxNp:0,mes:v.mes||'?'})})
       recorrentes.sort((a,b)=>b.rec-a.rec)
     }
-    // Recebimento por MÊS DE VENDA: recebeu × pago sem comissão × cliente não pagou
+    // 4 categorias do funil por contrato vendido:
+    // 💰 recebemos (recN>0) · ⏳ ainda não recebemos (cliente pagou, sem comissão) · ❌ cliente não pagou · 🔁 recorrência (2+ parcelas do que recebemos)
+    const isRecorr=r=>r.recN>0&&(r.recN>=2||r.maxNp>=2)
+    const bucketOf=r=>r.recN>0?'REC':(r.st==='PAGO'?'PEND':'NAOPAGOU')
+    const bkRec=stRows.filter(r=>r.recN>0)
+    const bkPendN=stRows.filter(r=>bucketOf(r)==='PEND').length
+    const bkNaoPagouN=stRows.filter(r=>bucketOf(r)==='NAOPAGOU').length
+    const bkRecorr=stRows.filter(isRecorr)
+    // Recebimento por MÊS DE VENDA nas mesmas 4 categorias
     const mesesVenda=(()=>{const m=new Map()
-      stRows.forEach(r=>{const e=m.get(r.mes)||{mes:r.mes,vendidos:0,recebeu:0,recV:0,pagoSemCom:0,naoPagou:0}
+      stRows.forEach(r=>{const e=m.get(r.mes)||{mes:r.mes,vendidos:0,recebeu:0,recV:0,pagoSemCom:0,naoPagou:0,recorr:0}
         e.vendidos++
-        if(r.recN>0){e.recebeu++;e.recV+=r.recV}
+        if(r.recN>0){e.recebeu++;e.recV+=r.recV;if(isRecorr(r))e.recorr++}
         else if(r.st==='PAGO')e.pagoSemCom++
         else e.naoPagou++
         m.set(r.mes,e)})
       return[...m.values()].sort((a,b)=>a.mes.localeCompare(b.mes))})()
     return{vCt,vTot,porMes,efet,efetPagos,semReg,vlrCliente,com,comTot,comV,comO,p2,pipeline:[...pipeCt],pipelineN:pipeCt.size,porArq,usRank,
-      stRows,mesesVenda,nPago,nNaoPago,nNaoConsta,pagoComRecN,pagoComRecV,pagoSemRecN,recorrentes,
+      stRows,mesesVenda,isRecorr,bucketOf,bkRecN:bkRec.length,bkRecV:bkRec.reduce((s,r)=>s+r.recV,0),bkPendN,bkNaoPagouN,bkRecorrN:bkRecorr.length,bkRecorrV:bkRecorr.reduce((s,r)=>s+r.recV,0),
+      nPago,nNaoPago,nNaoConsta,pagoComRecN,pagoComRecV,pagoSemRecN,recorrentes,
       comVTot:comV.reduce((s,c)=>s+c.vc,0),comOTot:comO.reduce((s,c)=>s+c.vc,0),p2Tot:p2.reduce((s,c)=>s+c.vc,0)}
   },[vendas,acomp,coms])
   const Box=({label,state,onPick,inputRef,color,multi})=>(
@@ -3515,12 +3524,12 @@ function ParceiroCobranca(){
     {!R&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:36,textAlign:'center',color:C.muted,fontSize:12}}>Suba pelo menos a planilha de <b>vendas do parceiro</b>. Acompanhamento e apurações completam o funil.</div>}
     {R&&<>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <Stat label="Vendeu (acordos)" value={vendas.rows.length} sub={cfMoney(R.vTot)+' · '+Object.entries(R.porMes).sort().map(([m,n])=>m+': '+n).join(' · ')}/>
-        <Stat label="Efetivou (PAGO)" value={acomp?R.efetPagos.length:'—'} sub={acomp?pct(R.efetPagos.length,R.efet.length)+' de conversão':'suba o acompanhamento'} color={C.accent2}/>
-        <Stat label="Cliente pagou" value={acomp?cfMoney(R.vlrCliente):'—'} color={C.accent2}/>
-        <Stat label="Recebemos (comissão)" value={coms.length?cfMoney(R.comTot):'—'} sub={coms.length?coms.length+' apuração(ões)':'suba as apurações'} color={C.accent}/>
-        <Stat label="Das vendas dele" value={coms.length?cfMoney(R.comVTot):'—'} sub={coms.length?pct(R.comVTot,R.comTot)+' do recebido':''} color={C.accent2}/>
-        <Stat label="Cauda (de trás)" value={coms.length?cfMoney(R.p2Tot):'—'} sub="2ª+ parcela de acordo antigo" color={C.warn}/>
+        <Stat label="Vendeu" value={vendas.rows.length} sub={cfMoney(R.vTot)+' · '+Object.entries(R.porMes).sort().map(([m,n])=>m+': '+n).join(' · ')}/>
+        <Stat label="💰 Vendeu e recebemos" value={(acomp&&coms.length)?R.bkRecN:'—'} sub={(acomp&&coms.length)?cfMoney(R.bkRecV)+' de comissão':'suba acompanhamento + apurações'} color={C.accent2}/>
+        <Stat label="⏳ Vendeu e ainda não recebemos" value={(acomp&&coms.length)?R.bkPendN:'—'} sub="cliente pagou · comissão a caminho" color={C.warn}/>
+        <Stat label="❌ Vendeu e cliente não pagou" value={acomp?R.bkNaoPagouN:'—'} sub={acomp?pct(R.bkNaoPagouN,R.stRows.length)+' das vendas':''} color={C.danger}/>
+        <Stat label="🔁 Recorrência de trás" value={(acomp&&coms.length)?R.bkRecorrN:'—'} sub={(acomp&&coms.length)?cfMoney(R.bkRecorrV)+' · pagando 2ª+ parcela':''} color={C.accent}/>
+        <Stat label="Recebido total (geral)" value={coms.length?cfMoney(R.comTot):'—'} sub={coms.length?'inclui fora das vendas deste parceiro':'suba as apurações'}/>
       </div>
       {coms.length>0&&<div style={{background:C.abg,border:'1px solid '+C.accent+'44',borderRadius:12,padding:'12px 16px',fontSize:12,lineHeight:1.7}}>
         <b>📌 Leitura rápida:</b> o parceiro vendeu <b>{vendas.rows.length}</b> acordos ({cfMoney(R.vTot)}).
@@ -3532,29 +3541,28 @@ function ParceiroCobranca(){
       {acomp&&coms.length>0&&<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <div style={{fontSize:12,fontWeight:700}}>📆 Recebimento por mês de venda {fMes&&<button onClick={()=>setFMes(null)} style={{marginLeft:8,fontSize:9,padding:'2px 8px',borderRadius:5,border:'1px solid '+C.border,background:C.surface,color:C.muted,cursor:'pointer'}}>✕ limpar filtro {fMes}</button>}</div>
-          <button onClick={()=>cfExport(R.mesesVenda.map(m=>({mes_venda:m.mes,vendidos:m.vendidos,receberam_comissao:m.recebeu,comissao_recebida:+m.recV.toFixed(2),pagos_sem_comissao:m.pagoSemCom,cliente_nao_pagou:m.naoPagou})),'parceiro-recebimento-por-mes')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          <button onClick={()=>cfExport(R.mesesVenda.map(m=>({mes_venda:m.mes,vendidos:m.vendidos,vendeu_e_recebemos:m.recebeu,comissao_recebida:+m.recV.toFixed(2),ainda_nao_recebemos:m.pagoSemCom,cliente_nao_pagou:m.naoPagou,recorrencia:m.recorr})),'parceiro-recebimento-por-mes')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>👆 Clique num mês para filtrar a lista de baixo. "Pagou s/ comissão" = cliente pagou o acordo mas a comissão não veio na apuração (cobrar Crefisa / aguardar próxima).</div>
-        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface}}>{['Mês da venda','Vendidos','✅ Receberam','R$ recebido','⏳ Pagou s/ comissão','❌ Cliente não pagou','% recebido'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>
-          {R.mesesVenda.map((m,i)=>{const sel=fMes===m.mes;const pctR=m.vendidos?(m.recebeu/m.vendidos*100):0;return<tr key={i} onClick={()=>setFMes(sel?null:m.mes)} style={{cursor:'pointer',background:sel?C.abg:'transparent',outline:sel?'1px solid '+C.accent:'none'}}><td style={{padding:'7px 10px',fontSize:11,fontWeight:700,color:sel?C.accent:C.text,borderBottom:'1px solid '+C.border}}>{sel?'▶ ':''}{m.mes}</td><td style={{padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}}>{m.vendidos}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:600,color:C.accent2,borderBottom:'1px solid '+C.border}}>{m.recebeu}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:700,color:C.accent2,borderBottom:'1px solid '+C.border}}>{cfMoney(m.recV)}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:600,color:C.warn,borderBottom:'1px solid '+C.border}}>{m.pagoSemCom}</td><td style={{padding:'7px 10px',fontSize:11,color:C.danger,borderBottom:'1px solid '+C.border}}>{m.naoPagou}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:700,color:pctR>=50?C.accent2:pctR>=25?C.warn:C.danger,borderBottom:'1px solid '+C.border}}>{pctR.toFixed(0)}%</td></tr>})}
+        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>👆 Clique num mês para filtrar a lista de baixo. "Ainda não recebemos" = cliente pagou o acordo mas a comissão não veio na apuração (cobrar Crefisa / aguardar próxima).</div>
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface}}>{['Mês da venda','Vendidos','💰 Recebemos','R$ recebido','⏳ Ainda não recebemos','❌ Cliente não pagou','🔁 Recorrência','% recebido'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>
+          {R.mesesVenda.map((m,i)=>{const sel=fMes===m.mes;const pctR=m.vendidos?(m.recebeu/m.vendidos*100):0;return<tr key={i} onClick={()=>setFMes(sel?null:m.mes)} style={{cursor:'pointer',background:sel?C.abg:'transparent',outline:sel?'1px solid '+C.accent:'none'}}><td style={{padding:'7px 10px',fontSize:11,fontWeight:700,color:sel?C.accent:C.text,borderBottom:'1px solid '+C.border}}>{sel?'▶ ':''}{m.mes}</td><td style={{padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}}>{m.vendidos}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:600,color:C.accent2,borderBottom:'1px solid '+C.border}}>{m.recebeu}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:700,color:C.accent2,borderBottom:'1px solid '+C.border}}>{cfMoney(m.recV)}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:600,color:C.warn,borderBottom:'1px solid '+C.border}}>{m.pagoSemCom}</td><td style={{padding:'7px 10px',fontSize:11,color:C.danger,borderBottom:'1px solid '+C.border}}>{m.naoPagou}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:600,color:C.accent,borderBottom:'1px solid '+C.border}}>{m.recorr}</td><td style={{padding:'7px 10px',fontSize:11,fontWeight:700,color:pctR>=50?C.accent2:pctR>=25?C.warn:C.danger,borderBottom:'1px solid '+C.border}}>{pctR.toFixed(0)}%</td></tr>})}
         </tbody></table></div>
       </div>}
       {acomp&&(()=>{const baseRows=fMes?R.stRows.filter(r=>r.mes===fMes):R.stRows
-        const cPago=baseRows.filter(r=>r.st==='PAGO').length
-        const cNao=baseRows.filter(r=>r.st!=='PAGO'&&r.st!=='NÃO CONSTA').length
-        const cPagoSem=baseRows.filter(r=>r.st==='PAGO'&&r.recN===0).length
         const cRec=baseRows.filter(r=>r.recN>0).length
-        const cNC=baseRows.filter(r=>r.st==='NÃO CONSTA').length
+        const cPend=baseRows.filter(r=>R.bucketOf(r)==='PEND').length
+        const cNaoPagou=baseRows.filter(r=>R.bucketOf(r)==='NAOPAGOU').length
+        const cRecorr=baseRows.filter(R.isRecorr).length
         return<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}}>
           <div style={{fontSize:12,fontWeight:700}}>🔎 Venda a venda{fMes?' — vendas de '+fMes:''} ({baseRows.length} contratos)</div>
-          <button onClick={()=>cfExport(baseRows.map(r=>({contrato:r.ct,cpf:r.cpf,cliente:r.cli,mes_venda:r.mes,valor_acordo:r.vt,status:r.st,cliente_pagou:+(r.cliPagou||0).toFixed(2),parcelas_comissao:r.recN,comissao_recebida:+(r.recV||0).toFixed(2)})),'parceiro-status-vendas'+(fMes?'-'+fMes:''))} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          <button onClick={()=>cfExport(baseRows.map(r=>({contrato:r.ct,cpf:r.cpf,cliente:r.cli,mes_venda:r.mes,valor_acordo:r.vt,categoria:r.recN>0?(R.isRecorr(r)?'RECEBEMOS + RECORRÊNCIA':'RECEBEMOS'):(r.st==='PAGO'?'AINDA NÃO RECEBEMOS':'CLIENTE NÃO PAGOU'),status_acordo:r.st,cliente_pagou:+(r.cliPagou||0).toFixed(2),parcelas_comissao:r.recN,comissao_recebida:+(r.recV||0).toFixed(2)})),'parceiro-status-vendas'+(fMes?'-'+fMes:''))} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
         <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
-          {[{id:'todos',l:'Todos ('+baseRows.length+')'},{id:'RECEBEU',l:'💰 Receberam ('+cRec+')'},{id:'PAGOSEM',l:'⏳ Pagou s/ comissão ('+cPagoSem+')'},{id:'PAGO',l:'✅ Pagos ('+cPago+')'},{id:'NAOPAGO',l:'❌ Não pagos ('+cNao+')'},{id:'NAOCONSTA',l:'❓ Não constam ('+cNC+')'}].map(t=>
+          {[{id:'todos',l:'Todos ('+baseRows.length+')'},{id:'RECEBEU',l:'💰 Vendeu e recebemos ('+cRec+')'},{id:'PEND',l:'⏳ Ainda não recebemos ('+cPend+')'},{id:'NAOPAGOU',l:'❌ Cliente não pagou ('+cNaoPagou+')'},{id:'RECORR',l:'🔁 Recorrência ('+cRecorr+')'}].map(t=>
             <button key={t.id} onClick={()=>setFSt(t.id)} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+(fSt===t.id?C.accent:C.border),background:fSt===t.id?C.abg:'transparent',color:fSt===t.id?C.accent:C.muted,fontSize:10,cursor:'pointer',fontWeight:fSt===t.id?600:400}}>{t.l}</button>)}
         </div>
-        {(()=>{const fr=baseRows.filter(r=>fSt==='todos'?true:fSt==='RECEBEU'?r.recN>0:fSt==='PAGO'?r.st==='PAGO':fSt==='NAOPAGO'?(r.st!=='PAGO'&&r.st!=='NÃO CONSTA'):fSt==='PAGOSEM'?(r.st==='PAGO'&&r.recN===0):r.st==='NÃO CONSTA')
+        {(()=>{const fr=baseRows.filter(r=>fSt==='todos'?true:fSt==='RECEBEU'?r.recN>0:fSt==='PEND'?R.bucketOf(r)==='PEND':fSt==='NAOPAGOU'?R.bucketOf(r)==='NAOPAGOU':fSt==='RECORR'?R.isRecorr(r):true)
         return<><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:380,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Vlr acordo','Status','Cliente pagou','Parc. com.','Recebido'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
           {fr.slice(0,500).map((r,i)=><tr key={i}><td style={td}>{r.ct}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={td}>{(r.cli||'—').slice(0,26)}</td><td style={td}>{cfMoney(r.vt)}</td><td style={td}><Badge text={r.st} color={r.st==='PAGO'?C.accent2:r.st==='NÃO CONSTA'?C.muted:C.danger}/></td><td style={{...td,color:C.accent2}}>{r.cliPagou?cfMoney(r.cliPagou):'—'}</td><td style={{...td,textAlign:'center'}}>{r.recN||'—'}</td><td style={{...td,fontWeight:600,color:r.recV?C.accent:C.muted}}>{r.recV?cfMoney(r.recV):'—'}</td></tr>)}
         </tbody></table></div>
