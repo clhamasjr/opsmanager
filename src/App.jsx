@@ -3433,7 +3433,20 @@ function cfParseComissao(wb){
 function ParceiroCobranca(){
   const[vendas,setVendas]=useState(null),[acomp,setAcomp]=useState(null),[coms,setComs]=useState([])
   const[err,setErr]=useState(''),[fSt,setFSt]=useState('todos'),[fMes,setFMes]=useState(null)
+  const[opsCred,setOpsCred]=useState(null)  // Map acordo -> {dt: data_nosso_credito, vp: valor pago} vindo do OPS (histórico importado)
   const vRef=useRef(),aRef=useRef(),cRef=useRef()
+  useEffect(()=>{(async()=>{
+    // Carrega do OPS os créditos de cobrança já importados (produto CREFISA CP - COBRANCA...) — chave: proposta = nº do acordo
+    const PAGE=1000;let all=[],from=0
+    while(true){
+      const{data,error}=await supabase.from('digitacoes').select('proposta,vr_bruto,data_nosso_credito,data').ilike('produto','%cobran%').not('data_nosso_credito','is',null).range(from,from+PAGE-1)
+      if(error||!data||!data.length)break
+      all=all.concat(data);if(data.length<PAGE)break;from+=PAGE
+    }
+    const m=new Map()
+    all.forEach(r=>{const k=cfDig(r.proposta);if(!k)return;const e=m.get(k);if(!e||String(r.data_nosso_credito)>String(e.dt))m.set(k,{dt:String(r.data_nosso_credito).slice(0,10),vp:Number(r.vr_bruto)||0})})
+    setOpsCred(m)
+  })()},[])
   const read=(file,parser,cb,tipo)=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rows=parser(wb);if(!rows.length){setErr('Não reconheci o formato de '+tipo+' ('+file.name+')');return}setErr('');cb({nome:file.name,rows})}catch(e){setErr('Erro lendo '+tipo+': '+e.message)}};rd.readAsArrayBuffer(file)}
   const R=useMemo(()=>{
     if(!vendas)return null
@@ -3464,7 +3477,7 @@ function ParceiroCobranca(){
     let stRows=[],nPago=0,nNaoPago=0,nNaoConsta=0,pagoComRecN=0,pagoComRecV=0,pagoSemRecN=0,recorrentes=[]
     if(acomp){
       const acSt=new Map()
-      acomp.rows.forEach(a=>{const e=acSt.get(a.ct)||{st:'',cli:'',vp:0};e.cli=e.cli||a.cliente||'';if(a.st==='PAGO'){e.st='PAGO';e.vp+=(a.vlrPago||0)}else if(!e.st)e.st=a.st||'';acSt.set(a.ct,e)})
+      acomp.rows.forEach(a=>{const e=acSt.get(a.ct)||{st:'',cli:'',vp:0,acs:[]};e.cli=e.cli||a.cliente||'';if(a.st==='PAGO'){e.st='PAGO';e.vp+=(a.vlrPago||0)}else if(!e.st)e.st=a.st||'';if(a.acordo)e.acs.push(cfDig(a.acordo));acSt.set(a.ct,e)})
       const comCt=new Map()
       com.forEach(c=>{const e=comCt.get(c.ct)||{n:0,v:0,maxNp:0};e.n++;e.v+=c.vc;e.maxNp=Math.max(e.maxNp,c.np);comCt.set(c.ct,e)})
       const seen=new Set()
@@ -3473,31 +3486,36 @@ function ParceiroCobranca(){
         const st=a?(a.st||'—'):'NÃO CONSTA'
         if(!a)nNaoConsta++;else if(a.st==='PAGO')nPago++;else nNaoPago++
         if(a&&a.st==='PAGO'){if(c){pagoComRecN++;pagoComRecV+=c.v;if(c.n>=2||c.maxNp>=2)recorrentes.push({ct:v.ct,cli:a.cli,cpf:v.cpf,tel:v.tel,parc:c.n,maxNp:c.maxNp,rec:c.v,mes:v.mes})}else pagoSemRecN++}
-        stRows.push({ct:v.ct,cpf:v.cpf,cli:a?a.cli:'',vt:v.vt,st,cliPagou:a?a.vp:0,recN:c?c.n:0,recV:c?c.v:0,maxNp:c?c.maxNp:0,mes:v.mes||'?'})})
+        // Cruza com OPS: algum acordo deste contrato já teve NOSSO CRÉDITO?
+        let opsN=0,opsV=0,opsDt=''
+        if(opsCred&&a)a.acs.forEach(ac=>{const o=opsCred.get(ac);if(o){opsN++;opsV+=o.vp;if(o.dt>opsDt)opsDt=o.dt}})
+        stRows.push({ct:v.ct,cpf:v.cpf,cli:a?a.cli:'',vt:v.vt,st,cliPagou:a?a.vp:0,recN:c?c.n:0,recV:c?c.v:0,maxNp:c?c.maxNp:0,opsN,opsV,opsDt,mes:v.mes||'?'})})
       recorrentes.sort((a,b)=>b.rec-a.rec)
     }
-    // 4 categorias do funil por contrato vendido:
-    // 💰 recebemos (recN>0) · ⏳ ainda não recebemos (cliente pagou, sem comissão) · ❌ cliente não pagou · 🔁 recorrência (2+ parcelas do que recebemos)
-    const isRecorr=r=>r.recN>0&&(r.recN>=2||r.maxNp>=2)
-    const bucketOf=r=>r.recN>0?'REC':(r.st==='PAGO'?'PEND':'NAOPAGOU')
-    const bkRec=stRows.filter(r=>r.recN>0)
+    // 4 categorias do funil por contrato vendido — "recebemos" = comissão na apuração OU crédito no OPS:
+    // 💰 recebemos · ⏳ ainda não recebemos (cliente pagou, sem crédito) · ❌ cliente não pagou · 🔁 recorrência (2+ parcelas/créditos)
+    const recebeu=r=>r.recN>0||r.opsN>0
+    const isRecorr=r=>recebeu(r)&&(r.recN>=2||r.maxNp>=2||r.opsN>=2)
+    const bucketOf=r=>recebeu(r)?'REC':(r.st==='PAGO'?'PEND':'NAOPAGOU')
+    const bkRec=stRows.filter(recebeu)
     const bkPendN=stRows.filter(r=>bucketOf(r)==='PEND').length
     const bkNaoPagouN=stRows.filter(r=>bucketOf(r)==='NAOPAGOU').length
     const bkRecorr=stRows.filter(isRecorr)
+    const bkOpsOnlyN=stRows.filter(r=>r.opsN>0&&r.recN===0).length  // crédito no OPS sem apuração carregada (meses antigos)
     // Recebimento por MÊS DE VENDA nas mesmas 4 categorias
     const mesesVenda=(()=>{const m=new Map()
       stRows.forEach(r=>{const e=m.get(r.mes)||{mes:r.mes,vendidos:0,recebeu:0,recV:0,pagoSemCom:0,naoPagou:0,recorr:0}
         e.vendidos++
-        if(r.recN>0){e.recebeu++;e.recV+=r.recV;if(isRecorr(r))e.recorr++}
+        if(recebeu(r)){e.recebeu++;e.recV+=r.recV;if(isRecorr(r))e.recorr++}
         else if(r.st==='PAGO')e.pagoSemCom++
         else e.naoPagou++
         m.set(r.mes,e)})
       return[...m.values()].sort((a,b)=>a.mes.localeCompare(b.mes))})()
     return{vCt,vTot,porMes,efet,efetPagos,semReg,vlrCliente,com,comTot,comV,comO,p2,pipeline:[...pipeCt],pipelineN:pipeCt.size,porArq,usRank,
-      stRows,mesesVenda,isRecorr,bucketOf,bkRecN:bkRec.length,bkRecV:bkRec.reduce((s,r)=>s+r.recV,0),bkPendN,bkNaoPagouN,bkRecorrN:bkRecorr.length,bkRecorrV:bkRecorr.reduce((s,r)=>s+r.recV,0),
+      stRows,mesesVenda,isRecorr,bucketOf,recebeu,bkRecN:bkRec.length,bkRecV:bkRec.reduce((s,r)=>s+r.recV,0),bkPendN,bkNaoPagouN,bkRecorrN:bkRecorr.length,bkRecorrV:bkRecorr.reduce((s,r)=>s+r.recV,0),bkOpsOnlyN,
       nPago,nNaoPago,nNaoConsta,pagoComRecN,pagoComRecV,pagoSemRecN,recorrentes,
       comVTot:comV.reduce((s,c)=>s+c.vc,0),comOTot:comO.reduce((s,c)=>s+c.vc,0),p2Tot:p2.reduce((s,c)=>s+c.vc,0)}
-  },[vendas,acomp,coms])
+  },[vendas,acomp,coms,opsCred])
   const Box=({label,state,onPick,inputRef,color,multi})=>(
     <div style={{flex:1,minWidth:190,background:C.card,border:'1px dashed '+(state&&(!multi||state.length)?color:C.border),borderRadius:12,padding:12}}>
       <div style={{fontSize:11,fontWeight:700,color:(state&&(!multi||state.length))?color:C.muted,marginBottom:5}}>{label}</div>
@@ -3520,12 +3538,13 @@ function ParceiroCobranca(){
       <Box label="2️⃣ Acompanhamento (RelAcordosCrefisa)" state={acomp} onPick={f=>read(f,w=>cfParseAcordos(w).map(r=>({...r,ct:cfCt(r.contrato||''),st:r.status})),setAcomp,'acompanhamento')} inputRef={aRef} color={C.info}/>
       <Box label="3️⃣ Apurações de comissão (pode somar vários meses)" state={coms} onPick={f=>read(f,cfParseComissao,x=>setComs(p=>[...p,x]),'comissão')} inputRef={cRef} color={C.accent2} multi/>
     </div>
+    <div style={{fontSize:10,color:opsCred?C.accent2:C.muted}}>{opsCred?'🏦 Histórico do OPS carregado automaticamente: '+opsCred.size+' acordos com NOSSO CRÉDITO (recebimento em conta) — cobre os meses sem apuração.':'🏦 Carregando histórico de créditos do OPS...'}</div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {!R&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:36,textAlign:'center',color:C.muted,fontSize:12}}>Suba pelo menos a planilha de <b>vendas do parceiro</b>. Acompanhamento e apurações completam o funil.</div>}
     {R&&<>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         <Stat label="Vendeu" value={vendas.rows.length} sub={cfMoney(R.vTot)+' · '+Object.entries(R.porMes).sort().map(([m,n])=>m+': '+n).join(' · ')}/>
-        <Stat label="💰 Vendeu e recebemos" value={(acomp&&coms.length)?R.bkRecN:'—'} sub={(acomp&&coms.length)?cfMoney(R.bkRecV)+' de comissão':'suba acompanhamento + apurações'} color={C.accent2}/>
+        <Stat label="💰 Vendeu e recebemos" value={acomp?R.bkRecN:'—'} sub={acomp?(cfMoney(R.bkRecV)+' comissão'+(R.bkOpsOnlyN?' · '+R.bkOpsOnlyN+' via OPS (sem apuração)':'')):'suba o acompanhamento'} color={C.accent2}/>
         <Stat label="⏳ Vendeu e ainda não recebemos" value={(acomp&&coms.length)?R.bkPendN:'—'} sub="cliente pagou · comissão a caminho" color={C.warn}/>
         <Stat label="❌ Vendeu e cliente não pagou" value={acomp?R.bkNaoPagouN:'—'} sub={acomp?pct(R.bkNaoPagouN,R.stRows.length)+' das vendas':''} color={C.danger}/>
         <Stat label="🔁 Recorrência de trás" value={(acomp&&coms.length)?R.bkRecorrN:'—'} sub={(acomp&&coms.length)?cfMoney(R.bkRecorrV)+' · pagando 2ª+ parcela':''} color={C.accent}/>
@@ -3556,15 +3575,15 @@ function ParceiroCobranca(){
         return<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}}>
           <div style={{fontSize:12,fontWeight:700}}>🔎 Venda a venda{fMes?' — vendas de '+fMes:''} ({baseRows.length} contratos)</div>
-          <button onClick={()=>cfExport(baseRows.map(r=>({contrato:r.ct,cpf:r.cpf,cliente:r.cli,mes_venda:r.mes,valor_acordo:r.vt,categoria:r.recN>0?(R.isRecorr(r)?'RECEBEMOS + RECORRÊNCIA':'RECEBEMOS'):(r.st==='PAGO'?'AINDA NÃO RECEBEMOS':'CLIENTE NÃO PAGOU'),status_acordo:r.st,cliente_pagou:+(r.cliPagou||0).toFixed(2),parcelas_comissao:r.recN,comissao_recebida:+(r.recV||0).toFixed(2)})),'parceiro-status-vendas'+(fMes?'-'+fMes:''))} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          <button onClick={()=>cfExport(baseRows.map(r=>({contrato:r.ct,cpf:r.cpf,cliente:r.cli,mes_venda:r.mes,valor_acordo:r.vt,categoria:R.recebeu(r)?(R.isRecorr(r)?'RECEBEMOS + RECORRÊNCIA':'RECEBEMOS'):(r.st==='PAGO'?'AINDA NÃO RECEBEMOS':'CLIENTE NÃO PAGOU'),status_acordo:r.st,cliente_pagou:+(r.cliPagou||0).toFixed(2),parcelas_comissao:r.recN,comissao_recebida:+(r.recV||0).toFixed(2),nosso_credito_data:r.opsDt||'',nosso_credito_valor:+(r.opsV||0).toFixed(2)})),'parceiro-status-vendas'+(fMes?'-'+fMes:''))} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
         <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
           {[{id:'todos',l:'Todos ('+baseRows.length+')'},{id:'RECEBEU',l:'💰 Vendeu e recebemos ('+cRec+')'},{id:'PEND',l:'⏳ Ainda não recebemos ('+cPend+')'},{id:'NAOPAGOU',l:'❌ Cliente não pagou ('+cNaoPagou+')'},{id:'RECORR',l:'🔁 Recorrência ('+cRecorr+')'}].map(t=>
             <button key={t.id} onClick={()=>setFSt(t.id)} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+(fSt===t.id?C.accent:C.border),background:fSt===t.id?C.abg:'transparent',color:fSt===t.id?C.accent:C.muted,fontSize:10,cursor:'pointer',fontWeight:fSt===t.id?600:400}}>{t.l}</button>)}
         </div>
         {(()=>{const fr=baseRows.filter(r=>fSt==='todos'?true:fSt==='RECEBEU'?r.recN>0:fSt==='PEND'?R.bucketOf(r)==='PEND':fSt==='NAOPAGOU'?R.bucketOf(r)==='NAOPAGOU':fSt==='RECORR'?R.isRecorr(r):true)
-        return<><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:380,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Vlr acordo','Status','Cliente pagou','Parc. com.','Recebido'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-          {fr.slice(0,500).map((r,i)=><tr key={i}><td style={td}>{r.ct}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={td}>{(r.cli||'—').slice(0,26)}</td><td style={td}>{cfMoney(r.vt)}</td><td style={td}><Badge text={r.st} color={r.st==='PAGO'?C.accent2:r.st==='NÃO CONSTA'?C.muted:C.danger}/></td><td style={{...td,color:C.accent2}}>{r.cliPagou?cfMoney(r.cliPagou):'—'}</td><td style={{...td,textAlign:'center'}}>{r.recN||'—'}</td><td style={{...td,fontWeight:600,color:r.recV?C.accent:C.muted}}>{r.recV?cfMoney(r.recV):'—'}</td></tr>)}
+        return<><div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:380,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Contrato','CPF','Cliente','Vlr acordo','Status','Cliente pagou','Parc. com.','Comissão','🏦 Nosso crédito'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {fr.slice(0,500).map((r,i)=><tr key={i}><td style={td}>{r.ct}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={td}>{(r.cli||'—').slice(0,26)}</td><td style={td}>{cfMoney(r.vt)}</td><td style={td}><Badge text={r.st} color={r.st==='PAGO'?C.accent2:r.st==='NÃO CONSTA'?C.muted:C.danger}/></td><td style={{...td,color:C.accent2}}>{r.cliPagou?cfMoney(r.cliPagou):'—'}</td><td style={{...td,textAlign:'center'}}>{r.recN||'—'}</td><td style={{...td,fontWeight:600,color:r.recV?C.accent:C.muted}}>{r.recV?cfMoney(r.recV):'—'}</td><td style={{...td,fontSize:10,color:r.opsN?C.accent2:C.muted,whiteSpace:'nowrap'}}>{r.opsN?fmtDate(r.opsDt)+' · '+cfMoney(r.opsV):'—'}</td></tr>)}
         </tbody></table></div>
         {fr.length>500&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Mostrando 500 de {fr.length}. Exporte para ver todos.</div>}</>})()}
       </div>})()}
