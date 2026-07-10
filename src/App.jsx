@@ -3625,15 +3625,12 @@ function ParceiroCobranca(){
 
 /* ═══ ESTEIRA COMPRA (NeoCrédito RECOMPRA) ═══ */
 const NC_FASES=[
-  {id:'pend',l:'📝 Pendente/Andamento',color:'#F59E0B',sits:['PENDENTE','ANDAMENTO','DIGITADA','EM ANALISE']},
-  {id:'banco',l:'🏦 Análise banco',color:'#0EA5E9',sits:['ANALISE BANCO']},
-  {id:'conc',l:'✅ Concretizado',color:'#10B981',sits:['CONCRETIZADO','INTEGRADA']},
-  {id:'crc',l:'📄 CRC emitido',color:'#3B82F6',sits:['CRC CLIENTE']},
-  {id:'pago',l:'💰 Pago (nosso crédito)',color:'#10B981',sits:[]},
-  {id:'reprov',l:'❌ Reprovado/Cancelado',color:'#EF4444',sits:['PROPOSTA REPROVADA','REPROVADA','CANCELADA','PROPOSTA CANCELADA']},
+  {id:'pend',l:'📌 Pendência',color:'#F59E0B',sits:['PENDENCIA','PENDENTE']},
+  {id:'banco',l:'🏦 Em andamento',color:'#0EA5E9',sits:['ANDAMENTO','ANALISE BANCO']},
+  {id:'int',l:'✅ Integrado / Averbado',color:'#10B981',sits:['INTEGRADO','INTEGRADA','CONCRETIZADO']},
+  {id:'reprov',l:'❌ Reprovado / Cancelado',color:'#EF4444',sits:['REPROVADO','REPROVADA','CANCELADA','PROPOSTA REPROVADA']},
 ]
 function ncFase(r){
-  if(r.data_nosso_credito)return 'pago'
   const s=(r.situacao||'').toUpperCase()
   for(const f of NC_FASES)if(f.sits.includes(s))return f.id
   return 'pend'
@@ -3655,17 +3652,39 @@ function EsteiraCompra(){
   const[rows,setRows]=useState(null),[loading,setLoading]=useState(true)
   const[fase,setFase]=useState(null),[per,setPer]=useState('tudo')
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
-  const cmsRef=useRef()
-  useEffect(()=>{(async()=>{
+  const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState('')
+  const cmsRef=useRef(),tokRef=useRef()
+  const loadRows=async()=>{
+    setLoading(true)
     const PAGE=1000;let all=[],from=0
     while(true){
-      const{data,error}=await supabase.from('digitacoes').select('id,proposta,cpf,cliente,data,vr_bruto,vr_parcela,situacao,situacao_banco,obs_situacao,agente,usuario,produto,crc_cliente,data_nosso_credito').eq('banco','NEOCREDITO').eq('operacao','RECOMPRA').range(from,from+PAGE-1)
+      const{data,error}=await supabase.from('konsig_esteira').select('*').range(from,from+PAGE-1)
       if(error){setErr('Erro: '+error.message);break}
       if(!data||!data.length)break
       all=all.concat(data);if(data.length<PAGE)break;from+=PAGE
     }
-    setRows(all);setLoading(false)
-  })()},[])
+    const mapped=all.map(r=>({
+      proposta:r.proposta,cpf:r.cpf,cliente:r.nome,
+      data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
+      vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,
+      situacao:(r.situacao_descricao||'').toUpperCase(),
+      situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
+      usuario:r.usuario_nome||'',agente:r.usuario_nome||'',
+      corban:r.corban_nome||'',convenio:r.convenio_nome||'',operacao:r.tipooperacao_nome||'',
+      crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?(String(r.datahoras||'')).slice(0,10):null
+    }))
+    setRows(mapped);setLoading(false)
+    const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at')
+    if(cfg){const m={};cfg.forEach(c=>m[c.key]=c);setSyncInfo(m)}
+  }
+  useEffect(()=>{loadRows()},[])
+  const saveToken=async()=>{
+    const tk=(tokRef.current?.value||'').trim();if(!tk){setTokenMsg('Cole o token primeiro');return}
+    setTokenMsg('Salvando...')
+    const{error}=await supabase.from('konsig_config').upsert([{key:'konsig_token',value:tk,updated_at:new Date().toISOString()},{key:'konsig_token_expirado',value:'0',updated_at:new Date().toISOString()}],{onConflict:'key'})
+    setTokenMsg(error?('Erro: '+error.message):'✓ Token salvo! O robô usa no próximo ciclo (até 15 min).')
+    if(!error&&tokRef.current)tokRef.current.value=''
+  }
   const readCms=f=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rs=cfParseComissaoNeo(wb);if(!rs.length){setErr('Não reconheci o formato de comissão NEO ('+f.name+')');return}setErr('');setCms(p=>[...p,{nome:f.name,rows:rs}])}catch(e){setErr('Erro lendo comissão: '+e.message)}};rd.readAsArrayBuffer(f)}
   const R=useMemo(()=>{
     if(!rows)return null
@@ -3676,8 +3695,8 @@ function EsteiraCompra(){
     const byFase={};NC_FASES.forEach(f=>byFase[f.id]={n:0,v:0,rows:[]})
     base.forEach(r=>{const f=byFase[r._fase]||byFase.pend;f.n++;f.v+=(r.vr_bruto||0);f.rows.push(r)})
     NC_FASES.forEach(f=>byFase[f.id].rows.sort((a,b)=>(b._dias||0)-(a._dias||0)))
-    const decididas=byFase.conc.n+byFase.crc.n+byFase.pago.n+byFase.reprov.n
-    const aprovadas=byFase.conc.n+byFase.crc.n+byFase.pago.n
+    const decididas=byFase.int.n+byFase.reprov.n
+    const aprovadas=byFase.int.n
     const ciclos=base.filter(r=>r._ciclo!=null).map(r=>r._ciclo)
     const cicloMed=ciclos.length?ciclos.reduce((a,b)=>a+b,0)/ciclos.length:null
     // Sub-status do banco (situacao_banco): averbação, margem, pendências e reprovações POR MOTIVO
@@ -3689,7 +3708,7 @@ function EsteiraCompra(){
     // comissão NEO
     const cmsAll=cms.flatMap(f=>f.rows)
     const cmsMap=new Map();cmsAll.forEach(c=>{const e=cmsMap.get(c.prop)||{cms:0,usuario:c.usuario};e.cms+=c.cms;cmsMap.set(c.prop,e)})
-    const okFases=['conc','crc','pago']
+    const okFases=['int']
     const concluidas=base.filter(r=>okFases.includes(r._fase))
     const comCms=concluidas.filter(r=>cmsMap.has(cfDig(r.proposta)))
     const semCms=concluidas.filter(r=>!cmsMap.has(cfDig(r.proposta)))
@@ -3704,8 +3723,18 @@ function EsteiraCompra(){
   const sbCol=s=>{const u=String(s||'').toUpperCase();if(u.includes('MARGEM'))return C.danger;if(u.startsWith('INT'))return C.accent2;if(u.startsWith('REP'))return C.danger;if(u.startsWith('PEN'))return C.warn;if(u.startsWith('AND'))return C.info;return C.muted}
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
-      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito</h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Operações RECOMPRA · alimentada pelo import WorkBank · fase "Pago" = NOSSO CRÉDITO na conta</div></div>
-      <div style={{display:'flex',gap:4}}>{[{id:'mes',l:'Mês'},{id:'90d',l:'90 dias'},{id:'ano',l:String(NOW.getFullYear())},{id:'tudo',l:'Tudo'}].map(p=><button key={p.id} onClick={()=>setPer(p.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(per===p.id?C.accent:C.border),background:per===p.id?C.abg:'transparent',color:per===p.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:per===p.id?600:400}}>{p.l}</button>)}</div>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito <span style={{fontSize:10,fontWeight:600,color:C.accent2,background:C.accent2+'18',padding:'2px 8px',borderRadius:6,verticalAlign:'middle'}}>● AO VIVO</span></h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Puxada direto do Konsig (api.konsig.com.br) pelo robô do escritório{syncInfo?.konsig_last_sync?' · última atualização: '+new Date(syncInfo.konsig_last_sync.value).toLocaleString('pt-BR'):''}{syncInfo?.konsig_last_status?' · '+syncInfo.konsig_last_status.value:''}</div></div>
+      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+        <button onClick={loadRows} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,fontSize:11,cursor:'pointer'}}>🔄 Recarregar</button>
+        <div style={{display:'flex',gap:4}}>{[{id:'mes',l:'Mês'},{id:'90d',l:'90 dias'},{id:'ano',l:String(NOW.getFullYear())},{id:'tudo',l:'Tudo'}].map(p=><button key={p.id} onClick={()=>setPer(p.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(per===p.id?C.accent:C.border),background:per===p.id?C.abg:'transparent',color:per===p.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:per===p.id?600:400}}>{p.l}</button>)}</div>
+      </div>
+    </div>
+    <div style={{background:(syncInfo?.konsig_token_expirado?.value==='1')?'#EF444412':C.card,border:'1px solid '+((syncInfo?.konsig_token_expirado?.value==='1')?C.danger:C.border),borderRadius:12,padding:'10px 14px',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span style={{fontSize:11,fontWeight:700,color:(syncInfo?.konsig_token_expirado?.value==='1')?C.danger:C.text}}>🔑 Token Konsig do dia:</span>
+      <input ref={tokRef} type="password" placeholder="cole aqui o token novo (de manhã)" style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
+      <button onClick={saveToken} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar token</button>
+      {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:tokenMsg.includes('Erro')?C.danger:C.muted}}>{tokenMsg}</span>}
+      {syncInfo?.konsig_token_expirado?.value==='1'&&!tokenMsg&&<span style={{fontSize:11,color:C.danger}}>⚠️ token expirou — cole um novo</span>}
     </div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
@@ -3715,7 +3744,7 @@ function EsteiraCompra(){
         <Stat label="Taxa de aprovação" value={R.taxaAprov.toFixed(0)+'%'} sub={'sobre '+R.decididas+' decididas'} color={R.taxaAprov>=60?C.accent2:C.warn}/>
         <Stat label="Averbadas / liberadas" value={R.averbadas.length} sub="TED emitida (margem liberada)" color={C.accent2}/>
         <Stat label="Barrada por margem" value={R.margemProb.length} sub="insuficiente / negativa / zerada" color={R.margemProb.length?C.danger:C.muted}/>
-        <Stat label="Em aberto" value={R.byFase.pend.n+R.byFase.banco.n} sub={cfMoney(R.byFase.pend.v+R.byFase.banco.v)+' na esteira'} color={C.warn}/>
+        <Stat label="Em aberto (pend + andamento)" value={R.byFase.pend.n+R.byFase.banco.n} sub={cfMoney(R.byFase.pend.v+R.byFase.banco.v)+' na esteira'} color={C.warn}/>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {NC_FASES.map(f=>{const d=R.byFase[f.id];const sel=fase===f.id;return<div key={f.id} onClick={()=>setFase(sel?null:f.id)} style={{flex:1,minWidth:130,background:sel?C.abg:C.card,border:'1px solid '+(sel?C.accent:C.border),borderLeft:'4px solid '+f.color,borderRadius:12,padding:'12px 14px',cursor:'pointer'}}>
