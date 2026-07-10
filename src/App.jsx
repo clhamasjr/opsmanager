@@ -2631,7 +2631,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa','parcob']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa','parcob','neocompra']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3051,7 +3051,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'parcob',l:'Parceiro Cobrança',i:'📞'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'parcob',l:'Parceiro Cobrança',i:'📞'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -3623,6 +3623,148 @@ function ParceiroCobranca(){
   </div>
 }
 
+/* ═══ ESTEIRA COMPRA (NeoCrédito RECOMPRA) ═══ */
+const NC_FASES=[
+  {id:'pend',l:'📝 Pendente/Andamento',color:'#F59E0B',sits:['PENDENTE','ANDAMENTO','DIGITADA','EM ANALISE']},
+  {id:'banco',l:'🏦 Análise banco',color:'#0EA5E9',sits:['ANALISE BANCO']},
+  {id:'conc',l:'✅ Concretizado',color:'#10B981',sits:['CONCRETIZADO','INTEGRADA']},
+  {id:'crc',l:'📄 CRC emitido',color:'#3B82F6',sits:['CRC CLIENTE']},
+  {id:'pago',l:'💰 Pago (nosso crédito)',color:'#10B981',sits:[]},
+  {id:'reprov',l:'❌ Reprovado/Cancelado',color:'#EF4444',sits:['PROPOSTA REPROVADA','REPROVADA','CANCELADA','PROPOSTA CANCELADA']},
+]
+function ncFase(r){
+  if(r.data_nosso_credito)return 'pago'
+  const s=(r.situacao||'').toUpperCase()
+  for(const f of NC_FASES)if(f.sits.includes(s))return f.id
+  return 'pend'
+}
+function cfParseComissaoNeo(wb){
+  const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''})
+  let hi=aoa.findIndex(r=>Array.isArray(r)&&r.some(c=>cfNorm(c)==='proposta')&&r.some(c=>cfNorm(c)==='usuario'))
+  if(hi<0)return[]
+  const H=aoa[hi].map(cfNorm)
+  const find=(...ns)=>{for(const n of ns){const i=H.findIndex(h=>h===n||h.includes(n));if(i>=0)return i}return -1}
+  const ci={us:find('usuario'),prop:find('proposta'),cpf:find('cpf'),nome:find('nome'),cms:find('liquido','cmsr','cms'),vb:find('valorbruto'),tipo:find('tipo')}
+  const rows=[]
+  for(let r=hi+1;r<aoa.length;r++){const row=aoa[r];if(!Array.isArray(row))continue
+    const prop=cfDig(row[ci.prop]);if(!prop)continue
+    rows.push({prop,usuario:String(row[ci.us]||'(sem)').trim(),cpf:cfCpf11(row[ci.cpf]),nome:String(row[ci.nome]||''),cms:cfNum(row[ci.cms]),vb:ci.vb>=0?cfNum(row[ci.vb]):0,tipo:String(row[ci.tipo]||'')})}
+  return rows
+}
+function EsteiraCompra(){
+  const[rows,setRows]=useState(null),[loading,setLoading]=useState(true)
+  const[fase,setFase]=useState(null),[per,setPer]=useState('tudo')
+  const[cms,setCms]=useState([]),[err,setErr]=useState('')
+  const cmsRef=useRef()
+  useEffect(()=>{(async()=>{
+    const PAGE=1000;let all=[],from=0
+    while(true){
+      const{data,error}=await supabase.from('digitacoes').select('id,proposta,cpf,cliente,data,vr_bruto,vr_parcela,situacao,agente,usuario,produto,crc_cliente,data_nosso_credito').eq('banco','NEOCREDITO').eq('operacao','RECOMPRA').range(from,from+PAGE-1)
+      if(error){setErr('Erro: '+error.message);break}
+      if(!data||!data.length)break
+      all=all.concat(data);if(data.length<PAGE)break;from+=PAGE
+    }
+    setRows(all);setLoading(false)
+  })()},[])
+  const readCms=f=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rs=cfParseComissaoNeo(wb);if(!rs.length){setErr('Não reconheci o formato de comissão NEO ('+f.name+')');return}setErr('');setCms(p=>[...p,{nome:f.name,rows:rs}])}catch(e){setErr('Erro lendo comissão: '+e.message)}};rd.readAsArrayBuffer(f)}
+  const R=useMemo(()=>{
+    if(!rows)return null
+    const hoje=NOW
+    const dias=d=>{if(!d)return null;const dt=new Date(String(d).slice(0,10)+'T00:00:00');return isNaN(dt)?null:Math.floor((hoje-dt)/86400000)}
+    const pFrom=per==='mes'?localDate(new Date(hoje.getFullYear(),hoje.getMonth(),1)):per==='90d'?localDate(new Date(hoje-90*86400000)):per==='ano'?hoje.getFullYear()+'-01-01':'2000-01-01'
+    const base=rows.filter(r=>(r.data||'')>=pFrom).map(r=>({...r,_fase:ncFase(r),_dias:dias(r.data),_ciclo:r.data_nosso_credito?Math.max(0,Math.floor((new Date(String(r.data_nosso_credito).slice(0,10))-new Date(String(r.data).slice(0,10)))/86400000)):null}))
+    const byFase={};NC_FASES.forEach(f=>byFase[f.id]={n:0,v:0,rows:[]})
+    base.forEach(r=>{const f=byFase[r._fase]||byFase.pend;f.n++;f.v+=(r.vr_bruto||0);f.rows.push(r)})
+    NC_FASES.forEach(f=>byFase[f.id].rows.sort((a,b)=>(b._dias||0)-(a._dias||0)))
+    const decididas=byFase.conc.n+byFase.crc.n+byFase.pago.n+byFase.reprov.n
+    const aprovadas=byFase.conc.n+byFase.crc.n+byFase.pago.n
+    const ciclos=base.filter(r=>r._ciclo!=null).map(r=>r._ciclo)
+    const cicloMed=ciclos.length?ciclos.reduce((a,b)=>a+b,0)/ciclos.length:null
+    // comissão NEO
+    const cmsAll=cms.flatMap(f=>f.rows)
+    const cmsMap=new Map();cmsAll.forEach(c=>{const e=cmsMap.get(c.prop)||{cms:0,usuario:c.usuario};e.cms+=c.cms;cmsMap.set(c.prop,e)})
+    const okFases=['conc','crc','pago']
+    const concluidas=base.filter(r=>okFases.includes(r._fase))
+    const comCms=concluidas.filter(r=>cmsMap.has(cfDig(r.proposta)))
+    const semCms=concluidas.filter(r=>!cmsMap.has(cfDig(r.proposta)))
+    const porVend=new Map();cmsAll.forEach(c=>{const e=porVend.get(c.usuario)||{key:c.usuario,n:0,v:0};e.n++;e.v+=c.cms;porVend.set(c.usuario,e)})
+    return{base,byFase,decididas,aprovadas,taxaAprov:decididas?aprovadas/decididas*100:0,cicloMed,
+      cmsAll,cmsTot:cmsAll.reduce((s,c)=>s+c.cms,0),comCms,semCms,porVend:[...porVend.values()].sort((a,b)=>b.v-a.v)}
+  },[rows,per,cms])
+  const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
+  const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const agCol=d=>d==null?C.muted:d>30?C.danger:d>15?C.warn:C.text
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito</h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Operações RECOMPRA · alimentada pelo import WorkBank · fase "Pago" = NOSSO CRÉDITO na conta</div></div>
+      <div style={{display:'flex',gap:4}}>{[{id:'mes',l:'Mês'},{id:'90d',l:'90 dias'},{id:'ano',l:String(NOW.getFullYear())},{id:'tudo',l:'Tudo'}].map(p=><button key={p.id} onClick={()=>setPer(p.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(per===p.id?C.accent:C.border),background:per===p.id?C.abg:'transparent',color:per===p.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:per===p.id?600:400}}>{p.l}</button>)}</div>
+    </div>
+    {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
+    {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
+    {R&&<>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Stat label="Compras no período" value={R.base.length} sub={cfMoney(R.base.reduce((s,r)=>s+(r.vr_bruto||0),0))}/>
+        <Stat label="Taxa de aprovação" value={R.taxaAprov.toFixed(0)+'%'} sub={'sobre '+R.decididas+' decididas'} color={R.taxaAprov>=60?C.accent2:C.warn}/>
+        <Stat label="Ciclo digitação → pago" value={R.cicloMed!=null?R.cicloMed.toFixed(0)+' dias':'—'} sub="média das pagas" color={C.info}/>
+        <Stat label="Em aberto" value={R.byFase.pend.n+R.byFase.banco.n} sub={cfMoney(R.byFase.pend.v+R.byFase.banco.v)+' na esteira'} color={C.warn}/>
+        <Stat label="Comissão NEO (planilhas)" value={cms.length?cfMoney(R.cmsTot):'—'} sub={cms.length?R.semCms.length+' concluídas sem comissão':'suba as planilhas abaixo'} color={C.accent}/>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        {NC_FASES.map(f=>{const d=R.byFase[f.id];const sel=fase===f.id;return<div key={f.id} onClick={()=>setFase(sel?null:f.id)} style={{flex:1,minWidth:130,background:sel?C.abg:C.card,border:'1px solid '+(sel?C.accent:C.border),borderLeft:'4px solid '+f.color,borderRadius:12,padding:'12px 14px',cursor:'pointer'}}>
+          <div style={{fontSize:10,fontWeight:700,color:sel?C.accent:C.muted}}>{f.l}</div>
+          <div style={{fontSize:20,fontWeight:800,marginTop:4}}>{d.n}</div>
+          <div style={{fontSize:10,color:C.muted}}>{cfMoney(d.v)}</div>
+        </div>})}
+      </div>
+      {fase&&(()=>{const f=NC_FASES.find(x=>x.id===fase);const list=R.byFase[fase].rows
+        return<div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{fontSize:12,fontWeight:700}}>{f.l} — {list.length} propostas (mais paradas primeiro)</div>
+          <button onClick={()=>cfExport(list.map(r=>({proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,data:r.data,valor:r.vr_bruto,situacao:r.situacao,dias:r._dias,digitador:r.usuario,agente:r.agente,crc:r.crc_cliente,nosso_credito:r.data_nosso_credito})),'esteira-compra-'+fase)} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+        </div>
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:400,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','CPF','Cliente','Data','Valor','Situação','Dias','Digitador'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {list.slice(0,300).map((r,i)=><tr key={i}><td style={td}>{r.proposta}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={td}>{(r.cliente||'—').slice(0,26)}</td><td style={td}>{fmtDate(r.data)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={td}><Badge text={r.situacao||'—'} color={f.color}/></td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td><td style={{...td,color:C.muted,fontSize:10}}>{(r.usuario||'—').slice(0,20)}</td></tr>)}
+        </tbody></table></div>
+      </div>})()}
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6}}>
+          <div style={{fontSize:12,fontWeight:700}}>💵 Conferência de comissão NEO {cms.length>0&&<span style={{color:C.muted,fontWeight:400}}>· {cms.map(f=>f.nome.slice(0,22)).join(' · ')}</span>}</div>
+          <div style={{display:'flex',gap:6}}>
+            <input ref={cmsRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];if(f)readCms(f);e.target.value=''}}/>
+            <button onClick={()=>cmsRef.current?.click()} style={{padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontSize:11,fontWeight:600,cursor:'pointer'}}>📂 Adicionar planilha COMISSAO NEO</button>
+            {cms.length>0&&<button onClick={()=>setCms([])} style={{padding:'6px 12px',borderRadius:7,border:'1px solid '+C.border,background:C.surface,color:C.danger,fontSize:11,cursor:'pointer'}}>✕ Limpar</button>}
+          </div>
+        </div>
+        {cms.length>0&&<>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <Stat label="Comissão nas planilhas" value={cfMoney(R.cmsTot)} small color={C.accent2}/>
+            <Stat label="Concluídas COM comissão" value={R.comCms.length} small color={C.accent2}/>
+            <Stat label="Concluídas SEM comissão" value={R.semCms.length} small color={R.semCms.length?C.danger:C.accent2}/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.danger}}>🚨 Concluídas sem comissão na planilha ({R.semCms.length})</div>
+                <button onClick={()=>cfExport(R.semCms.map(r=>({proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,data:r.data,valor:r.vr_bruto,situacao:r.situacao})),'neo-concluidas-sem-comissao')} style={{fontSize:9,padding:'3px 8px',borderRadius:5,border:'1px solid '+C.danger,background:'#EF444410',color:C.danger,cursor:'pointer'}}>⬇ Exportar</button>
+              </div>
+              <div style={{overflowY:'auto',maxHeight:220,borderRadius:8,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
+                {R.semCms.slice(0,100).map((r,i)=><tr key={i}><td style={{...td,fontSize:10}}>{r.proposta}</td><td style={{...td,fontSize:10}}>{(r.cliente||'').slice(0,20)}</td><td style={{...td,fontSize:10,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td></tr>)}
+              </tbody></table></div>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,marginBottom:4}}>🏆 Comissão por vendedor</div>
+              <div style={{overflowY:'auto',maxHeight:220,borderRadius:8,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
+                {R.porVend.map((v,i)=><tr key={i}><td style={{...td,fontSize:10,fontWeight:600}}>{(v.key||'').slice(0,26)}</td><td style={{...td,fontSize:10}}>{v.n} props</td><td style={{...td,fontSize:10,fontWeight:700,color:C.accent2}}>{cfMoney(v.v)}</td></tr>)}
+              </tbody></table></div>
+            </div>
+          </div>
+        </>}
+        {!cms.length&&<div style={{fontSize:11,color:C.muted}}>Suba as planilhas "COMISSAO NEO" (por vendedor) — cruzo por nº de proposta com a esteira e mostro: concluídas sem comissão (cobrar), e o total por vendedor.</div>}
+      </div>
+    </>}
+  </div>
+}
+
 /* ═══ MAIN APP ═══ */
 export default function App(){
   const[user,setUser]=useState(null),[view,setView]=useState('dashboard'),[loginError,setLoginError]=useState('')
@@ -3867,6 +4009,7 @@ export default function App(){
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
       {view==='crefisa'&&<ConferenciaCrefisa/>}
       {view==='parcob'&&<ParceiroCobranca/>}
+      {view==='neocompra'&&<EsteiraCompra/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
