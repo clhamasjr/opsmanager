@@ -3652,8 +3652,8 @@ function EsteiraCompra(){
   const[rows,setRows]=useState(null),[loading,setLoading]=useState(true)
   const[fase,setFase]=useState(null),[per,setPer]=useState('tudo')
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
-  const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState('')
-  const cmsRef=useRef(),tokRef=useRef()
+  const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
+  const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef()
   const loadRows=async()=>{
     setLoading(true)
     const PAGE=1000;let all=[],from=0
@@ -3663,27 +3663,38 @@ function EsteiraCompra(){
       if(!data||!data.length)break
       all=all.concat(data);if(data.length<PAGE)break;from+=PAGE
     }
-    const mapped=all.map(r=>({
-      proposta:r.proposta,cpf:r.cpf,cliente:r.nome,
+    // Cruza com o WorkBank (digitacoes NEOCREDITO) por nº de proposta → parceiro (agente) + digitador (usuario)
+    const digMap=new Map();let dfrom=0
+    while(true){
+      const{data:dg}=await supabase.from('digitacoes').select('proposta,agente,usuario').eq('banco','NEOCREDITO').range(dfrom,dfrom+PAGE-1)
+      if(!dg||!dg.length)break
+      dg.forEach(d=>{if(d.proposta)digMap.set(cfDig(d.proposta),{agente:(d.agente||'').trim(),usuario:(d.usuario||'').trim()})})
+      if(dg.length<PAGE)break;dfrom+=PAGE
+    }
+    const mapped=all.map(r=>{
+      const dig=digMap.get(cfDig(r.proposta))
+      const parceiro=(dig&&dig.agente)?dig.agente:(dig&&dig.usuario)?dig.usuario:(r.usuario_nome||'(sem parceiro)')
+      return{
+      proposta:r.proposta,cpf:r.cpf,cliente:r.nome,esteira:r.esteira||'?',
       data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
       vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,
       situacao:(r.situacao_descricao||'').toUpperCase(),
       situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
-      usuario:r.usuario_nome||'',agente:r.usuario_nome||'',
+      usuario:r.usuario_nome||'',agente:r.usuario_nome||'',parceiro,
       corban:r.corban_nome||'',convenio:r.convenio_nome||'',operacao:r.tipooperacao_nome||'',
       crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?(String(r.datahoras||'')).slice(0,10):null
-    }))
+    }})
     setRows(mapped);setLoading(false)
     const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at')
     if(cfg){const m={};cfg.forEach(c=>m[c.key]=c);setSyncInfo(m)}
   }
   useEffect(()=>{loadRows()},[])
-  const saveToken=async()=>{
-    const tk=(tokRef.current?.value||'').trim();if(!tk){setTokenMsg('Cole o token primeiro');return}
-    setTokenMsg('Salvando...')
-    const{error}=await supabase.from('konsig_config').upsert([{key:'konsig_token',value:tk,updated_at:new Date().toISOString()},{key:'konsig_token_expirado',value:'0',updated_at:new Date().toISOString()}],{onConflict:'key'})
-    setTokenMsg(error?('Erro: '+error.message):'✓ Token salvo! O robô usa no próximo ciclo (até 15 min).')
-    if(!error&&tokRef.current)tokRef.current.value=''
+  const saveToken=async(label,ref)=>{
+    const tk=(ref.current?.value||'').trim();if(!tk){setTokenMsg('Cole o token da esteira '+label);return}
+    setTokenMsg('Salvando '+label+'...')
+    const{error}=await supabase.from('konsig_config').upsert([{key:'konsig_token_'+label,value:tk,updated_at:new Date().toISOString()},{key:'konsig_expirado_'+label,value:'0',updated_at:new Date().toISOString()}],{onConflict:'key'})
+    setTokenMsg(error?('Erro: '+error.message):'✓ Token '+label+' salvo! O robô usa no próximo ciclo (até 15 min).')
+    if(!error&&ref.current)ref.current.value=''
   }
   const readCms=f=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rs=cfParseComissaoNeo(wb);if(!rs.length){setErr('Não reconheci o formato de comissão NEO ('+f.name+')');return}setErr('');setCms(p=>[...p,{nome:f.name,rows:rs}])}catch(e){setErr('Erro lendo comissão: '+e.message)}};rd.readAsArrayBuffer(f)}
   const R=useMemo(()=>{
@@ -3691,7 +3702,7 @@ function EsteiraCompra(){
     const hoje=NOW
     const dias=d=>{if(!d)return null;const dt=new Date(String(d).slice(0,10)+'T00:00:00');return isNaN(dt)?null:Math.floor((hoje-dt)/86400000)}
     const pFrom=per==='mes'?localDate(new Date(hoje.getFullYear(),hoje.getMonth(),1)):per==='90d'?localDate(new Date(hoje-90*86400000)):per==='ano'?hoje.getFullYear()+'-01-01':'2000-01-01'
-    const base=rows.filter(r=>(r.data||'')>=pFrom).map(r=>({...r,_fase:ncFase(r),_dias:dias(r.data),_ciclo:r.data_nosso_credito?Math.max(0,Math.floor((new Date(String(r.data_nosso_credito).slice(0,10))-new Date(String(r.data).slice(0,10)))/86400000)):null}))
+    const base=rows.filter(r=>(r.data||'')>=pFrom).filter(r=>fEst==='todas'||r.esteira===fEst).map(r=>({...r,_fase:ncFase(r),_dias:dias(r.data),_ciclo:r.data_nosso_credito?Math.max(0,Math.floor((new Date(String(r.data_nosso_credito).slice(0,10))-new Date(String(r.data).slice(0,10)))/86400000)):null}))
     const byFase={};NC_FASES.forEach(f=>byFase[f.id]={n:0,v:0,rows:[]})
     base.forEach(r=>{const f=byFase[r._fase]||byFase.pend;f.n++;f.v+=(r.vr_bruto||0);f.rows.push(r)})
     NC_FASES.forEach(f=>byFase[f.id].rows.sort((a,b)=>(b._dias||0)-(a._dias||0)))
@@ -3705,6 +3716,9 @@ function EsteiraCompra(){
     const margemProb=base.filter(r=>sb(r).includes('MARGEM'))
     const grpMotivo=(pref)=>{const m=new Map();base.forEach(r=>{const s=sb(r);if(!s.startsWith(pref))return;const motivo=s.replace(/^(AND|PEN|REP|INT)\s*-\s*/,'')||s;const e=m.get(motivo)||{motivo,n:0,v:0};e.n++;e.v+=(r.vr_bruto||0);m.set(motivo,e)});return[...m.values()].sort((a,b)=>b.n-a.n)}
     const pendMotivos=grpMotivo('PEN'),repMotivos=grpMotivo('REP'),andMotivos=grpMotivo('AND')
+    // Pendências a direcionar POR PARCEIRO (pendência + em andamento = precisam de ação; ordenado por qtd)
+    const emAberto=base.filter(r=>r._fase==='pend'||r._fase==='banco')
+    const porParceiro=(()=>{const m=new Map();emAberto.forEach(r=>{const k=r.parceiro||'(sem parceiro)';const e=m.get(k)||{parceiro:k,n:0,v:0,pend:0,band:0,rows:[]};e.n++;e.v+=(r.vr_bruto||0);if(r._fase==='pend')e.pend++;else e.band++;e.rows.push(r);m.set(k,e)});return[...m.values()].sort((a,b)=>b.n-a.n)})()
     // comissão NEO
     const cmsAll=cms.flatMap(f=>f.rows)
     const cmsMap=new Map();cmsAll.forEach(c=>{const e=cmsMap.get(c.prop)||{cms:0,usuario:c.usuario};e.cms+=c.cms;cmsMap.set(c.prop,e)})
@@ -3714,9 +3728,9 @@ function EsteiraCompra(){
     const semCms=concluidas.filter(r=>!cmsMap.has(cfDig(r.proposta)))
     const porVend=new Map();cmsAll.forEach(c=>{const e=porVend.get(c.usuario)||{key:c.usuario,n:0,v:0};e.n++;e.v+=c.cms;porVend.set(c.usuario,e)})
     return{base,byFase,decididas,aprovadas,taxaAprov:decididas?aprovadas/decididas*100:0,cicloMed,
-      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,
+      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,emAberto,porParceiro,
       cmsAll,cmsTot:cmsAll.reduce((s,c)=>s+c.cms,0),comCms,semCms,porVend:[...porVend.values()].sort((a,b)=>b.v-a.v)}
-  },[rows,per,cms])
+  },[rows,per,cms,fEst])
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
   const agCol=d=>d==null?C.muted:d>30?C.danger:d>15?C.warn:C.text
@@ -3729,12 +3743,15 @@ function EsteiraCompra(){
         <div style={{display:'flex',gap:4}}>{[{id:'mes',l:'Mês'},{id:'90d',l:'90 dias'},{id:'ano',l:String(NOW.getFullYear())},{id:'tudo',l:'Tudo'}].map(p=><button key={p.id} onClick={()=>setPer(p.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(per===p.id?C.accent:C.border),background:per===p.id?C.abg:'transparent',color:per===p.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:per===p.id?600:400}}>{p.l}</button>)}</div>
       </div>
     </div>
-    <div style={{background:(syncInfo?.konsig_token_expirado?.value==='1')?'#EF444412':C.card,border:'1px solid '+((syncInfo?.konsig_token_expirado?.value==='1')?C.danger:C.border),borderRadius:12,padding:'10px 14px',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-      <span style={{fontSize:11,fontWeight:700,color:(syncInfo?.konsig_token_expirado?.value==='1')?C.danger:C.text}}>🔑 Token Konsig do dia:</span>
-      <input ref={tokRef} type="password" placeholder="cole aqui o token novo (de manhã)" style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
-      <button onClick={saveToken} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar token</button>
+    <div style={{display:'flex',gap:4}}>{[{id:'todas',l:'Todas as esteiras'},{id:'lhamas',l:'🏠 Lhamas'},{id:'externa',l:'🌐 Externa'}].map(e=><button key={e.id} onClick={()=>setFEst(e.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(fEst===e.id?C.accent2:C.border),background:fEst===e.id?C.accent2+'18':'transparent',color:fEst===e.id?C.accent2:C.muted,fontSize:11,cursor:'pointer',fontWeight:fEst===e.id?700:400}}>{e.l}</button>)}</div>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:11,fontWeight:700}}>🔑 Tokens Konsig do dia <span style={{fontWeight:400,color:C.muted}}>· cole de manhã (F12 → Network → req "proposta" → copie o authorization=)</span></div>
+      {[{label:'lhamas',l:'🏠 Lhamas',ref:tokRefL},{label:'externa',l:'🌐 Externa',ref:tokRefE}].map(t=>{const exp=syncInfo?.['konsig_expirado_'+t.label]?.value==='1';return<div key={t.label} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <span style={{fontSize:11,fontWeight:600,width:90,color:exp?C.danger:C.text}}>{t.l}{exp?' ⚠️':''}</span>
+        <input ref={t.ref} type="password" placeholder={'token da esteira '+t.label+(exp?' (EXPIROU — cole novo)':'')} style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+(exp?C.danger:C.border),borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
+        <button onClick={()=>saveToken(t.label,t.ref)} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar</button>
+      </div>})}
       {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:tokenMsg.includes('Erro')?C.danger:C.muted}}>{tokenMsg}</span>}
-      {syncInfo?.konsig_token_expirado?.value==='1'&&!tokenMsg&&<span style={{fontSize:11,color:C.danger}}>⚠️ token expirou — cole um novo</span>}
     </div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
@@ -3763,6 +3780,16 @@ function EsteiraCompra(){
           {list.slice(0,300).map((r,i)=><tr key={i}><td style={td}>{r.proposta}</td><td style={td}>{(r.cliente||'—').slice(0,24)}</td><td style={td}>{fmtDate(r.data)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={td}><Badge text={r.situacao||'—'} color={f.color}/></td><td style={{...td,fontSize:10,fontWeight:600,color:sbCol(r.situacao_banco)}}>{r.situacao_banco||'—'}</td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td><td style={{...td,color:C.muted,fontSize:10}}>{(r.usuario||'—').slice(0,18)}</td></tr>)}
         </tbody></table></div>
       </div>})()}
+      {R.porParceiro.length>0&&<div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.warn}}>📋 Pendências a direcionar — por parceiro ({R.emAberto.length} em aberto)</div>
+          <button onClick={()=>cfExport(R.emAberto.map(r=>({parceiro:r.parceiro,proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,esteira:r.esteira,situacao:r.situacao,detalhe:r.situacao_banco,dias:r._dias,valor:r.vr_bruto,digitador:r.usuario})),'esteira-pendencias-por-parceiro')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Parceiro vem do que foi importado do WorkBank (agente/digitador), cruzado por nº de proposta. Pendência = precisa de ação (documentação, assinatura, boleto...) · Andamento = aguardando o banco.</div>
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:380,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Parceiro','Em aberto','📌 Pendência','🏦 Andamento','Valor'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {R.porParceiro.map((p,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(p.parceiro||'—').slice(0,38)}</td><td style={{...td,fontWeight:700}}>{p.n}</td><td style={{...td,color:p.pend?C.warn:C.muted,fontWeight:p.pend?700:400}}>{p.pend||'—'}</td><td style={{...td,color:p.band?C.info:C.muted}}>{p.band||'—'}</td><td style={{...td,fontWeight:600}}>{cfMoney(p.v)}</td></tr>)}
+        </tbody></table></div>
+      </div>}
       {(R.pendMotivos.length>0||R.repMotivos.length>0||R.andMotivos.length>0)&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>🔍 Onde está travado — por etapa/motivo do banco (situacao_banco)</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
