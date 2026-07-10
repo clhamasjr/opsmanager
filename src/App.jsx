@@ -3659,7 +3659,7 @@ function EsteiraCompra(){
   useEffect(()=>{(async()=>{
     const PAGE=1000;let all=[],from=0
     while(true){
-      const{data,error}=await supabase.from('digitacoes').select('id,proposta,cpf,cliente,data,vr_bruto,vr_parcela,situacao,agente,usuario,produto,crc_cliente,data_nosso_credito').eq('banco','NEOCREDITO').eq('operacao','RECOMPRA').range(from,from+PAGE-1)
+      const{data,error}=await supabase.from('digitacoes').select('id,proposta,cpf,cliente,data,vr_bruto,vr_parcela,situacao,situacao_banco,obs_situacao,agente,usuario,produto,crc_cliente,data_nosso_credito').eq('banco','NEOCREDITO').eq('operacao','RECOMPRA').range(from,from+PAGE-1)
       if(error){setErr('Erro: '+error.message);break}
       if(!data||!data.length)break
       all=all.concat(data);if(data.length<PAGE)break;from+=PAGE
@@ -3680,6 +3680,12 @@ function EsteiraCompra(){
     const aprovadas=byFase.conc.n+byFase.crc.n+byFase.pago.n
     const ciclos=base.filter(r=>r._ciclo!=null).map(r=>r._ciclo)
     const cicloMed=ciclos.length?ciclos.reduce((a,b)=>a+b,0)/ciclos.length:null
+    // Sub-status do banco (situacao_banco): averbação, margem, pendências e reprovações POR MOTIVO
+    const sb=r=>String(r.situacao_banco||'').trim().toUpperCase()
+    const averbadas=base.filter(r=>sb(r).startsWith('INT'))  // integrada / TED emitida = averbado e liberado
+    const margemProb=base.filter(r=>sb(r).includes('MARGEM'))
+    const grpMotivo=(pref)=>{const m=new Map();base.forEach(r=>{const s=sb(r);if(!s.startsWith(pref))return;const motivo=s.replace(/^(AND|PEN|REP|INT)\s*-\s*/,'')||s;const e=m.get(motivo)||{motivo,n:0,v:0};e.n++;e.v+=(r.vr_bruto||0);m.set(motivo,e)});return[...m.values()].sort((a,b)=>b.n-a.n)}
+    const pendMotivos=grpMotivo('PEN'),repMotivos=grpMotivo('REP'),andMotivos=grpMotivo('AND')
     // comissão NEO
     const cmsAll=cms.flatMap(f=>f.rows)
     const cmsMap=new Map();cmsAll.forEach(c=>{const e=cmsMap.get(c.prop)||{cms:0,usuario:c.usuario};e.cms+=c.cms;cmsMap.set(c.prop,e)})
@@ -3689,11 +3695,13 @@ function EsteiraCompra(){
     const semCms=concluidas.filter(r=>!cmsMap.has(cfDig(r.proposta)))
     const porVend=new Map();cmsAll.forEach(c=>{const e=porVend.get(c.usuario)||{key:c.usuario,n:0,v:0};e.n++;e.v+=c.cms;porVend.set(c.usuario,e)})
     return{base,byFase,decididas,aprovadas,taxaAprov:decididas?aprovadas/decididas*100:0,cicloMed,
+      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,
       cmsAll,cmsTot:cmsAll.reduce((s,c)=>s+c.cms,0),comCms,semCms,porVend:[...porVend.values()].sort((a,b)=>b.v-a.v)}
   },[rows,per,cms])
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
   const agCol=d=>d==null?C.muted:d>30?C.danger:d>15?C.warn:C.text
+  const sbCol=s=>{const u=String(s||'').toUpperCase();if(u.includes('MARGEM'))return C.danger;if(u.startsWith('INT'))return C.accent2;if(u.startsWith('REP'))return C.danger;if(u.startsWith('PEN'))return C.warn;if(u.startsWith('AND'))return C.info;return C.muted}
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
       <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito</h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Operações RECOMPRA · alimentada pelo import WorkBank · fase "Pago" = NOSSO CRÉDITO na conta</div></div>
@@ -3705,9 +3713,9 @@ function EsteiraCompra(){
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         <Stat label="Compras no período" value={R.base.length} sub={cfMoney(R.base.reduce((s,r)=>s+(r.vr_bruto||0),0))}/>
         <Stat label="Taxa de aprovação" value={R.taxaAprov.toFixed(0)+'%'} sub={'sobre '+R.decididas+' decididas'} color={R.taxaAprov>=60?C.accent2:C.warn}/>
-        <Stat label="Ciclo digitação → pago" value={R.cicloMed!=null?R.cicloMed.toFixed(0)+' dias':'—'} sub="média das pagas" color={C.info}/>
+        <Stat label="Averbadas / liberadas" value={R.averbadas.length} sub="TED emitida (margem liberada)" color={C.accent2}/>
+        <Stat label="Barrada por margem" value={R.margemProb.length} sub="insuficiente / negativa / zerada" color={R.margemProb.length?C.danger:C.muted}/>
         <Stat label="Em aberto" value={R.byFase.pend.n+R.byFase.banco.n} sub={cfMoney(R.byFase.pend.v+R.byFase.banco.v)+' na esteira'} color={C.warn}/>
-        <Stat label="Comissão NEO (planilhas)" value={cms.length?cfMoney(R.cmsTot):'—'} sub={cms.length?R.semCms.length+' concluídas sem comissão':'suba as planilhas abaixo'} color={C.accent}/>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {NC_FASES.map(f=>{const d=R.byFase[f.id];const sel=fase===f.id;return<div key={f.id} onClick={()=>setFase(sel?null:f.id)} style={{flex:1,minWidth:130,background:sel?C.abg:C.card,border:'1px solid '+(sel?C.accent:C.border),borderLeft:'4px solid '+f.color,borderRadius:12,padding:'12px 14px',cursor:'pointer'}}>
@@ -3720,12 +3728,22 @@ function EsteiraCompra(){
         return<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <div style={{fontSize:12,fontWeight:700}}>{f.l} — {list.length} propostas (mais paradas primeiro)</div>
-          <button onClick={()=>cfExport(list.map(r=>({proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,data:r.data,valor:r.vr_bruto,situacao:r.situacao,dias:r._dias,digitador:r.usuario,agente:r.agente,crc:r.crc_cliente,nosso_credito:r.data_nosso_credito})),'esteira-compra-'+fase)} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          <button onClick={()=>cfExport(list.map(r=>({proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,data:r.data,valor:r.vr_bruto,situacao:r.situacao,detalhe_banco:r.situacao_banco,dias:r._dias,digitador:r.usuario,agente:r.agente,crc:r.crc_cliente,nosso_credito:r.data_nosso_credito})),'esteira-compra-'+fase)} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
-        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:400,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','CPF','Cliente','Data','Valor','Situação','Dias','Digitador'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-          {list.slice(0,300).map((r,i)=><tr key={i}><td style={td}>{r.proposta}</td><td style={{...td,color:C.muted}}>{r.cpf}</td><td style={td}>{(r.cliente||'—').slice(0,26)}</td><td style={td}>{fmtDate(r.data)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={td}><Badge text={r.situacao||'—'} color={f.color}/></td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td><td style={{...td,color:C.muted,fontSize:10}}>{(r.usuario||'—').slice(0,20)}</td></tr>)}
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:400,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','Cliente','Data','Valor','Situação','Detalhe banco (etapa/motivo)','Dias','Digitador'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {list.slice(0,300).map((r,i)=><tr key={i}><td style={td}>{r.proposta}</td><td style={td}>{(r.cliente||'—').slice(0,24)}</td><td style={td}>{fmtDate(r.data)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={td}><Badge text={r.situacao||'—'} color={f.color}/></td><td style={{...td,fontSize:10,fontWeight:600,color:sbCol(r.situacao_banco)}}>{r.situacao_banco||'—'}</td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td><td style={{...td,color:C.muted,fontSize:10}}>{(r.usuario||'—').slice(0,18)}</td></tr>)}
         </tbody></table></div>
       </div>})()}
+      {(R.pendMotivos.length>0||R.repMotivos.length>0||R.andMotivos.length>0)&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>🔍 Onde está travado — por etapa/motivo do banco (situacao_banco)</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          {[{t:'⏳ Em andamento no banco',arr:R.andMotivos,col:C.info},{t:'📌 Pendências (ação nossa/cliente)',arr:R.pendMotivos,col:C.warn},{t:'❌ Reprovadas — por motivo',arr:R.repMotivos,col:C.danger}].map((g,gi)=><div key={gi}>
+            <div style={{fontSize:11,fontWeight:700,color:g.col,marginBottom:4}}>{g.t} {g.arr.length>0&&'('+g.arr.reduce((s,x)=>s+x.n,0)+')'}</div>
+            {g.arr.length===0?<div style={{fontSize:10,color:C.muted,padding:'6px 0'}}>—</div>:
+            <div style={{display:'flex',flexDirection:'column',gap:3}}>{g.arr.map((m,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'3px 6px',borderRadius:5,background:C.surface}}><span style={{color:m.motivo.includes('MARGEM')?C.danger:C.text,fontWeight:m.motivo.includes('MARGEM')?700:400}}>{m.motivo.slice(0,30)}</span><b>{m.n}</b></div>)}</div>}
+          </div>)}
+        </div>
+      </div>}
       <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6}}>
           <div style={{fontSize:12,fontWeight:700}}>💵 Conferência de comissão NEO {cms.length>0&&<span style={{color:C.muted,fontWeight:400}}>· {cms.map(f=>f.nome.slice(0,22)).join(' · ')}</span>}</div>
