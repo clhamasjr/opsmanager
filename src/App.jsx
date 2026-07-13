@@ -3653,7 +3653,8 @@ function EsteiraCompra(){
   const[fase,setFase]=useState(null),[per,setPer]=useState('tudo')
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
   const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
-  const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef()
+  const[portalMsg,setPortalMsg]=useState('')
+  const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef()
   const loadRows=async()=>{
     setLoading(true)
     const PAGE=1000;let all=[],from=0
@@ -3671,9 +3672,14 @@ function EsteiraCompra(){
       dg.forEach(d=>{if(d.proposta)digMap.set(cfDig(d.proposta),{agente:(d.agente||'').trim(),usuario:(d.usuario||'').trim()})})
       if(dg.length<PAGE)break;dfrom+=PAGE
     }
+    // Margem do Portal do Consignado (tabela separada, por CPF) — 🟢 aberto / 🔴 averbado
+    const margemMap=new Map()
+    const{data:pm}=await supabase.from('portal_margem').select('cpf,status,benef_disp,benef_bruta,prox_folha,ref,checked_at')
+    ;(pm||[]).forEach(m=>margemMap.set(String(m.cpf),m))
     const mapped=all.map(r=>{
       const dig=digMap.get(cfDig(r.proposta))
       const parceiro=(dig&&dig.agente)?dig.agente:(dig&&dig.usuario)?dig.usuario:(r.usuario_nome||'(sem parceiro)')
+      const mg=margemMap.get(String(r.cpf))
       return{
       proposta:r.proposta,cpf:r.cpf,cliente:r.nome,esteira:r.esteira||'?',
       data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
@@ -3683,6 +3689,7 @@ function EsteiraCompra(){
       usuario:r.usuario_nome||'',agente:r.usuario_nome||'',parceiro,
       corban:r.corban_nome||'',convenio:r.convenio_nome||'',operacao:r.tipooperacao_nome||'',
       obs_texto:r.obs_texto||'',obs_autor:r.obs_autor||'',obs_data:r.obs_data||null,
+      margem:mg?{status:mg.status,disp:mg.benef_disp,bruta:mg.benef_bruta,folha:mg.prox_folha,ref:mg.ref,at:mg.checked_at}:null,
       crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?(String(r.datahoras||'')).slice(0,10):null
     }})
     setRows(mapped);setLoading(false)
@@ -3696,6 +3703,18 @@ function EsteiraCompra(){
     const{error}=await supabase.from('konsig_config').upsert([{key:'konsig_token_'+label,value:tk,updated_at:new Date().toISOString()},{key:'konsig_expirado_'+label,value:'0',updated_at:new Date().toISOString()}],{onConflict:'key'})
     setTokenMsg(error?('Erro: '+error.message):'✓ Token '+label+' salvo! O robô usa no próximo ciclo (até 15 min).')
     if(!error&&ref.current)ref.current.value=''
+  }
+  const savePortal=async()=>{
+    const js=(portRefJ.current?.value||'').trim(),tk=(portRefT.current?.value||'').trim()
+    if(!js||!tk){setPortalMsg('Cole o JSESSIONID e o securitytoken');return}
+    setPortalMsg('Salvando sessão do portal...')
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([
+      {key:'portal_jsession',value:js,updated_at:now},{key:'portal_token',value:tk,updated_at:now},
+      {key:'portal_ativo',value:'1',updated_at:now},{key:'portal_sessao_ok',value:'1',updated_at:now},{key:'portal_updated',value:now,updated_at:now}
+    ],{onConflict:'key'})
+    setPortalMsg(error?('Erro: '+error.message):'✓ Sessão do portal salva! O robô consulta as margens no próximo ciclo (até 15 min).')
+    if(!error){if(portRefJ.current)portRefJ.current.value='';if(portRefT.current)portRefT.current.value=''}
   }
   const readCms=f=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rs=cfParseComissaoNeo(wb);if(!rs.length){setErr('Não reconheci o formato de comissão NEO ('+f.name+')');return}setErr('');setCms(p=>[...p,{nome:f.name,rows:rs}])}catch(e){setErr('Erro lendo comissão: '+e.message)}};rd.readAsArrayBuffer(f)}
   const R=useMemo(()=>{
@@ -3720,6 +3739,16 @@ function EsteiraCompra(){
     // Pendências a direcionar POR PARCEIRO (pendência + em andamento = precisam de ação; ordenado por qtd)
     const emAberto=base.filter(r=>r._fase==='pend'||r._fase==='banco')
     const porParceiro=(()=>{const m=new Map();emAberto.forEach(r=>{const k=r.parceiro||'(sem parceiro)';const e=m.get(k)||{parceiro:k,n:0,v:0,pend:0,band:0,rows:[]};e.n++;e.v+=(r.vr_bruto||0);if(r._fase==='pend')e.pend++;else e.band++;e.rows.push(r);m.set(k,e)});return[...m.values()].sort((a,b)=>b.n-a.n)})()
+    // Aging: há quantos dias estão parados os em aberto (pendência + andamento)
+    const agingDef=[{k:'0–7 dias',min:0,max:7,c:C.accent2},{k:'8–15 dias',min:8,max:15,c:C.info},{k:'16–30 dias',min:16,max:30,c:C.warn},{k:'31+ dias',min:31,max:1e9,c:C.danger}]
+    const aging=agingDef.map(b=>{const rs=emAberto.filter(r=>r._dias!=null&&r._dias>=b.min&&r._dias<=b.max);return{k:b.k,c:b.c,n:rs.length,v:rs.reduce((s,r)=>s+(r.vr_bruto||0),0),rows:rs.sort((a,b)=>(b._dias||0)-(a._dias||0))}})
+    const diasArr=emAberto.map(r=>r._dias).filter(d=>d!=null)
+    const diasMed=diasArr.length?Math.round(diasArr.reduce((a,b)=>a+b,0)/diasArr.length):0
+    const diasMax=diasArr.length?Math.max(...diasArr):0
+    // Margem ABERTA (Disponível=Bruta): desaverbou, PODE ATUAR. E bloqueadas (servidor não deixa consultar).
+    const margemAberta=base.filter(r=>r.margem&&r.margem.status==='aberto').sort((a,b)=>(a._dias||0)-(b._dias||0))
+    const margemBloqueada=base.filter(r=>r.margem&&r.margem.status==='bloqueado')
+    const margemAverbada=base.filter(r=>r.margem&&r.margem.status==='averbado')
     // comissão NEO
     const cmsAll=cms.flatMap(f=>f.rows)
     const cmsMap=new Map();cmsAll.forEach(c=>{const e=cmsMap.get(c.prop)||{cms:0,usuario:c.usuario};e.cms+=c.cms;cmsMap.set(c.prop,e)})
@@ -3729,13 +3758,22 @@ function EsteiraCompra(){
     const semCms=concluidas.filter(r=>!cmsMap.has(cfDig(r.proposta)))
     const porVend=new Map();cmsAll.forEach(c=>{const e=porVend.get(c.usuario)||{key:c.usuario,n:0,v:0};e.n++;e.v+=c.cms;porVend.set(c.usuario,e)})
     return{base,byFase,decididas,aprovadas,taxaAprov:decididas?aprovadas/decididas*100:0,cicloMed,
-      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,emAberto,porParceiro,
+      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,emAberto,porParceiro,aging,diasMed,diasMax,margemAberta,margemBloqueada,margemAverbada,
       cmsAll,cmsTot:cmsAll.reduce((s,c)=>s+c.cms,0),comCms,semCms,porVend:[...porVend.values()].sort((a,b)=>b.v-a.v)}
   },[rows,per,cms,fEst])
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
   const agCol=d=>d==null?C.muted:d>30?C.danger:d>15?C.warn:C.text
   const sbCol=s=>{const u=String(s||'').toUpperCase();if(u.includes('MARGEM'))return C.danger;if(u.startsWith('INT'))return C.accent2;if(u.startsWith('REP'))return C.danger;if(u.startsWith('PEN'))return C.warn;if(u.startsWith('AND'))return C.info;return C.muted}
+  const mgCell=m=>{
+    if(!m||!m.status)return<span style={{color:C.muted}}>—</span>
+    const tip='Consultado '+(m.at?new Date(m.at).toLocaleString('pt-BR'):'')+(m.ref?' · ref '+m.ref:'')
+    if(m.status==='aberto')return<span style={{color:C.accent2,fontWeight:700}} title={tip+' · Disponível = Bruta (margem inteira livre)'}>🟢 ABERTA · {cfMoney(m.bruta)}{m.folha?' · folha '+m.folha:''}</span>
+    if(m.status==='averbado')return<span style={{color:C.danger,fontWeight:700}} title={tip+' · livre / teto (ainda consumindo)'}>🔴 {cfMoney(m.disp)} / {cfMoney(m.bruta)}{m.folha?' · folha '+m.folha:''}</span>
+    if(m.status==='bloqueado')return<span style={{color:C.warn,fontSize:10}} title={'Servidor não permite a consulta de margem no portal (ESCC8017)'}>🔒 bloqueado</span>
+    const lbl={erro:'erro',sem_matricula:'s/ matríc',sem_dado:'s/ dado',aviso:'aviso'}[m.status]||m.status
+    return<span style={{color:C.muted,fontSize:9}} title={tip}>{lbl}</span>
+  }
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
       <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito <span style={{fontSize:10,fontWeight:600,color:C.accent2,background:C.accent2+'18',padding:'2px 8px',borderRadius:6,verticalAlign:'middle'}}>● AO VIVO</span></h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Puxada direto do Konsig (api.konsig.com.br) pelo robô do escritório{syncInfo?.konsig_last_sync?' · última atualização: '+new Date(syncInfo.konsig_last_sync.value).toLocaleString('pt-BR'):''}{syncInfo?.konsig_last_status?' · '+syncInfo.konsig_last_status.value:''}</div></div>
@@ -3754,6 +3792,21 @@ function EsteiraCompra(){
       </div>})}
       {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:tokenMsg.includes('Erro')?C.danger:C.muted}}>{tokenMsg}</span>}
     </div>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:11,fontWeight:700}}>🏛️ Sessão do Portal do Consignado <span style={{fontWeight:400,color:C.muted}}>· logue de manhã e cole aqui (F12 → Network → req "pesquisarMargem" → Cabeçalhos: cookie JSESSIONID e securitytoken)</span>
+        {syncInfo?.portal_sessao_ok&&<span style={{marginLeft:8,fontSize:10,fontWeight:700,color:syncInfo.portal_sessao_ok.value==='1'?C.accent2:C.danger}}>{syncInfo.portal_sessao_ok.value==='1'?'● sessão ativa':'● sessão caiu — logar de novo'}</span>}
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <span style={{fontSize:11,fontWeight:600,width:90}}>JSESSIONID</span>
+        <input ref={portRefJ} type="password" placeholder="valor do cookie JSESSIONID=..." style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <span style={{fontSize:11,fontWeight:600,width:90}}>securitytoken</span>
+        <input ref={portRefT} type="password" placeholder="header securitytoken: WW2X-..." style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
+        <button onClick={savePortal} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar sessão</button>
+      </div>
+      {(portalMsg||syncInfo?.portal_status)&&<span style={{fontSize:11,color:portalMsg.includes('✓')?C.accent2:portalMsg.includes('Erro')?C.danger:C.muted}}>{portalMsg||('robô: '+syncInfo.portal_status.value)}</span>}
+    </div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
     {R&&<>
@@ -3763,6 +3816,20 @@ function EsteiraCompra(){
         <Stat label="Averbadas / liberadas" value={R.averbadas.length} sub="TED emitida (margem liberada)" color={C.accent2}/>
         <Stat label="Barrada por margem" value={R.margemProb.length} sub="insuficiente / negativa / zerada" color={R.margemProb.length?C.danger:C.muted}/>
         <Stat label="Em aberto (pend + andamento)" value={R.byFase.pend.n+R.byFase.banco.n} sub={cfMoney(R.byFase.pend.v+R.byFase.banco.v)+' na esteira'} color={C.warn}/>
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+C.accent2,borderRadius:14,padding:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6,marginBottom:6}}>
+          <div style={{fontSize:13,fontWeight:800}}>🟢 Margem ABERTA — atuar agora ({R.margemAberta.length})</div>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <span style={{fontSize:10,color:C.muted}}>desaverbou (Disponível = Bruta) · 🔴 {R.margemAverbada.length} ainda consumindo · 🔒 {R.margemBloqueada.length} bloqueadas</span>
+            {R.margemAberta.length>0&&<button onClick={()=>cfExport(R.margemAberta.map(r=>({proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,margem_teto:r.margem?.bruta,proxima_folha:r.margem?.folha,parceiro:r.parceiro,dias:r._dias})),'margem-aberta-atuar')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.accent2,background:C.accent2+'12',color:C.accent2,cursor:'pointer'}}>⬇ Exportar</button>}
+          </div>
+        </div>
+        {R.margemAberta.length===0
+          ? <div style={{fontSize:11,color:C.muted,background:C.surface,borderRadius:8,padding:'10px 12px'}}>Nenhuma margem aberta no momento — as aguardando liquidação ainda têm contrato consumindo a margem. O robô marca 🟢 aqui automaticamente no instante em que <b>Disponível = Bruta</b> (o contrato antigo sair).</div>
+          : <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:320,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Proposta','Margem (teto)','Próx. folha','Parceiro','Dias'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+            {R.margemAberta.map((r,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,26)}</td><td style={{...td,fontSize:10}}>{r.cpf}</td><td style={{...td,fontSize:10}}>{r.proposta}</td><td style={{...td,fontWeight:700,color:C.accent2}}>{cfMoney(r.margem?.bruta)}</td><td style={{...td,fontSize:10}}>{r.margem?.folha||'—'}</td><td style={{...td,fontSize:10}}>{(r.parceiro||'—').slice(0,22)}</td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td></tr>)}
+          </tbody></table></div>}
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {NC_FASES.map(f=>{const d=R.byFase[f.id];const sel=fase===f.id;return<div key={f.id} onClick={()=>setFase(sel?null:f.id)} style={{flex:1,minWidth:130,background:sel?C.abg:C.card,border:'1px solid '+(sel?C.accent:C.border),borderLeft:'4px solid '+f.color,borderRadius:12,padding:'12px 14px',cursor:'pointer'}}>
@@ -3777,10 +3844,21 @@ function EsteiraCompra(){
           <div style={{fontSize:12,fontWeight:700}}>{f.l} — {list.length} propostas (mais paradas primeiro)</div>
           <button onClick={()=>cfExport(list.map(r=>({proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,data:r.data,valor:r.vr_bruto,situacao:r.situacao,detalhe_banco:r.situacao_banco,dias:r._dias,digitador:r.usuario,agente:r.agente,crc:r.crc_cliente,nosso_credito:r.data_nosso_credito})),'esteira-compra-'+fase)} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
-        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:400,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','Cliente','Valor','Convênio','Cartão / operação','Situação','Detalhe banco','Dias','Digitador','📝 Última observação'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-          {list.slice(0,300).map((r,i)=><tr key={i}><td style={td}>{r.proposta}</td><td style={td}>{(r.cliente||'—').slice(0,18)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={{...td,fontSize:10}}>{r.convenio||'—'}</td><td style={{...td,fontSize:10,color:C.info}}>{(r.operacao||'—')}</td><td style={td}><Badge text={r.situacao||'—'} color={f.color}/></td><td style={{...td,fontSize:10,fontWeight:600,color:sbCol(r.situacao_banco)}}>{r.situacao_banco||'—'}</td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td><td style={{...td,color:C.muted,fontSize:10}}>{(r.usuario||'—').slice(0,16)}</td><td style={{...td,fontSize:10,maxWidth:300}} title={r.obs_texto?(r.obs_autor+' · '+fmtDate(r.obs_data)+': '+r.obs_texto):''}>{r.obs_texto?<span><b style={{color:C.accent}}>{(r.obs_autor||'').split(' ')[0]}:</b> {r.obs_texto.slice(0,80)}{r.obs_texto.length>80?'…':''}</span>:<span style={{color:C.muted}}>—</span>}</td></tr>)}
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:400,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','Cliente','Valor','Convênio','Cartão / operação','Margem benefício','Situação','Detalhe banco','Dias','Digitador','📝 Última observação'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {list.slice(0,300).map((r,i)=><tr key={i}><td style={td}>{r.proposta}</td><td style={td}>{(r.cliente||'—').slice(0,18)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={{...td,fontSize:10}}>{r.convenio||'—'}</td><td style={{...td,fontSize:10,color:C.info}}>{(r.operacao||'—')}</td><td style={{...td,fontSize:10}}>{mgCell(r.margem)}</td><td style={td}><Badge text={r.situacao||'—'} color={f.color}/></td><td style={{...td,fontSize:10,fontWeight:600,color:sbCol(r.situacao_banco)}}>{r.situacao_banco||'—'}</td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td><td style={{...td,color:C.muted,fontSize:10}}>{(r.usuario||'—').slice(0,16)}</td><td style={{...td,fontSize:10,maxWidth:300}} title={r.obs_texto?(r.obs_autor+' · '+fmtDate(r.obs_data)+': '+r.obs_texto):''}>{r.obs_texto?<span><b style={{color:C.accent}}>{(r.obs_autor||'').split(' ')[0]}:</b> {r.obs_texto.slice(0,80)}{r.obs_texto.length>80?'…':''}</span>:<span style={{color:C.muted}}>—</span>}</td></tr>)}
         </tbody></table></div>
       </div>})()}
+      {R.emAberto.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+        <div style={{fontSize:12,fontWeight:700}}>⏱️ Aging — há quantos dias estão parados</div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:8}}>{R.emAberto.length} em aberto (pendência + andamento) · média <b>{R.diasMed} dias</b> · mais parada <b style={{color:R.diasMax>30?C.danger:C.text}}>{R.diasMax} dias</b></div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {R.aging.map((b,i)=><div key={i} style={{flex:1,minWidth:120,background:C.surface,border:'1px solid '+C.border,borderLeft:'4px solid '+b.c,borderRadius:10,padding:'10px 12px'}}>
+            <div style={{fontSize:10,fontWeight:700,color:b.c}}>{b.k}</div>
+            <div style={{fontSize:22,fontWeight:800,marginTop:2}}>{b.n}</div>
+            <div style={{fontSize:10,color:C.muted}}>{cfMoney(b.v)}</div>
+          </div>)}
+        </div>
+      </div>}
       {R.porParceiro.length>0&&<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <div style={{fontSize:12,fontWeight:700,color:C.warn}}>📋 Pendências a direcionar — por parceiro ({R.emAberto.length} em aberto)</div>
