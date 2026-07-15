@@ -3654,6 +3654,7 @@ function EsteiraCompra(){
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
   const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
   const[portalMsg,setPortalMsg]=useState('')
+  const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[expandido,setExpandido]=useState(null)
   const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef()
   const loadRows=async()=>{
     setLoading(true)
@@ -3749,6 +3750,10 @@ function EsteiraCompra(){
     const margemAberta=base.filter(r=>r.margem&&r.margem.status==='aberto').sort((a,b)=>(a._dias||0)-(b._dias||0))
     const margemBloqueada=base.filter(r=>r.margem&&r.margem.status==='bloqueado')
     const margemAverbada=base.filter(r=>r.margem&&r.margem.status==='averbado')
+    // Aguardando liquidação — análise cliente a cliente (o que interessa pra compra); tempo = dias desde a última mudança de status
+    const aguardLiq=base.filter(r=>/AGUARD LIQUIDACAO/i.test(r.situacao_banco||'')).map(r=>({...r,_diasLiq:r.datahoras?Math.floor((hoje-new Date(String(r.datahoras).slice(0,10)+'T00:00:00'))/86400000):null})).sort((a,b)=>(b._diasLiq||0)-(a._diasLiq||0))
+    const aguardLiqVal=aguardLiq.reduce((s,r)=>s+(r.vr_bruto||0),0)
+    const aguardLiqMed=aguardLiq.length?Math.round(aguardLiq.reduce((s,r)=>s+(r._diasLiq||0),0)/aguardLiq.filter(r=>r._diasLiq!=null).length):0
     // comissão NEO
     const cmsAll=cms.flatMap(f=>f.rows)
     const cmsMap=new Map();cmsAll.forEach(c=>{const e=cmsMap.get(c.prop)||{cms:0,usuario:c.usuario};e.cms+=c.cms;cmsMap.set(c.prop,e)})
@@ -3758,7 +3763,7 @@ function EsteiraCompra(){
     const semCms=concluidas.filter(r=>!cmsMap.has(cfDig(r.proposta)))
     const porVend=new Map();cmsAll.forEach(c=>{const e=porVend.get(c.usuario)||{key:c.usuario,n:0,v:0};e.n++;e.v+=c.cms;porVend.set(c.usuario,e)})
     return{base,byFase,decididas,aprovadas,taxaAprov:decididas?aprovadas/decididas*100:0,cicloMed,
-      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,emAberto,porParceiro,aging,diasMed,diasMax,margemAberta,margemBloqueada,margemAverbada,
+      averbadas,margemProb,pendMotivos,repMotivos,andMotivos,emAberto,porParceiro,aging,diasMed,diasMax,margemAberta,margemBloqueada,margemAverbada,aguardLiq,aguardLiqVal,aguardLiqMed,
       cmsAll,cmsTot:cmsAll.reduce((s,c)=>s+c.cms,0),comCms,semCms,porVend:[...porVend.values()].sort((a,b)=>b.v-a.v)}
   },[rows,per,cms,fEst])
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
@@ -3831,6 +3836,75 @@ function EsteiraCompra(){
             {R.margemAberta.map((r,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,26)}</td><td style={{...td,fontSize:10}}>{r.cpf}</td><td style={{...td,fontSize:10}}>{r.proposta}</td><td style={{...td,fontWeight:700,color:C.accent2}}>{cfMoney(r.margem?.bruta)}</td><td style={{...td,fontSize:10}}>{r.margem?.folha||'—'}</td><td style={{...td,fontSize:10}}>{(r.parceiro||'—').slice(0,22)}</td><td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td></tr>)}
           </tbody></table></div>}
       </div>
+      {R.aguardLiq.length>0&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6,marginBottom:8}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:800}}>🔄 Aguardando liquidação — análise ({R.aguardLiq.length})</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:2}}>{cfMoney(R.aguardLiqVal)} · tempo médio em liquidação <b>{R.aguardLiqMed}d</b> · mais demorada <b style={{color:R.aguardLiq[0]?._diasLiq>20?C.danger:C.text}}>{R.aguardLiq[0]?._diasLiq||0}d</b> · ordenado por tempo (mais antigo primeiro = prioridade)</div>
+          </div>
+          <button onClick={()=>cfExport(R.aguardLiq.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,dias_liquidacao:r._diasLiq,dias_esteira:r._dias,operacao:r.operacao,valor:r.vr_bruto,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,proxima_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro})),'aguardando-liquidacao')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+        </div>
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:460,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Dias liq.','Operação','Valor','Margem benefício','Próx. folha','Digitador'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {R.aguardLiq.map((r,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td><td style={{...td,fontSize:10}}>{r.cpf}</td><td style={{...td,fontWeight:700,color:agCol(r._diasLiq)}}>{r._diasLiq!=null?r._diasLiq+'d':'—'}</td><td style={{...td,fontSize:10,color:C.info}}>{(r.operacao||'—').slice(0,16)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={{...td,fontSize:10}}>{mgCell(r.margem)}</td><td style={{...td,fontSize:10}}>{r.margem?.folha||'—'}</td><td style={{...td,fontSize:10,color:C.muted}}>{(r.usuario||'—').slice(0,14)}</td></tr>)}
+        </tbody></table></div>
+      </div>}
+      {(()=>{
+        const q=busca.trim().toLowerCase(),qd=q.replace(/\D/g,'')
+        const g=R.base.filter(r=>{
+          if(gFiltro==='aberto'&&!(r._fase==='pend'||r._fase==='banco'))return false
+          if(gFiltro==='pend'&&r._fase!=='pend')return false
+          if(gFiltro==='andamento'&&r._fase!=='banco')return false
+          if(gFiltro==='liquidacao'&&!/AGUARD LIQUIDACAO/i.test(r.situacao_banco||''))return false
+          if(gFiltro==='reprov'&&r._fase!=='reprov')return false
+          if(q){const t=(r.cliente||'').toLowerCase().includes(q)||String(r.proposta||'').includes(q);const c=qd.length>=3&&(r.cpf||'').includes(qd);if(!t&&!c)return false}
+          return true
+        }).sort((a,b)=>(b._dias||0)-(a._dias||0))
+        const gv=g.reduce((s,r)=>s+(r.vr_bruto||0),0)
+        return <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+            <div style={{fontSize:13,fontWeight:800}}>📇 Gestão detalhada — {g.length} propostas · {cfMoney(gv)}</div>
+            <button onClick={()=>cfExport(g.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,esteira:r.esteira,data:r.data,dias:r._dias,operacao:r.operacao,convenio:r.convenio,valor:r.vr_bruto,parcela:r.vr_parcela,situacao:r.situacao,detalhe_banco:r.situacao_banco,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,prox_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro,ultima_obs:r.obs_texto,obs_autor:r.obs_autor})),'gestao-esteira-'+gFiltro)} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontWeight:600,cursor:'pointer'}}>⬇ Exportar {g.length}</button>
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 buscar por nome, CPF ou nº da proposta" style={{flex:1,minWidth:220,background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 12px',fontSize:12,outline:'none'}}/>
+            <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{[{id:'aberto',l:'Em aberto'},{id:'pend',l:'📌 Pendência'},{id:'andamento',l:'🏦 Andamento'},{id:'liquidacao',l:'🔄 Aguard. liquidação'},{id:'reprov',l:'❌ Reprovadas'},{id:'todas',l:'Todas'}].map(f=><button key={f.id} onClick={()=>setGFiltro(f.id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(gFiltro===f.id?C.accent:C.border),background:gFiltro===f.id?C.abg:'transparent',color:gFiltro===f.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:gFiltro===f.id?700:400}}>{f.l}</button>)}</div>
+          </div>
+          <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:560,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['','Cliente','CPF','Proposta','Dias','Cartão / operação','Valor','Situação','Detalhe banco','Margem','Digitador'].map((h,i)=><th key={i} style={th}>{h}</th>)}</tr></thead><tbody>
+            {g.slice(0,400).flatMap((r,i)=>{const exp=expandido===r.proposta;return [
+              <tr key={i+'a'} onClick={()=>setExpandido(exp?null:r.proposta)} style={{cursor:'pointer',background:exp?C.abg:'transparent'}}>
+                <td style={{...td,color:C.muted}}>{exp?'▼':'▶'}</td>
+                <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
+                <td style={{...td,fontSize:10}}>{r.cpf}</td>
+                <td style={{...td,fontSize:10}}>{r.proposta}</td>
+                <td style={{...td,fontWeight:700,color:agCol(r._dias)}}>{r._dias!=null?r._dias+'d':'—'}</td>
+                <td style={{...td,fontSize:10,color:C.info}}>{(r.operacao||'—').slice(0,16)}</td>
+                <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
+                <td style={td}><Badge text={r.situacao||'—'} color={sbCol(r.situacao_banco)}/></td>
+                <td style={{...td,fontSize:10,fontWeight:600,color:sbCol(r.situacao_banco)}}>{r.situacao_banco||'—'}</td>
+                <td style={{...td,fontSize:10}}>{mgCell(r.margem)}</td>
+                <td style={{...td,fontSize:10,color:C.muted}}>{(r.usuario||'—').slice(0,14)}</td>
+              </tr>,
+              exp?<tr key={i+'b'}><td colSpan={11} style={{padding:'0 10px 12px 30px',background:C.abg}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8,fontSize:11,padding:'10px 0'}}>
+                  <div><span style={{color:C.muted}}>Esteira:</span> <b>{r.esteira}</b></div>
+                  <div><span style={{color:C.muted}}>Convênio:</span> <b>{r.convenio||'—'}</b></div>
+                  <div><span style={{color:C.muted}}>Parceiro:</span> <b>{r.parceiro||'—'}</b></div>
+                  <div><span style={{color:C.muted}}>Corban:</span> <b>{r.corban||'—'}</b></div>
+                  <div><span style={{color:C.muted}}>Digitado em:</span> <b>{fmtDate(r.data)}</b></div>
+                  <div><span style={{color:C.muted}}>Valor parcela:</span> <b>{cfMoney(r.vr_parcela)}</b></div>
+                  <div><span style={{color:C.muted}}>Próxima folha:</span> <b>{r.margem?.folha||'—'}</b></div>
+                  <div><span style={{color:C.muted}}>Margem benefício:</span> {mgCell(r.margem)}</div>
+                </div>
+                <div style={{fontSize:11,background:C.card,border:'1px solid '+C.border,borderRadius:8,padding:'8px 10px'}}>
+                  <b style={{color:C.accent}}>📝 Última observação do banco {r.obs_autor?('· '+r.obs_autor):''} {r.obs_data?('· '+fmtDate(r.obs_data)):''}</b>
+                  <div style={{marginTop:4,color:r.obs_texto?C.text:C.muted}}>{r.obs_texto||'sem observação registrada'}</div>
+                </div>
+              </td></tr>:null
+            ]})}
+          </tbody></table></div>
+          {g.length>400&&<div style={{fontSize:10,color:C.muted}}>Mostrando 400 de {g.length} — refine a busca.</div>}
+        </div>
+      })()}
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {NC_FASES.map(f=>{const d=R.byFase[f.id];const sel=fase===f.id;return<div key={f.id} onClick={()=>setFase(sel?null:f.id)} style={{flex:1,minWidth:130,background:sel?C.abg:C.card,border:'1px solid '+(sel?C.accent:C.border),borderLeft:'4px solid '+f.color,borderRadius:12,padding:'12px 14px',cursor:'pointer'}}>
           <div style={{fontSize:10,fontWeight:700,color:sel?C.accent:C.muted}}>{f.l}</div>
