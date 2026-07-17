@@ -3702,7 +3702,7 @@ function EsteiraCompra(){
     const tk=(ref.current?.value||'').trim();if(!tk){setTokenMsg('Cole o token da esteira '+label);return}
     setTokenMsg('Salvando '+label+'...')
     const{error}=await supabase.from('konsig_config').upsert([{key:'konsig_token_'+label,value:tk,updated_at:new Date().toISOString()},{key:'konsig_expirado_'+label,value:'0',updated_at:new Date().toISOString()}],{onConflict:'key'})
-    setTokenMsg(error?('Erro: '+error.message):'✓ Token '+label+' salvo! O robô usa no próximo ciclo (até 15 min).')
+    setTokenMsg(error?('Erro: '+error.message):'✓ Token '+label+' salvo! Salve os 2 e clique em "Sincronizar esteira agora".')
     if(!error&&ref.current)ref.current.value=''
   }
   const savePortal=async()=>{
@@ -3712,10 +3712,29 @@ function EsteiraCompra(){
     const now=new Date().toISOString()
     const{error}=await supabase.from('konsig_config').upsert([
       {key:'portal_jsession',value:js,updated_at:now},{key:'portal_token',value:tk,updated_at:now},
-      {key:'portal_ativo',value:'1',updated_at:now},{key:'portal_sessao_ok',value:'1',updated_at:now},{key:'portal_updated',value:now,updated_at:now}
+      {key:'portal_ativo',value:'1',updated_at:now},{key:'portal_sessao_ok',value:'1',updated_at:now},{key:'portal_updated',value:now,updated_at:now},
+      {key:'portal_run_now',value:now,updated_at:now},{key:'portal_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR'),updated_at:now}
     ],{onConflict:'key'})
-    setPortalMsg(error?('Erro: '+error.message):'✓ Sessão do portal salva! O robô consulta as margens no próximo ciclo (até 15 min).')
+    setPortalMsg(error?('Erro: '+error.message):'✓ Sessão salva e consulta disparada! O robô roda em até ~1 min — acompanhe o status abaixo.')
     if(!error){if(portRefJ.current)portRefJ.current.value='';if(portRefT.current)portRefT.current.value=''}
+  }
+  const dispararPortal=async()=>{
+    setPortalMsg('Disparando consulta de margens...')
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([
+      {key:'portal_run_now',value:now,updated_at:now},{key:'portal_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR'),updated_at:now}
+    ],{onConflict:'key'})
+    setPortalMsg(error?('Erro: '+error.message):'✓ Consulta disparada! O robô roda em até ~1 min — acompanhe o status abaixo.')
+    setTimeout(loadRows,5000)
+  }
+  const sincronizarEsteira=async()=>{
+    setTokenMsg('Disparando sincronização das esteiras...')
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([
+      {key:'sync_run_now',value:now,updated_at:now},{key:'sync_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR'),updated_at:now}
+    ],{onConflict:'key'})
+    setTokenMsg(error?('Erro: '+error.message):'✓ Sincronização disparada! O robô puxa as esteiras em até ~1 min.')
+    setTimeout(loadRows,8000)
   }
   const readCms=f=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rs=cfParseComissaoNeo(wb);if(!rs.length){setErr('Não reconheci o formato de comissão NEO ('+f.name+')');return}setErr('');setCms(p=>[...p,{nome:f.name,rows:rs}])}catch(e){setErr('Erro lendo comissão: '+e.message)}};rd.readAsArrayBuffer(f)}
   const R=useMemo(()=>{
@@ -3795,6 +3814,11 @@ function EsteiraCompra(){
         <input ref={t.ref} type="password" placeholder={'token da esteira '+t.label+(exp?' (EXPIROU — cole novo)':'')} style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+(exp?C.danger:C.border),borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
         <button onClick={()=>saveToken(t.label,t.ref)} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar</button>
       </div>})}
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={sincronizarEsteira} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>🔄 Sincronizar esteira agora</button>
+        <span style={{fontSize:10,color:C.muted}}>depois de salvar os 2 tokens · o robô puxa em ~1 min</span>
+        {syncInfo?.sync_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.sync_run_status.value).includes('✓')?C.accent2:String(syncInfo.sync_run_status.value).includes('erro')?C.danger:C.warn}}>· {syncInfo.sync_run_status.value}</span>}
+      </div>
       {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:tokenMsg.includes('Erro')?C.danger:C.muted}}>{tokenMsg}</span>}
     </div>
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
@@ -3808,7 +3832,12 @@ function EsteiraCompra(){
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
         <span style={{fontSize:11,fontWeight:600,width:90}}>securitytoken</span>
         <input ref={portRefT} type="password" placeholder="header securitytoken: WW2X-..." style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
-        <button onClick={savePortal} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar sessão</button>
+        <button onClick={savePortal} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar e consultar</button>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={dispararPortal} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>🔍 Consultar margens agora</button>
+        <span style={{fontSize:10,color:C.muted}}>usa a sessão já salva · o robô roda em ~1 min</span>
+        {syncInfo?.portal_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.portal_run_status.value).includes('✓')?C.accent2:String(syncInfo.portal_run_status.value).includes('erro')?C.danger:C.warn}}>· {syncInfo.portal_run_status.value}</span>}
       </div>
       {(portalMsg||syncInfo?.portal_status)&&<span style={{fontSize:11,color:portalMsg.includes('✓')?C.accent2:portalMsg.includes('Erro')?C.danger:C.muted}}>{portalMsg||('robô: '+syncInfo.portal_status.value)}</span>}
     </div>
