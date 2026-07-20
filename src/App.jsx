@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 /* ═══ THEME ═══ */
 const C={bg:'#F5F7FA',surface:'#FFFFFF',card:'#FFFFFF',border:'#E2E8F0',text:'#1E293B',muted:'#94A3B8',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#0EA5E9',abg:'#3B82F611'}
 const NOW=new Date()
+const diasUteisAte=(fromStr)=>{if(!fromStr)return null;const from=new Date(String(fromStr).slice(0,10)+'T00:00:00');const to=new Date(new Date().toISOString().slice(0,10)+'T00:00:00');if(isNaN(from)||isNaN(to))return null;let n=0;const d=new Date(from);while(d<to){d.setDate(d.getDate()+1);const w=d.getDay();if(w!==0&&w!==6)n++}return n}
 const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return`${y}-${m}-${dd}`}
 const CUR_M=localDate(NOW).slice(0,7),PREV_M=(()=>{const d=new Date(NOW.getFullYear(),NOW.getMonth()-1,1);return localDate(d).slice(0,7)})()
 
@@ -3770,7 +3771,7 @@ function EsteiraCompra(){
     const margemBloqueada=base.filter(r=>r.margem&&r.margem.status==='bloqueado')
     const margemAverbada=base.filter(r=>r.margem&&r.margem.status==='averbado')
     // Aguardando liquidação — análise cliente a cliente (o que interessa pra compra); tempo = dias desde a última mudança de status
-    const aguardLiq=base.filter(r=>/AGUARD LIQUIDACAO/i.test(r.situacao_banco||'')).map(r=>({...r,_diasLiq:r.datahoras?Math.floor((hoje-new Date(String(r.datahoras).slice(0,10)+'T00:00:00'))/86400000):null})).sort((a,b)=>(b._diasLiq||0)-(a._diasLiq||0))
+    const aguardLiq=base.filter(r=>/AGUARD LIQUIDACAO/i.test(r.situacao_banco||'')).map(r=>({...r,_diasLiq:diasUteisAte(r.datahoras)})).sort((a,b)=>(b._diasLiq||0)-(a._diasLiq||0))
     const aguardLiqVal=aguardLiq.reduce((s,r)=>s+(r.vr_bruto||0),0)
     const aguardLiqMed=aguardLiq.length?Math.round(aguardLiq.reduce((s,r)=>s+(r._diasLiq||0),0)/aguardLiq.filter(r=>r._diasLiq!=null).length):0
     // comissão NEO
@@ -3873,12 +3874,12 @@ function EsteiraCompra(){
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6,marginBottom:8}}>
           <div>
             <div style={{fontSize:13,fontWeight:800}}>🔄 Aguardando liquidação — análise ({R.aguardLiq.length})</div>
-            <div style={{fontSize:10,color:C.muted,marginTop:2}}>{cfMoney(R.aguardLiqVal)} · tempo médio em liquidação <b>{R.aguardLiqMed}d</b> · mais demorada <b style={{color:R.aguardLiq[0]?._diasLiq>20?C.danger:C.text}}>{R.aguardLiq[0]?._diasLiq||0}d</b> · ordenado por tempo (mais antigo primeiro = prioridade)</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:2}}>{cfMoney(R.aguardLiqVal)} · tempo médio <b>{R.aguardLiqMed} dias úteis</b> · mais demorada <b style={{color:R.aguardLiq[0]?._diasLiq>4?C.danger:C.text}}>{R.aguardLiq[0]?._diasLiq||0} dias úteis</b> · ordenado por tempo (mais antigo = prioridade)</div>
           </div>
-          <button onClick={()=>cfExport(R.aguardLiq.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,dias_liquidacao:r._diasLiq,dias_esteira:r._dias,operacao:r.operacao,valor:r.vr_bruto,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,proxima_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro})),'aguardando-liquidacao')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
+          <button onClick={()=>cfExport(R.aguardLiq.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,dias_uteis_liquidacao:r._diasLiq,dias_corridos_esteira:r._dias,operacao:r.operacao,valor:r.vr_bruto,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,proxima_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro})),'aguardando-liquidacao')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
-        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:460,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Dias liq.','Operação','Valor','Margem benefício','Próx. folha','Digitador'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-          {R.aguardLiq.map((r,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td><td style={{...td,fontSize:10}}>{r.cpf}</td><td style={{...td,fontWeight:700,color:agCol(r._diasLiq)}}>{r._diasLiq!=null?r._diasLiq+'d':'—'}</td><td style={{...td,fontSize:10,color:C.info}}>{(r.operacao||'—').slice(0,16)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={{...td,fontSize:10}}>{mgCell(r.margem)}</td><td style={{...td,fontSize:10}}>{r.margem?.folha||'—'}</td><td style={{...td,fontSize:10,color:C.muted}}>{(r.usuario||'—').slice(0,14)}</td></tr>)}
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:460,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Cliente','CPF','Dias úteis','Operação','Valor','Margem benefício','Próx. folha','Digitador'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {R.aguardLiq.map((r,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td><td style={{...td,fontSize:10}}>{r.cpf}</td><td style={{...td,fontWeight:700,color:r._diasLiq>4?C.danger:r._diasLiq===4?C.warn:C.text}}>{r._diasLiq!=null?r._diasLiq+' du':'—'}</td><td style={{...td,fontSize:10,color:C.info}}>{(r.operacao||'—').slice(0,16)}</td><td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td><td style={{...td,fontSize:10}}>{mgCell(r.margem)}</td><td style={{...td,fontSize:10}}>{r.margem?.folha||'—'}</td><td style={{...td,fontSize:10,color:C.muted}}>{(r.usuario||'—').slice(0,14)}</td></tr>)}
         </tbody></table></div>
       </div>}
       {(()=>{
