@@ -3743,7 +3743,7 @@ function EsteiraCompra(){
     const hoje=NOW
     const dias=d=>{if(!d)return null;const dt=new Date(String(d).slice(0,10)+'T00:00:00');return isNaN(dt)?null:Math.floor((hoje-dt)/86400000)}
     const pFrom=per==='mes'?localDate(new Date(hoje.getFullYear(),hoje.getMonth(),1)):per==='90d'?localDate(new Date(hoje-90*86400000)):per==='ano'?hoje.getFullYear()+'-01-01':'2000-01-01'
-    const base=rows.filter(r=>(r.data||'')>=pFrom).filter(r=>fEst==='todas'||r.esteira===fEst).map(r=>({...r,_fase:ncFase(r),_dias:dias(r.data),_ciclo:r.data_nosso_credito?Math.max(0,Math.floor((new Date(String(r.data_nosso_credito).slice(0,10))-new Date(String(r.data).slice(0,10)))/86400000)):null}))
+    const base=rows.filter(r=>(r.data||'')>=pFrom).filter(r=>fEst==='todas'||r.esteira===fEst).map(r=>({...r,_fase:ncFase(r),_dias:dias(r.datahoras||r.data),_ciclo:r.data_nosso_credito?Math.max(0,Math.floor((new Date(String(r.data_nosso_credito).slice(0,10))-new Date(String(r.data).slice(0,10)))/86400000)):null}))
     const byFase={};NC_FASES.forEach(f=>byFase[f.id]={n:0,v:0,rows:[]})
     base.forEach(r=>{const f=byFase[r._fase]||byFase.pend;f.n++;f.v+=(r.vr_bruto||0);f.rows.push(r)})
     NC_FASES.forEach(f=>byFase[f.id].rows.sort((a,b)=>(b._dias||0)-(a._dias||0)))
