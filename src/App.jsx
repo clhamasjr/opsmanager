@@ -3656,6 +3656,7 @@ function EsteiraCompra(){
   const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
   const[portalMsg,setPortalMsg]=useState('')
   const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[expandido,setExpandido]=useState(null)
+  const[parcList,setParcList]=useState([]),[selParc,setSelParc]=useState(''),[parcTel,setParcTel]=useState(''),[parcRecebe,setParcRecebe]=useState(true),[parcMsg,setParcMsg]=useState('')
   const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef(),gestaoRef=useRef()
   const loadRows=async()=>{
     setLoading(true)
@@ -3697,6 +3698,8 @@ function EsteiraCompra(){
     setRows(mapped);setLoading(false)
     const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at')
     if(cfg){const m={};cfg.forEach(c=>m[c.key]=c);setSyncInfo(m)}
+    const{data:pl}=await supabase.from('parceiros').select('id,nome,telefone_notificacao,receber_notificacoes').order('nome')
+    if(pl)setParcList(pl)
   }
   useEffect(()=>{loadRows()},[])
   const saveToken=async(label,ref)=>{
@@ -3736,6 +3739,14 @@ function EsteiraCompra(){
     ],{onConflict:'key'})
     setTokenMsg(error?('Erro: '+error.message):'✓ Sincronização disparada! O robô puxa as esteiras em até ~1 min.')
     setTimeout(loadRows,8000)
+  }
+  const onSelParc=id=>{setSelParc(id);const p=parcList.find(x=>x.id===id);setParcTel(p?.telefone_notificacao||'');setParcRecebe(p?.receber_notificacoes!==false);setParcMsg('')}
+  const salvarTelParc=async()=>{
+    if(!selParc){setParcMsg('Escolha um parceiro');return}
+    const tel=parcTel.split(/[,;\n]/).map(s=>s.replace(/\D/g,'')).filter(Boolean).map(n=>n.length<=11?('55'+n):n).join(',')
+    const{error}=await supabase.from('parceiros').update({telefone_notificacao:tel,receber_notificacoes:parcRecebe}).eq('id',selParc)
+    setParcMsg(error?('Erro: '+error.message):'✓ Telefones salvos ('+(tel?tel.split(',').length:0)+')')
+    if(!error){setParcTel(tel);loadRows()}
   }
   const readCms=f=>{const rd=new FileReader();rd.onload=ev=>{try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const rs=cfParseComissaoNeo(wb);if(!rs.length){setErr('Não reconheci o formato de comissão NEO ('+f.name+')');return}setErr('');setCms(p=>[...p,{nome:f.name,rows:rs}])}catch(e){setErr('Erro lendo comissão: '+e.message)}};rd.readAsArrayBuffer(f)}
   const R=useMemo(()=>{
@@ -3845,6 +3856,20 @@ function EsteiraCompra(){
         {syncInfo?.portal_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.portal_run_status.value).includes('✓')?C.accent2:String(syncInfo.portal_run_status.value).includes('erro')?C.danger:C.warn}}>· {syncInfo.portal_run_status.value}</span>}
       </div>
       {(portalMsg||syncInfo?.portal_status)&&<span style={{fontSize:11,color:portalMsg.includes('✓')?C.accent2:portalMsg.includes('Erro')?C.danger:C.muted}}>{portalMsg||('robô: '+syncInfo.portal_status.value)}</span>}
+    </div>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:11,fontWeight:700}}>📱 Telefones de aviso por parceiro <span style={{fontWeight:400,color:C.muted}}>· cadastre 1 ou mais números (separe por vírgula) — o disparo avisa todos</span></div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <select value={selParc} onChange={e=>onSelParc(e.target.value)} style={{minWidth:240,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}}>
+          <option value="">— escolha o parceiro —</option>
+          {parcList.map(p=><option key={p.id} value={p.id}>{(p.nome||'').slice(0,40)}{p.telefone_notificacao?' ✓':''}</option>)}
+        </select>
+        <input value={parcTel} onChange={e=>setParcTel(e.target.value)} disabled={!selParc} placeholder="ex.: 15998583505, 11969199898" style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none',opacity:selParc?1:.5}}/>
+        <label style={{fontSize:11,display:'flex',alignItems:'center',gap:5,color:C.muted}}><input type="checkbox" checked={parcRecebe} onChange={e=>setParcRecebe(e.target.checked)} disabled={!selParc}/> receber avisos</label>
+        <button onClick={salvarTelParc} disabled={!selParc} style={{padding:'7px 16px',borderRadius:8,border:'none',background:selParc?C.accent:C.border,color:'#fff',fontWeight:600,fontSize:11,cursor:selParc?'pointer':'default'}}>Salvar</button>
+      </div>
+      {parcMsg&&<span style={{fontSize:11,color:parcMsg.includes('✓')?C.accent2:parcMsg.includes('Erro')?C.danger:C.muted}}>{parcMsg}</span>}
+      <span style={{fontSize:10,color:C.muted}}>💡 pode cadastrar quantos parceiros quiser — cada um com seus telefones. O código do país (55) é adicionado automático.</span>
     </div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
