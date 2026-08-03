@@ -3656,7 +3656,7 @@ function EsteiraCompra(){
   const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
   const[portalMsg,setPortalMsg]=useState('')
   const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[expandido,setExpandido]=useState(null)
-  const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef()
+  const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef(),gestaoRef=useRef()
   const loadRows=async()=>{
     setLoading(true)
     const PAGE=1000;let all=[],from=0
@@ -3894,7 +3894,7 @@ function EsteiraCompra(){
           return true
         }).sort((a,b)=>(b._dias||0)-(a._dias||0))
         const gv=g.reduce((s,r)=>s+(r.vr_bruto||0),0)
-        return <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+        return <div ref={gestaoRef} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
             <div style={{fontSize:13,fontWeight:800}}>📇 Gestão detalhada — {g.length} propostas · {cfMoney(gv)}</div>
             <button onClick={()=>cfExport(g.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,esteira:r.esteira,data:r.data,dias:r._dias,operacao:r.operacao,convenio:r.convenio,valor:r.vr_bruto,parcela:r.vr_parcela,situacao:r.situacao,detalhe_banco:r.situacao_banco,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,prox_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro,ultima_obs:r.obs_texto,obs_autor:r.obs_autor})),'gestao-esteira-'+gFiltro)} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontWeight:600,cursor:'pointer'}}>⬇ Exportar {g.length}</button>
@@ -3970,12 +3970,12 @@ function EsteiraCompra(){
       </div>}
       {R.porParceiro.length>0&&<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.warn}}>📋 Pendências a direcionar — por parceiro ({R.emAberto.length} em aberto)</div>
+          <div style={{fontSize:12,fontWeight:700,color:C.warn}}>📋 Pendências a direcionar — por parceiro ({R.emAberto.length} em aberto) <span style={{fontWeight:400,color:C.muted,fontSize:10}}>· clique num parceiro pra ver as propostas dele</span></div>
           <button onClick={()=>cfExport(R.emAberto.map(r=>({parceiro:r.parceiro,proposta:r.proposta,cpf:r.cpf,cliente:r.cliente,esteira:r.esteira,situacao:r.situacao,detalhe:r.situacao_banco,dias:r._dias,valor:r.vr_bruto,digitador:r.usuario})),'esteira-pendencias-por-parceiro')} style={{fontSize:10,padding:'4px 10px',borderRadius:6,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>⬇ Exportar</button>
         </div>
         <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Parceiro vem do que foi importado do WorkBank (agente/digitador), cruzado por nº de proposta. Pendência = precisa de ação (documentação, assinatura, boleto...) · Andamento = aguardando o banco.</div>
         <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:380,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Parceiro','Em aberto','📌 Pendência','🏦 Andamento','Valor'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-          {R.porParceiro.map((p,i)=><tr key={i}><td style={{...td,fontWeight:600}}>{(p.parceiro||'—').slice(0,38)}</td><td style={{...td,fontWeight:700}}>{p.n}</td><td style={{...td,color:p.pend?C.warn:C.muted,fontWeight:p.pend?700:400}}>{p.pend||'—'}</td><td style={{...td,color:p.band?C.info:C.muted}}>{p.band||'—'}</td><td style={{...td,fontWeight:600}}>{cfMoney(p.v)}</td></tr>)}
+          {R.porParceiro.map((p,i)=><tr key={i} onClick={()=>{setBusca(p.parceiro||'');setGFiltro('todas');gestaoRef.current?.scrollIntoView({behavior:'smooth',block:'start'})}} style={{cursor:'pointer'}} title={'Ver as propostas de '+(p.parceiro||'')+' na gestão detalhada'}><td style={{...td,fontWeight:600,color:C.accent}}>{(p.parceiro||'—').slice(0,38)}</td><td style={{...td,fontWeight:700}}>{p.n}</td><td style={{...td,color:p.pend?C.warn:C.muted,fontWeight:p.pend?700:400}}>{p.pend||'—'}</td><td style={{...td,color:p.band?C.info:C.muted}}>{p.band||'—'}</td><td style={{...td,fontWeight:600}}>{cfMoney(p.v)}</td></tr>)}
         </tbody></table></div>
       </div>}
       {(R.pendMotivos.length>0||R.repMotivos.length>0||R.andMotivos.length>0)&&<div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
