@@ -3743,7 +3743,7 @@ function EsteiraCompra(){
   const onSelParc=id=>{setSelParc(id);const p=parcList.find(x=>x.id===id);setParcTel(p?.telefone_notificacao||'');setParcRecebe(p?.receber_notificacoes!==false);setParcMsg('')}
   const salvarTelParc=async()=>{
     if(!selParc){setParcMsg('Escolha um parceiro');return}
-    const tel=parcTel.split(/[,;\n]/).map(s=>s.replace(/\D/g,'')).filter(Boolean).map(n=>n.length<=11?('55'+n):n).join(',')
+    const tel=parcTel.split(/[,;\n]/).map(s=>s.trim()).filter(Boolean).map(n=>{if(/@/.test(n))return n;const d=n.replace(/\D/g,'');return d.length<=11?('55'+d):d}).join(',')
     const{error}=await supabase.from('parceiros').update({telefone_notificacao:tel,receber_notificacoes:parcRecebe}).eq('id',selParc)
     setParcMsg(error?('Erro: '+error.message):'✓ Telefones salvos ('+(tel?tel.split(',').length:0)+')')
     if(!error){setParcTel(tel);loadRows()}
@@ -3864,12 +3864,12 @@ function EsteiraCompra(){
           <option value="">— escolha o parceiro —</option>
           {parcList.map(p=><option key={p.id} value={p.id}>{(p.nome||'').slice(0,40)}{p.telefone_notificacao?' ✓':''}</option>)}
         </select>
-        <input value={parcTel} onChange={e=>setParcTel(e.target.value)} disabled={!selParc} placeholder="ex.: 15998583505, 11969199898" style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none',opacity:selParc?1:.5}}/>
+        <input value={parcTel} onChange={e=>setParcTel(e.target.value)} disabled={!selParc} placeholder="ex.: 15998583505 · ou ID de grupo (…@g.us)" style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none',opacity:selParc?1:.5}}/>
         <label style={{fontSize:11,display:'flex',alignItems:'center',gap:5,color:C.muted}}><input type="checkbox" checked={parcRecebe} onChange={e=>setParcRecebe(e.target.checked)} disabled={!selParc}/> receber avisos</label>
         <button onClick={salvarTelParc} disabled={!selParc} style={{padding:'7px 16px',borderRadius:8,border:'none',background:selParc?C.accent:C.border,color:'#fff',fontWeight:600,fontSize:11,cursor:selParc?'pointer':'default'}}>Salvar</button>
       </div>
       {parcMsg&&<span style={{fontSize:11,color:parcMsg.includes('✓')?C.accent2:parcMsg.includes('Erro')?C.danger:C.muted}}>{parcMsg}</span>}
-      <span style={{fontSize:10,color:C.muted}}>💡 pode cadastrar quantos parceiros quiser — cada um com seus telefones. O código do país (55) é adicionado automático.</span>
+      <span style={{fontSize:10,color:C.muted}}>💡 pode cadastrar quantos parceiros quiser — cada um com seus telefones (DDI 55 automático). Pra enviar num <b>grupo</b>, cole o ID do grupo (termina em <code>@g.us</code>) — o número de envio precisa estar no grupo.</span>
     </div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
