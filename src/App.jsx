@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa','parcob','neocompra']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa','parcob','neocompra','pancartao']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3052,7 +3052,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'parcob',l:'Parceiro Cobrança',i:'📞'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'parcob',l:'Parceiro Cobrança',i:'📞'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -4052,6 +4052,119 @@ function EsteiraCompra(){
   </div>
 }
 
+
+/* ═══ CARTÃO PAN — consulta em lote no panconsig ═══ */
+function PanCartao(){
+  const[rows,setRows]=useState(null),[cfg,setCfg]=useState({}),[busca,setBusca]=useState(''),[f,setF]=useState('sim'),[err,setErr]=useState('')
+  const load=async()=>{
+    const PAGE=1000;let all=[],from=0
+    while(true){const{data,error}=await supabase.from('pan_cartao').select('*').range(from,from+PAGE-1)
+      if(error){setErr('Erro: '+error.message);break}
+      if(!data||!data.length)break
+      all=all.concat(data);if(data.length<PAGE)break;from+=PAGE}
+    setRows(all)
+    const{data:c}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['pan_run_status','pan_quota','pan_quota_max','pan_max_sessao','pan_sessao_uso'])
+    if(c){const m={};c.forEach(x=>m[x.key]=x);setCfg(m)}
+  }
+  useEffect(()=>{load();const t=setInterval(load,20000);return()=>clearInterval(t)},[])
+  const J=k=>{try{return JSON.parse(cfg[k]?.value||'{}')}catch{return{}}}
+  const run=J('pan_run_status'),quota=J('pan_quota'),uso=J('pan_sessao_uso')
+  const QMAX=parseInt(cfg.pan_quota_max?.value||'1000',10),SMAX=parseInt(cfg.pan_max_sessao?.value||'150',10)
+  const hojeStr=new Date().toLocaleDateString('sv')
+  const usadoHoje=quota.dia===hojeStr?(quota.n||0):0
+  const R=useMemo(()=>{
+    if(!rows)return null
+    const sim=rows.filter(r=>r.tem_cartao==='SIM'),nao=rows.filter(r=>r.tem_cartao==='NAO')
+    const emp={};sim.forEach(r=>{const k=r.empregador||'(sem)';emp[k]=(emp[k]||0)+1})
+    const st={};sim.forEach(r=>{const k=r.status_cartao||'(sem)';st[k]=(st[k]||0)+1})
+    return{sim,nao,emp:Object.entries(emp).sort((a,b)=>b[1]-a[1]),st:Object.entries(st).sort((a,b)=>b[1]-a[1])}
+  },[rows])
+  const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
+  const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const fmtC=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
+  const gov=v=>/GOV SP BENEF/i.test(v||'')
+  const lista=useMemo(()=>{
+    if(!R)return[]
+    let l=f==='sim'?R.sim:f==='nao'?R.nao:rows
+    const q=busca.trim().toLowerCase(),qd=q.replace(/\D/g,'')
+    if(q)l=l.filter(r=>(r.nome||'').toLowerCase().includes(q)||(qd.length>=3&&String(r.cpf||'').includes(qd))||(r.empregador||'').toLowerCase().includes(q))
+    return l
+  },[R,rows,f,busca])
+  return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>💳 Cartão Pan — consulta em lote</h2>
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>O robô do escritório consulta o panconsig e diz quem tem cartão. Esta tela atualiza sozinha a cada 20s.</div></div>
+      <button onClick={load} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,fontSize:11,cursor:'pointer'}}>🔄 Recarregar</button>
+    </div>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+(run.rodando?C.accent2:C.border),borderRadius:14,padding:14}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>
+        {run.rodando?<span style={{color:C.accent2}}>● RODANDO AGORA</span>:<span style={{color:C.muted}}>○ parado</span>}
+        {run.base?<span style={{color:C.muted,fontWeight:400}}> · base: {run.base}</span>:null}
+        {run.em?<span style={{color:C.muted,fontWeight:400,fontSize:10}}> · {new Date(run.em).toLocaleString('pt-BR')}</span>:null}
+      </div>
+      {run.total?<div style={{marginBottom:10}}>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:4}}>
+          <span><b>{(run.feitos||0).toLocaleString('pt-BR')}</b> de <b>{(run.total||0).toLocaleString('pt-BR')}</b> CPFs consultados</span>
+          <span style={{color:C.accent}}>{Math.round((run.feitos||0)/(run.total||1)*100)}%</span>
+        </div>
+        <div style={{height:10,background:C.surface,borderRadius:6,overflow:'hidden',border:'1px solid '+C.border}}>
+          <div style={{height:'100%',width:Math.min(100,Math.round((run.feitos||0)/(run.total||1)*100))+'%',background:C.accent2}}/>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:4}}>faltam {((run.total||0)-(run.feitos||0)).toLocaleString('pt-BR')} · ~{Math.ceil(((run.total||0)-(run.feitos||0))/QMAX)} dias no ritmo de {QMAX}/dia</div>
+      </div>:null}
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Stat label='Consultas hoje' value={usadoHoje+'/'+QMAX} sub={usadoHoje>=QMAX?'limite do dia atingido':'restam '+(QMAX-usadoHoje)} small color={usadoHoje>=QMAX?C.warn:C.accent2}/>
+        <Stat label='Nesta sessão' value={(uso.n||0)+'/'+SMAX} sub={(uso.n||0)>=SMAX?'precisa de sessão nova':'restam '+(SMAX-(uso.n||0))} small color={(uso.n||0)>=SMAX?C.danger:C.text}/>
+        <Stat label='Velocidade' value='~9 min' sub='a cada 150 CPFs' small/>
+      </div>
+    </div>
+    {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
+    {!rows&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando...</div>}
+    {R&&<>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Stat label='Total consultado' value={rows.length.toLocaleString('pt-BR')}/>
+        <Stat label='✅ TEM cartão' value={R.sim.length.toLocaleString('pt-BR')} sub={rows.length?Math.round(R.sim.length/rows.length*100)+'% da base':''} color={C.accent2}/>
+        <Stat label='⚪ NÃO tem' value={R.nao.length.toLocaleString('pt-BR')} color={C.muted}/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>🏛️ Cartões por convênio</div>
+          {R.emp.map(([k,v])=><div key={k} style={{display:'flex',justifyContent:'space-between',fontSize:11,padding:'4px 8px',borderRadius:6,background:C.surface,marginBottom:3}}>
+            <span style={{fontWeight:gov(k)?700:400,color:gov(k)?C.accent:C.text}}>{k}</span><b>{v}</b></div>)}
+        </div>
+        <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>💳 Situação do cartão</div>
+          {R.st.map(([k,v])=><div key={k} style={{display:'flex',justifyContent:'space-between',fontSize:11,padding:'4px 8px',borderRadius:6,background:C.surface,marginBottom:3}}>
+            <span style={{color:/Bloquead/i.test(k)?C.warn:C.accent2}}>{k}</span><b>{v}</b></div>)}
+        </div>
+      </div>
+      <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+          <div style={{fontSize:13,fontWeight:800}}>📋 Clientes — {lista.length.toLocaleString('pt-BR')}</div>
+          <button onClick={()=>cfExport(lista.map(r=>({cpf:fmtC(r.cpf),nome:r.nome,tem_cartao:r.tem_cartao,convenio:r.empregador,status:r.status_cartao,situacao:r.situacao_cartao,limite:r.limite_disponivel,matricula:r.matricula,cartao:r.numero_cartao})),'pan-cartao-'+f)} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontWeight:600,cursor:'pointer'}}>⬇ Exportar {lista.length}</button>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder='🔍 buscar por nome, CPF ou convênio' style={{flex:1,minWidth:220,background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 12px',fontSize:12,outline:'none'}}/>
+          <div style={{display:'flex',gap:4}}>{[{id:'sim',l:'✅ Com cartão'},{id:'nao',l:'⚪ Sem cartão'},{id:'todos',l:'Todos'}].map(x=><button key={x.id} onClick={()=>setF(x.id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(f===x.id?C.accent:C.border),background:f===x.id?C.abg:'transparent',color:f===x.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:f===x.id?700:400}}>{x.l}</button>)}</div>
+        </div>
+        <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:520,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['CPF','Cliente','Cartão?','Convênio','Status','Situação','Limite','Matrícula'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {lista.slice(0,500).map((r,i)=><tr key={i}>
+            <td style={{...td,fontSize:10}}>{fmtC(r.cpf)}</td>
+            <td style={{...td,fontWeight:600}}>{(r.nome||'—').slice(0,26)}</td>
+            <td style={{...td,fontWeight:700,color:r.tem_cartao==='SIM'?C.accent2:C.muted}}>{r.tem_cartao==='SIM'?'✅ SIM':r.tem_cartao==='NAO'?'—':r.tem_cartao}</td>
+            <td style={{...td,fontSize:10,fontWeight:gov(r.empregador)?700:400,color:gov(r.empregador)?C.accent:C.text}}>{r.empregador||'—'}</td>
+            <td style={{...td,fontSize:10,color:/Bloquead/i.test(r.status_cartao||'')?C.warn:C.text}}>{r.status_cartao||'—'}</td>
+            <td style={{...td,fontSize:10,color:C.muted}}>{(r.situacao_cartao||'—').slice(0,28)}</td>
+            <td style={{...td,fontSize:10}}>{r.limite_disponivel||'—'}</td>
+            <td style={{...td,fontSize:10,color:C.muted}}>{r.matricula||'—'}</td>
+          </tr>)}
+        </tbody></table></div>
+        {lista.length>500&&<div style={{fontSize:10,color:C.muted}}>Mostrando 500 de {lista.length} — refine a busca ou exporte.</div>}
+      </div>
+    </>}
+  </div>
+}
+
 /* ═══ MAIN APP ═══ */
 export default function App(){
   const[user,setUser]=useState(null),[view,setView]=useState('dashboard'),[loginError,setLoginError]=useState('')
@@ -4297,6 +4410,7 @@ export default function App(){
       {view==='crefisa'&&<ConferenciaCrefisa/>}
       {view==='parcob'&&<ParceiroCobranca/>}
       {view==='neocompra'&&<EsteiraCompra/>}
+      {view==='pancartao'&&<PanCartao/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
