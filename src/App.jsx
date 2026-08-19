@@ -4056,6 +4056,7 @@ function EsteiraCompra(){
 /* ═══ CARTÃO PAN — consulta em lote no panconsig ═══ */
 function PanCartao(){
   const[rows,setRows]=useState(null),[cfg,setCfg]=useState({}),[busca,setBusca]=useState(''),[f,setF]=useState('sim'),[err,setErr]=useState('')
+  const[curl,setCurl]=useState(''),[msg,setMsg]=useState(''),[busy,setBusy]=useState(''),[filaTot,setFilaTot]=useState(null)
   const load=async()=>{
     const PAGE=1000;let all=[],from=0
     while(true){const{data,error}=await supabase.from('pan_cartao').select('*').range(from,from+PAGE-1)
@@ -4063,8 +4064,69 @@ function PanCartao(){
       if(!data||!data.length)break
       all=all.concat(data);if(data.length<PAGE)break;from+=PAGE}
     setRows(all)
-    const{data:c}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['pan_run_status','pan_quota','pan_quota_max','pan_max_sessao','pan_sessao_uso'])
+    const{data:c}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['pan_run_status','pan_quota','pan_quota_max','pan_max_sessao','pan_sessao_uso','pan_cookie','pan_run_now'])
     if(c){const m={};c.forEach(x=>m[x.key]=x);setCfg(m)}
+    const{count}=await supabase.from('pan_base').select('cpf',{count:'exact',head:true})
+    setFilaTot(count??null)
+  }
+  const cfgSet=async rows=>await supabase.from('konsig_config').upsert(rows.map(r=>({...r,updated_at:new Date().toISOString()})),{onConflict:'key'})
+  // Cola o cURL do panconsig (F12 → botão direito na requisição → Copiar como cURL) e extrai a sessão
+  const salvarSessao=async()=>{
+    setMsg('');setBusy('sessao')
+    try{
+      let t=curl
+      // desfaz o escape do cmd do Windows: ^" ^& ^! ^$ ^%^
+      t=t.replace(/\^([\s\S])/g,'$1')      // desfaz o escape do cmd: ^" vira ", ^& vira &, ^^ vira ^
+      let m=t.match(/(?:-b|--cookie)\s+"([\s\S]*?)"\s*(?:\\?\s*\n|\s+-H|\s+--)/)||t.match(/(?:-b|--cookie)\s+"([\s\S]*?)"/)
+      if(!m){setMsg('❌ Não achei o cookie no que você colou. Copie de novo com "Copiar como cURL (cmd)".');setBusy('');return}
+      const cookie=m[1].replace(/\s*\n\s*/g,' ').trim()
+      const fis=(t.match(/FISession=([A-Za-z0-9]+)/)||[])[1]
+      const org=(t.match(/Origem3=(\d+)/)||[])[1]
+      const up=[{key:'pan_cookie',value:cookie}]
+      if(fis)up.push({key:'pan_fisession',value:fis})
+      if(org)up.push({key:'pan_origem',value:org})
+      const{error}=await cfgSet(up)
+      if(error)setMsg('❌ '+error.message)
+      else{setMsg('✅ Sessão salva ('+cookie.length+' caracteres'+(fis?', FISession '+fis:'')+'). Agora clique em ▶️ Rodar agora.');setCurl('');load()}
+    }catch(e){setMsg('❌ '+e.message)}
+    setBusy('')
+  }
+  const rodarAgora=async()=>{
+    setMsg('');setBusy('rodar')
+    const{error}=await cfgSet([{key:'pan_run_now',value:String(Date.now())}])
+    setMsg(error?('❌ '+error.message):'✅ Pedido enviado. O robô do escritório começa em até 45 segundos — acompanhe aqui em cima.')
+    setBusy('');setTimeout(load,3000)
+  }
+  // Sobe uma planilha (CSV) pra fila da nuvem — o robô consulta direto de lá, sem depender de arquivo em PC nenhum
+  const subirPlanilha=async file=>{
+    if(!file)return
+    setMsg('');setBusy('upload')
+    try{
+      const txt=(await file.text()).replace(/^﻿/,'')
+      const linhas=txt.split(/\r?\n/).filter(l=>l.trim())
+      if(!linhas.length){setMsg('❌ Planilha vazia.');setBusy('');return}
+      const sep=(linhas[0].match(/;/g)||[]).length>=(linhas[0].match(/,/g)||[]).length?';':','
+      const corta=l=>{const o=[];let c='',a=false;for(const ch of l){if(ch==='"'){a=!a;continue}if(ch===sep&&!a){o.push(c);c='';continue}c+=ch}o.push(c);return o.map(s=>s.trim())}
+      const head=corta(linhas[0]).map(h=>h.toUpperCase().replace(/[^A-Z]/g,''))
+      const iCpf=head.findIndex(h=>/^CPF/.test(h)),iNome=head.findIndex(h=>/NOME|CLIENTE/.test(h)),iMat=head.findIndex(h=>/MATRICULA/.test(h))
+      if(iCpf<0){setMsg('❌ Não achei a coluna CPF. Cabeçalho lido: '+corta(linhas[0]).join(' | '));setBusy('');return}
+      const vistos=new Set(),novos=[]
+      for(let i=1;i<linhas.length;i++){
+        const c=corta(linhas[i]);const cpf=String(c[iCpf]||'').replace(/\D/g,'')
+        if(cpf.length<11)continue
+        const k=cpf.slice(-11);if(vistos.has(k))continue;vistos.add(k)
+        novos.push({cpf:k,nome:iNome>=0?(c[iNome]||'').slice(0,120):null,matricula:iMat>=0?(c[iMat]||'').slice(0,40):null,base:file.name.replace(/\.csv$/i,'').slice(0,60)})
+      }
+      if(!novos.length){setMsg('❌ Não achei nenhum CPF válido na planilha.');setBusy('');return}
+      for(let i=0;i<novos.length;i+=500){
+        const{error}=await supabase.from('pan_base').upsert(novos.slice(i,i+500),{onConflict:'cpf'})
+        if(error){setMsg('❌ '+error.message);setBusy('');return}
+        setMsg('Enviando... '+Math.min(i+500,novos.length)+' de '+novos.length)
+      }
+      setMsg('✅ '+novos.length.toLocaleString('pt-BR')+' CPFs na fila da nuvem. Cole a sessão e clique em ▶️ Rodar agora.')
+      load()
+    }catch(e){setMsg('❌ '+e.message)}
+    setBusy('')
   }
   useEffect(()=>{load();const t=setInterval(load,20000);return()=>clearInterval(t)},[])
   const J=k=>{try{return JSON.parse(cfg[k]?.value||'{}')}catch{return{}}}
@@ -4095,6 +4157,48 @@ function PanCartao(){
       <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>💳 Cartão Pan — consulta em lote</h2>
         <div style={{fontSize:11,color:C.muted,marginTop:2}}>O robô do escritório consulta o panconsig e diz quem tem cartão. Esta tela atualiza sozinha a cada 20s.</div></div>
       <button onClick={load} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,fontSize:11,cursor:'pointer'}}>🔄 Recarregar</button>
+    </div>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}}>
+      <div style={{fontSize:12,fontWeight:800,marginBottom:4}}>🎮 Painel de controle</div>
+      <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
+        Tudo é feito por aqui. <b>1)</b> suba a planilha uma vez · <b>2)</b> cole a sessão do Pan · <b>3)</b> clique em Rodar.
+        A sessão do Pan dura cerca de <b>160 consultas</b>, então repita os passos 2 e 3 quando ele parar.
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:12}}>
+        <div style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,marginBottom:6}}>1️⃣ Planilha (fila da nuvem)</div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+            CSV com coluna <b>CPF</b> (e opcionalmente NOME / MATRICULA). CPF repetido não duplica.
+            {filaTot!=null?<> Hoje há <b style={{color:C.accent}}>{filaTot.toLocaleString('pt-BR')}</b> CPFs na fila.</>:null}
+          </div>
+          <input type="file" accept=".csv,text/csv" disabled={busy==='upload'}
+            onChange={e=>{const fl=e.target.files?.[0];e.target.value='';subirPlanilha(fl)}}
+            style={{fontSize:10,color:C.muted,width:'100%'}}/>
+        </div>
+        <div style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,marginBottom:6}}>2️⃣ Sessão do Pan</div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+            No panconsig: <b>F12</b> → aba <b>Network</b> → faça 1 consulta de CPF → botão direito na linha <b>UI.SolServicoCartEmitidoV2.aspx</b> → <b>Copiar</b> → <b>Copiar como cURL (cmd)</b>. Cole abaixo.
+          </div>
+          <textarea value={curl} onChange={e=>setCurl(e.target.value)} placeholder="cole aqui o cURL copiado do panconsig..."
+            style={{width:'100%',height:60,fontSize:10,fontFamily:'monospace',padding:8,borderRadius:8,border:'1px solid '+C.border,background:C.card,color:C.text,resize:'vertical',boxSizing:'border-box'}}/>
+          <button onClick={salvarSessao} disabled={!curl.trim()||busy==='sessao'}
+            style={{marginTop:8,width:'100%',padding:'8px 12px',borderRadius:8,border:'1px solid '+C.border,background:curl.trim()?C.accent:C.surface,color:curl.trim()?'#fff':C.muted,fontSize:11,fontWeight:700,cursor:curl.trim()?'pointer':'default'}}>
+            {busy==='sessao'?'salvando...':'💾 Salvar sessão'}
+          </button>
+        </div>
+        <div style={{background:C.surface,border:'1px solid '+C.border,borderRadius:10,padding:12,display:'flex',flexDirection:'column'}}>
+          <div style={{fontSize:11,fontWeight:700,marginBottom:6}}>3️⃣ Rodar</div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:8,flex:1}}>
+            Manda o robô do escritório começar agora, usando a fila da nuvem. Ele respeita a quota do dia e para sozinho quando a sessão cair.
+          </div>
+          <button onClick={rodarAgora} disabled={busy==='rodar'||run.rodando}
+            style={{padding:'10px 12px',borderRadius:8,border:'none',background:run.rodando?C.surface:C.accent2,color:run.rodando?C.muted:'#fff',fontSize:12,fontWeight:800,cursor:run.rodando?'default':'pointer'}}>
+            {run.rodando?'● já está rodando':(busy==='rodar'?'enviando...':'▶️ Rodar agora')}
+          </button>
+        </div>
+      </div>
+      {msg?<div style={{marginTop:10,fontSize:11,padding:'8px 10px',borderRadius:8,background:C.surface,border:'1px solid '+C.border}}>{msg}</div>:null}
     </div>
     <div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+(run.rodando?C.accent2:C.border),borderRadius:14,padding:14}}>
       <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>
