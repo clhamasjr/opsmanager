@@ -3655,7 +3655,7 @@ function EsteiraCompra(){
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
   const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
   const[portalMsg,setPortalMsg]=useState('')
-  const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[expandido,setExpandido]=useState(null)
+  const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[gStatus,setGStatus]=useState(''),[expandido,setExpandido]=useState(null)
   const[parcList,setParcList]=useState([]),[selParc,setSelParc]=useState(''),[parcTel,setParcTel]=useState(''),[parcRecebe,setParcRecebe]=useState(true),[parcMsg,setParcMsg]=useState('')
   const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef(),gestaoRef=useRef()
   const loadRows=async()=>{
@@ -3915,6 +3915,7 @@ function EsteiraCompra(){
           if(gFiltro==='andamento'&&r._fase!=='banco')return false
           if(gFiltro==='liquidacao'&&!/AGUARD LIQUIDACAO/i.test(r.situacao_banco||''))return false
           if(gFiltro==='reprov'&&r._fase!=='reprov')return false
+          if(gStatus&&String(r.situacao_banco||'').toUpperCase()!==gStatus)return false
           if(q){const t=(r.cliente||'').toLowerCase().includes(q)||String(r.proposta||'').includes(q)||(r.parceiro||'').toLowerCase().includes(q);const c=qd.length>=3&&(r.cpf||'').includes(qd);if(!t&&!c)return false}
           return true
         }).sort((a,b)=>(b._dias||0)-(a._dias||0))
@@ -3922,11 +3923,23 @@ function EsteiraCompra(){
         return <div ref={gestaoRef} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
             <div style={{fontSize:13,fontWeight:800}}>📇 Gestão detalhada — {g.length} propostas · {cfMoney(gv)}</div>
-            <button onClick={()=>cfExport(g.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,esteira:r.esteira,data:r.data,dias:r._dias,operacao:r.operacao,convenio:r.convenio,valor:r.vr_bruto,parcela:r.vr_parcela,situacao:r.situacao,detalhe_banco:r.situacao_banco,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,prox_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro,ultima_obs:r.obs_texto,obs_autor:r.obs_autor})),'gestao-esteira-'+gFiltro)} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontWeight:600,cursor:'pointer'}}>⬇ Exportar {g.length}</button>
+            <button onClick={()=>cfExport(g.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,esteira:r.esteira,data:r.data,dias:r._dias,operacao:r.operacao,convenio:r.convenio,valor:r.vr_bruto,parcela:r.vr_parcela,situacao:r.situacao,detalhe_banco:r.situacao_banco,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,prox_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro,ultima_obs:r.obs_texto,obs_autor:r.obs_autor})),'gestao-esteira-'+gFiltro+(gStatus?('-'+gStatus.toLowerCase().replace(/s+/g,'-')):''))} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontWeight:600,cursor:'pointer'}}>⬇ Exportar {g.length}</button>
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
             <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 buscar por nome, CPF, nº da proposta ou parceiro" style={{flex:1,minWidth:220,background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 12px',fontSize:12,outline:'none'}}/>
-            <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{[{id:'aberto',l:'Em aberto'},{id:'pend',l:'📌 Pendência'},{id:'andamento',l:'🏦 Andamento'},{id:'liquidacao',l:'🔄 Aguard. liquidação'},{id:'reprov',l:'❌ Reprovadas'},{id:'todas',l:'Todas'}].map(f=><button key={f.id} onClick={()=>setGFiltro(f.id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(gFiltro===f.id?C.accent:C.border),background:gFiltro===f.id?C.abg:'transparent',color:gFiltro===f.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:gFiltro===f.id?700:400}}>{f.l}</button>)}</div>
+            {(()=>{const cnt={};R.base.forEach(r=>{
+              if(gFiltro==='aberto'&&!(r._fase==='pend'||r._fase==='banco'))return
+              if(gFiltro==='pend'&&r._fase!=='pend')return
+              if(gFiltro==='andamento'&&r._fase!=='banco')return
+              if(gFiltro==='liquidacao'&&!/AGUARD LIQUIDACAO/i.test(r.situacao_banco||''))return
+              if(gFiltro==='reprov'&&r._fase!=='reprov')return
+              const k=String(r.situacao_banco||'').toUpperCase().trim();if(k)cnt[k]=(cnt[k]||0)+1})
+              const ops=Object.entries(cnt).sort((a,b)=>b[1]-a[1])
+              return <select value={gStatus} onChange={e=>setGStatus(e.target.value)} style={{background:C.surface,border:'1px solid '+(gStatus?C.accent:C.border),borderRadius:8,color:gStatus?C.accent:C.text,padding:'7px 10px',fontSize:11,outline:'none',fontWeight:gStatus?700:400,maxWidth:230}}>
+                <option value="">Status: todos</option>
+                {ops.map(([k,n])=><option key={k} value={k}>{k.slice(0,30)} ({n})</option>)}
+              </select>})()}
+            <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{[{id:'aberto',l:'Em aberto'},{id:'pend',l:'📌 Pendência'},{id:'andamento',l:'🏦 Andamento'},{id:'liquidacao',l:'🔄 Aguard. liquidação'},{id:'reprov',l:'❌ Reprovadas'},{id:'todas',l:'Todas'}].map(f=><button key={f.id} onClick={()=>{setGFiltro(f.id);setGStatus('')}} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(gFiltro===f.id?C.accent:C.border),background:gFiltro===f.id?C.abg:'transparent',color:gFiltro===f.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:gFiltro===f.id?700:400}}>{f.l}</button>)}</div>
           </div>
           <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:560,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['','Cliente','CPF','Proposta','Dias','Cartão / operação','Valor','Situação','Detalhe banco','Margem','Parceiro','Digitador'].map((h,i)=><th key={i} style={th}>{h}</th>)}</tr></thead><tbody>
             {g.slice(0,400).flatMap((r,i)=>{const exp=expandido===r.proposta;return [
