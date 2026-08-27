@@ -3651,7 +3651,7 @@ function cfParseComissaoNeo(wb){
 }
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
-const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:69}]
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'}]
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
@@ -3675,7 +3675,7 @@ function WorkBankExport(){
         situacao_banco:r.sub_status||r.sit_banco||'',
         vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
         operacao:r.tipo_contrato||'',convenio:r.convenio||'',usuario:r.vendedor||'',
-        parceiro:r.parceiro||'',prazo:r.prazo,tabela:r.tabela,
+        parceiro:r.parceiro||'',prazo:r.prazo,tabela:r.tabela,login:r.login_sub_usuario||'',sit_pagto:r.sit_pagamento||'',sit_banco_cru:r.sit_banco||'',
         data_nosso_credito:r.data_pagamento||null
       })))
       setLoading(false);return
@@ -3712,7 +3712,7 @@ function WorkBankExport(){
     return true
   }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
   const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
-  const completas=g.filter(r=>wbd.get(r.proposta)?.tabela_nome).length
+  const completas=fonte==='CREFISA'?g.filter(r=>r.proposta&&r.prazo).length:g.filter(r=>wbd.get(r.proposta)?.tabela_nome).length
   const jaExp=(rows||[]).filter(r=>wbd.get(r.proposta)?.exportado_em).length
   const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
   async function gerar(){
@@ -3723,16 +3723,19 @@ function WorkBankExport(){
     const fnt=WB_FONTES.find(f=>f.id===fonte)||WB_FONTES[0]
     const linhas=g.map(r=>{
       const w=wbd.get(r.chave||r.proposta)||{}
-      const tipo=fonte==='CREFISA'?(/REFIN/i.test(r.operacao||'')?'REFIN':'NOVO'):(/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO')
+      const tipo=fonte==='CREFISA'?(/REFIN/i.test(r.operacao||'')?'REFINANCIAMENTO':'NOVO'):(/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO')
       const o={};WB_HDR.forEach(h=>o[h]=null)
-      o.NUM_BANCO=fnt.num;o.NOM_BANCO=fnt.id
+      o.NUM_BANCO=fnt.num;o.NOM_BANCO=fnt.nom||fnt.id
       o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
-      o.DSC_PRODUTO=(w.tabela_nome||r.tabela)?((r.convenio||'')+'-'+(w.tabela_nome||r.tabela)+'-'+tipo):null
-      o.DAT_CTR_INCLUSAO=hoje;o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
-      o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=r.parceiro||''
-      o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
-      o.DAT_NASCIMENTO=D(w.nascimento);o.QTD_PARCELA=(w.prazo||r.prazo)?Number(w.prazo||r.prazo):null
+      o.DSC_PRODUTO=fonte==='CREFISA'?((r.convenio||'')+'-'+(r.tabela||'')):((w.tabela_nome||r.tabela)?((r.convenio||'')+'-'+(w.tabela_nome||r.tabela)+'-'+tipo):null)
+      o.DAT_CTR_INCLUSAO=hoje
+      o.DSC_SITUACAO_EMPRESTIMO=fonte==='CREFISA'?(/PAGO AO CLIENTE/i.test(r.sit_pagto||'')?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
+      o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=fonte==='CREFISA'?(r.login||r.parceiro||''):(r.parceiro||'')
+      o.COD_CPF_CLIENTE=fonte==='CREFISA'?Number(String(r.cpf||'').replace(/\D/g,''))||null:cpfF(r.cpf)
+      o.NOM_CLIENTE=r.cliente||''
+      o.DAT_NASCIMENTO=fonte==='CREFISA'?D('1990-01-01'):D(w.nascimento)   // Crefisa: o relatório não traz nascimento; o Work aceita o placeholder
+      o.QTD_PARCELA=(w.prazo||r.prazo)?Number(w.prazo||r.prazo):null
       o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
       o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
       o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
