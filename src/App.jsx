@@ -3663,8 +3663,13 @@ function WorkBankExport(){
     setLoading(true);setErr('')
     try{
     if(fonte==='CREFISA'){
-      const{data:cf,error:ec}=await supabase.from('crefisa_esteira').select('*').limit(5000)
-      if(ec)throw ec
+      let cf=[],cfrom=0
+      while(true){   // PostgREST devolve no máximo 1000 por vez — pagina até acabar
+        const{data,error:ec}=await supabase.from('crefisa_esteira').select('*').range(cfrom,cfrom+999)
+        if(ec)throw ec
+        if(!data||!data.length)break
+        cf=cf.concat(data);if(data.length<1000)break;cfrom+=1000
+      }
       setWbd(new Map((cf||[]).map(x=>[String(x.contrato_id),{
         proposta:String(x.contrato_id),prazo:x.prazo,tabela_nome:x.tabela,exportado_em:x.exportado_em}])))
       setRows((cf||[]).map(r=>({
@@ -3680,11 +3685,15 @@ function WorkBankExport(){
       })))
       setLoading(false);return
     }
-      const{data:est,error:e1}=await supabase.from('konsig_esteira').select('proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira').limit(5000)
+      // as três em paralelo (antes eram sequenciais)
+      const[r1,r2,r3]=await Promise.all([
+        supabase.from('konsig_esteira').select('proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira').limit(5000),
+        supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000),
+        supabase.from('workbank_dados').select('proposta,nascimento,prazo,tabela_nome,dat_credito,exportado_em')
+      ])
+      const est=r1.data,e1=r1.error,dig=r2.data,w=r3.data
       if(e1)throw e1
-      const{data:dig}=await supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000)
       const dm=new Map();(dig||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),(x.agente||'').trim())})
-      const{data:w}=await supabase.from('workbank_dados').select('*')
       setWbd(new Map((w||[]).map(x=>[String(x.proposta),x])))
       setRows((est||[]).map(r=>({
         proposta:String(r.proposta),cpf:r.cpf,cliente:r.nome,esteira:r.esteira,
@@ -4615,10 +4624,10 @@ export default function App(){
       loadComp()
     }
     // Legacy — carrega dados brutos para outras telas
-    fetchOps('mes').then(d=>setCurOps(d))
-    fetchOps('ant').then(d=>setPrevOps(d))
-    fetchProd('mes').then(d=>setCurProd(d))
-    fetchProd('ant').then(d=>setPrevProd(d))
+    // (carga legada movida pro useEffect abaixo — era o gargalo de ~15s em TODAS as telas)
+
+
+
     // Modo restrito: popula 12 meses para cálculos locais (RPCs agregadas não filtram agente)
     if(isRestrita){
       const m12f=localDate(new Date(y,mo-11,1))
@@ -4632,6 +4641,20 @@ export default function App(){
       fetchProd('custom',null,m3f,localDate(new Date(y,mo-3,Math.min(day,new Date(y,mo-2,0).getDate())))).then(d=>setM3Prop(d))
     }
   },[user,refreshKey])
+  // Dados brutos legado (Dashboard/Parceiros/Alertas): 8 páginas de digitacoes. Carrega só quando a tela
+  // precisa — antes rodava sempre e travava a abertura das demais (WorkBank, Esteira, Cartão Pan).
+  const legacyRef=useRef('')
+  useEffect(()=>{
+    if(!user)return
+    if(!['dashboard','parceiros','alertas'].includes(view))return
+    const marca=String(refreshKey)
+    if(legacyRef.current===marca)return
+    legacyRef.current=marca
+    fetchOps('mes').then(d=>setCurOps(d))
+    fetchOps('ant').then(d=>setPrevOps(d))
+    fetchProd('mes').then(d=>setCurProd(d))
+    fetchProd('ant').then(d=>setPrevProd(d))
+  },[user,view,refreshKey])
   // Filter by team - stable refs when no filter
   const tCurOps=myAgents?curOps.filter(o=>myAgents.has(o.agente)):curOps
   const tPrevOps=myAgents?prevOps.filter(o=>myAgents.has(o.agente)):prevOps
