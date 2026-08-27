@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','crefisa','parcob','neocompra','pancartao']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','pancartao']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3052,7 +3052,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'crefisa',l:'Conf. Crefisa',i:'🔍'},{id:'parcob',l:'Parceiro Cobrança',i:'📞'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -3655,7 +3655,41 @@ function EsteiraCompra(){
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
   const[syncInfo,setSyncInfo]=useState(null),[tokenMsg,setTokenMsg]=useState(''),[fEst,setFEst]=useState('todas')
   const[portalMsg,setPortalMsg]=useState('')
-  const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[gStatus,setGStatus]=useState(''),[expandido,setExpandido]=useState(null)
+  const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[gStatus,setGStatus]=useState(''),[gParc,setGParc]=useState(''),[expandido,setExpandido]=useState(null)
+  async function wbExport(lista){
+    const HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
+    const{data:wbd}=await supabase.from('workbank_dados').select('*')
+    const W=new Map((wbd||[]).map(x=>[String(x.proposta),x]))
+    const cpfF=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
+    const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
+    const hoje=new Date();hoje.setHours(12,0,0,0)
+    let semDados=0
+    const linhas=lista.map(r=>{
+      const w=W.get(String(r.proposta))||{}
+      if(!w.tabela_nome)semDados++
+      const tipo=/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO'
+      const o={};HDR.forEach(h=>o[h]=null)
+      o.NUM_BANCO=410;o.NOM_BANCO='NEOCREDITO'
+      o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
+      o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
+      o.DSC_PRODUTO=w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null
+      o.DAT_CTR_INCLUSAO=hoje
+      o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
+      o.DAT_EMPRESTIMO=D(r.data)
+      o.NIC_CTR_USUARIO=r.usuario||''
+      o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
+      o.DAT_NASCIMENTO=D(w.nascimento)
+      o.QTD_PARCELA=w.prazo?Number(w.prazo):null
+      o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
+      o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
+      o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
+      return HDR.map(h=>o[h])
+    })
+    const ws=XLSX.utils.aoa_to_sheet([HDR,...linhas],{cellDates:true})
+    const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,ws,'Planilha1')
+    XLSX.writeFile(book,'Arquivo Padrao WORKBANK.xlsx',{cellDates:true})
+    if(semDados)alert(semDados+' proposta(s) ainda sem dados completos (nascimento/parcelas/produto) — o robô preenche aos poucos; exporte de novo mais tarde pra completar.')
+  }
   const[parcList,setParcList]=useState([]),[selParc,setSelParc]=useState(''),[parcTel,setParcTel]=useState(''),[parcRecebe,setParcRecebe]=useState(true),[parcMsg,setParcMsg]=useState('')
   const cmsRef=useRef(),tokRefL=useRef(),tokRefE=useRef(),portRefJ=useRef(),portRefT=useRef(),gestaoRef=useRef()
   const loadRows=async()=>{
@@ -3686,7 +3720,7 @@ function EsteiraCompra(){
       return{
       proposta:r.proposta,cpf:r.cpf,cliente:r.nome,esteira:r.esteira||'?',
       data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
-      vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,
+      vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
       situacao:(r.situacao_descricao||'').toUpperCase(),
       situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
       usuario:r.usuario_nome||'',agente:r.usuario_nome||'',parceiro,
@@ -3916,6 +3950,7 @@ function EsteiraCompra(){
           if(gFiltro==='liquidacao'&&!/AGUARD LIQUIDACAO/i.test(r.situacao_banco||''))return false
           if(gFiltro==='reprov'&&r._fase!=='reprov')return false
           if(gStatus&&String(r.situacao_banco||'').toUpperCase()!==gStatus)return false
+          if(gParc&&(r.parceiro||'')!==gParc)return false
           if(q){const t=(r.cliente||'').toLowerCase().includes(q)||String(r.proposta||'').includes(q)||(r.parceiro||'').toLowerCase().includes(q);const c=qd.length>=3&&(r.cpf||'').includes(qd);if(!t&&!c)return false}
           return true
         }).sort((a,b)=>(b._dias||0)-(a._dias||0))
@@ -3924,9 +3959,16 @@ function EsteiraCompra(){
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
             <div style={{fontSize:13,fontWeight:800}}>📇 Gestão detalhada — {g.length} propostas · {cfMoney(gv)}</div>
             <button onClick={()=>cfExport(g.map(r=>({cliente:r.cliente,cpf:r.cpf,proposta:r.proposta,esteira:r.esteira,data:r.data,dias:r._dias,operacao:r.operacao,convenio:r.convenio,valor:r.vr_bruto,parcela:r.vr_parcela,situacao:r.situacao,detalhe_banco:r.situacao_banco,margem_status:r.margem?.status||'',margem_livre:r.margem?.disp,margem_teto:r.margem?.bruta,prox_folha:r.margem?.folha,digitador:r.usuario,parceiro:r.parceiro,ultima_obs:r.obs_texto,obs_autor:r.obs_autor})),'gestao-esteira-'+gFiltro+(gStatus?('-'+gStatus.toLowerCase().replace(/s+/g,'-')):''))} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.abg,color:C.accent,fontWeight:600,cursor:'pointer'}}>⬇ Exportar {g.length}</button>
+            <button onClick={()=>wbExport(g)} style={{fontSize:11,padding:'6px 12px',borderRadius:7,border:'1px solid '+C.accent2,background:C.accent2+'12',color:C.accent2,fontWeight:700,cursor:'pointer'}}>📄 WorkBank {g.length}</button>
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
             <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 buscar por nome, CPF, nº da proposta ou parceiro" style={{flex:1,minWidth:220,background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'8px 12px',fontSize:12,outline:'none'}}/>
+            {(()=>{const pc={};R.base.forEach(r=>{const k=(r.parceiro||'').trim();if(k)pc[k]=(pc[k]||0)+1})
+              const pops=Object.entries(pc).sort((a,b)=>b[1]-a[1])
+              return <select value={gParc} onChange={e=>setGParc(e.target.value)} style={{background:C.surface,border:'1px solid '+(gParc?C.accent:C.border),borderRadius:8,color:gParc?C.accent:C.text,padding:'7px 10px',fontSize:11,outline:'none',fontWeight:gParc?700:400,maxWidth:230}}>
+                <option value="">Parceiro: todos</option>
+                {pops.map(([k,n])=><option key={k} value={k}>{k.slice(0,30)} ({n})</option>)}
+              </select>})()}
             {(()=>{const cnt={};R.base.forEach(r=>{
               if(gFiltro==='aberto'&&!(r._fase==='pend'||r._fase==='banco'))return
               if(gFiltro==='pend'&&r._fase!=='pend')return
@@ -4524,8 +4566,8 @@ export default function App(){
       {view==='recebimentos'&&<Recebimentos myAgents={myAgents}/>}
       {view==='alertas'&&<Alertas curOps={tCurOps} prevOps={tPrevOps} curProd={tCurProd} prevProd={tPrevProd}/>}
       {view==='parceiros'&&<Parceiros curOps={tCurOps} curProd={tCurProd} myAgents={myAgents}/>}
-      {view==='crefisa'&&<ConferenciaCrefisa/>}
-      {view==='parcob'&&<ParceiroCobranca/>}
+      
+      
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='pancartao'&&<PanCartao/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
