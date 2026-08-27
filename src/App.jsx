@@ -3728,9 +3728,9 @@ function WorkBankExport(){
       o.NUM_BANCO=fnt.num;o.NOM_BANCO=fnt.nom||fnt.id
       o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
-      o.DSC_PRODUTO=fonte==='CREFISA'?((r.convenio||'')+'-'+(r.tabela||'')):((w.tabela_nome||r.tabela)?((r.convenio||'')+'-'+(w.tabela_nome||r.tabela)+'-'+tipo):null)
+      o.DSC_PRODUTO=fonte==='CREFISA'?((r.convenio||'')+'-'+((tipo==='REFINANCIAMENTO'&&/^EMPRESTIMO PESSOAL DESC EM CONTA$/i.test((r.tabela||'').trim()))?'REFINANCIAMENTO':(r.tabela||''))):((w.tabela_nome||r.tabela)?((r.convenio||'')+'-'+(w.tabela_nome||r.tabela)+'-'+tipo):null)
       o.DAT_CTR_INCLUSAO=hoje
-      o.DSC_SITUACAO_EMPRESTIMO=fonte==='CREFISA'?(/PAGO AO CLIENTE/i.test(r.sit_pagto||'')?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
+      o.DSC_SITUACAO_EMPRESTIMO=fonte==='CREFISA'?(/^PAGO/i.test((r.sit_pagto||'').trim())?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
       o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=fonte==='CREFISA'?(r.login||r.parceiro||''):(r.parceiro||'')
       o.COD_CPF_CLIENTE=fonte==='CREFISA'?Number(String(r.cpf||'').replace(/\D/g,''))||null:cpfF(r.cpf)
       o.NOM_CLIENTE=r.cliente||''
