@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','pancartao']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3052,7 +3052,7 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -3648,6 +3648,151 @@ function cfParseComissaoNeo(wb){
     const prop=cfDig(row[ci.prop]);if(!prop)continue
     rows.push({prop,usuario:String(row[ci.us]||'(sem)').trim(),cpf:cfCpf11(row[ci.cpf]),nome:String(row[ci.nome]||''),cms:cfNum(row[ci.cms]),vb:ci.vb>=0?cfNum(row[ci.vb]):0,tipo:String(row[ci.tipo]||'')})}
   return rows
+}
+const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
+// Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410}]
+function WorkBankExport(){
+  const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
+  const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const[fonte,setFonte]=useState('NEOCREDITO')
+  const[rows,setRows]=useState(null),[wbd,setWbd]=useState(new Map()),[loading,setLoading]=useState(true),[err,setErr]=useState('')
+  const[de,setDe]=useState(''),[ate,setAte]=useState('')
+  const[sit,setSit]=useState('todas'),[parc,setParc]=useState(''),[soNovas,setSoNovas]=useState(true),[msg,setMsg]=useState('')
+  async function carregar(){
+    setLoading(true);setErr('')
+    try{
+      const{data:est,error:e1}=await supabase.from('konsig_esteira').select('proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira').limit(5000)
+      if(e1)throw e1
+      const{data:dig}=await supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000)
+      const dm=new Map();(dig||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),(x.agente||'').trim())})
+      const{data:w}=await supabase.from('workbank_dados').select('*')
+      setWbd(new Map((w||[]).map(x=>[String(x.proposta),x])))
+      setRows((est||[]).map(r=>({
+        proposta:String(r.proposta),cpf:r.cpf,cliente:r.nome,esteira:r.esteira,
+        data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
+        situacao:String(r.situacao||'').toUpperCase(),
+        situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
+        vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
+        operacao:r.tipooperacao_nome||'',convenio:r.convenio_nome||'',usuario:r.usuario_nome||'',
+        parceiro:dm.get(String(r.proposta).replace(/\D/g,''))||'',
+        data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?(String(r.datahoras||'')).slice(0,10):null
+      })))
+    }catch(e){setErr('Erro ao carregar: '+(e.message||e))}
+    setLoading(false)
+  }
+  useEffect(()=>{carregar()},[])
+  if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando esteira...</div>
+  if(err)return<div style={{padding:20,color:C.danger}}>{err}</div>
+  const g=(rows||[]).filter(r=>{
+    if(de&&r.data<de)return false
+    if(ate&&r.data>ate)return false
+    if(sit==='aberto'&&!(r.situacao==='PEN'||r.situacao==='AND'))return false
+    if(['PEN','AND','INT','REP'].includes(sit)&&r.situacao!==sit)return false
+    if(parc&&r.parceiro!==parc)return false
+    if(soNovas&&wbd.get(r.proposta)?.exportado_em)return false
+    return true
+  }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
+  const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
+  const completas=g.filter(r=>wbd.get(r.proposta)?.tabela_nome).length
+  const jaExp=(rows||[]).filter(r=>wbd.get(r.proposta)?.exportado_em).length
+  const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
+  async function gerar(){
+    if(!g.length)return
+    const cpfF=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
+    const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
+    const hoje=new Date();hoje.setHours(12,0,0,0)
+    const fnt=WB_FONTES.find(f=>f.id===fonte)||WB_FONTES[0]
+    const linhas=g.map(r=>{
+      const w=wbd.get(r.proposta)||{}
+      const tipo=/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO'
+      const o={};WB_HDR.forEach(h=>o[h]=null)
+      o.NUM_BANCO=fnt.num;o.NOM_BANCO=fnt.id
+      o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
+      o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
+      o.DSC_PRODUTO=w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null
+      o.DAT_CTR_INCLUSAO=hoje;o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
+      o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=r.usuario||''
+      o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
+      o.DAT_NASCIMENTO=D(w.nascimento);o.QTD_PARCELA=w.prazo?Number(w.prazo):null
+      o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
+      o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
+      o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
+      return WB_HDR.map(h=>o[h])
+    })
+    const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...linhas],{cellDates:true})
+    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
+    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK.xlsx',{cellDates:true})
+    const inc=g.length-completas
+    // marca como exportadas (pra não duplicar na importação do Work)
+    try{
+      const agora=new Date().toISOString()
+      const ups=g.map(r=>({proposta:r.proposta,exportado_em:agora}))
+      for(let i=0;i<ups.length;i+=200){
+        const{error}=await supabase.from('workbank_dados').upsert(ups.slice(i,i+200),{onConflict:'proposta'})
+        if(error)throw error
+      }
+      setMsg('✓ '+g.length+' propostas no arquivo'+(inc?(' · ⚠️ '+inc+' sem dados completos (o robô preenche aos poucos)'):'')+' · marcadas como exportadas')
+      carregar()
+    }catch(e){setMsg('✓ arquivo gerado, mas não consegui marcar como exportadas: '+(e.message||e)+' — rode: ALTER TABLE workbank_dados ADD COLUMN exportado_em timestamptz;')}
+  }
+  const chip=(id,l)=><button key={id} onClick={()=>setSit(id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(sit===id?C.accent:C.border),background:sit===id?C.abg:'transparent',color:sit===id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sit===id?700:400}}>{l}</button>
+  return<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div>
+        <div style={{fontSize:16,fontWeight:800}}>📤 WorkBank — central de exportação</div>
+        <div style={{fontSize:11,color:C.muted}}>Gera o "Arquivo Padrao WORKBANK" (61 colunas) pra importar no Work · marca o que já saiu pra não duplicar</div>
+      </div>
+      <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Atualizar</button>
+    </div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <Stat label="Na esteira" value={(rows||[]).length} sub="propostas sincronizadas"/>
+      <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)} color={C.accent}/>
+      <Stat label="Prontas pra exportar" value={completas} sub="com nascimento/parcelas/produto" color={C.accent2}/>
+      <Stat label="Já exportadas" value={jaExp} sub="marcadas em rodadas anteriores" color={C.muted}/>
+    </div>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <select value={fonte} onChange={e=>setFonte(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}}>
+          {WB_FONTES.map(f=><option key={f.id} value={f.id}>{f.l}</option>)}
+        </select>
+        <span style={{fontSize:11,color:C.muted}}>digitadas de</span>
+        <input type="date" value={de} onChange={e=>setDe(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 8px',fontSize:11,outline:'none'}}/>
+        <span style={{fontSize:11,color:C.muted}}>até</span>
+        <input type="date" value={ate} onChange={e=>setAte(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 8px',fontSize:11,outline:'none'}}/>
+        <select value={parc} onChange={e=>setParc(e.target.value)} style={{background:C.surface,border:'1px solid '+(parc?C.accent:C.border),borderRadius:8,color:parc?C.accent:C.text,padding:'7px 10px',fontSize:11,outline:'none',maxWidth:220}}>
+          <option value="">Parceiro: todos</option>
+          {Object.entries(parcs).sort((a,b)=>b[1]-a[1]).map(([k,n])=><option key={k} value={k}>{k.slice(0,30)} ({n})</option>)}
+        </select>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+          {chip('todas','Todas')}{chip('aberto','Em aberto')}{chip('PEN','📌 Pendência')}{chip('AND','🏦 Andamento')}{chip('INT','✅ Integradas')}{chip('REP','❌ Reprovadas')}
+        </div>
+        <label style={{fontSize:11,display:'flex',alignItems:'center',gap:5,color:C.text,fontWeight:600}}>
+          <input type="checkbox" checked={soNovas} onChange={e=>setSoNovas(e.target.checked)}/> só as ainda não exportadas
+        </label>
+        <div style={{flex:1}}/>
+        <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
+      </div>
+      {msg&&<div style={{fontSize:11,color:msg.includes('não consegui')?C.warn:C.accent2,fontWeight:600}}>{msg}</div>}
+    </div>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Nascimento','Produto','Parceiro','Exportada'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+      {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.proposta)||{};return<tr key={i}>
+        <td style={{...td,fontSize:10}}>{r.proposta}</td>
+        <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
+        <td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td>
+        <td style={{...td,fontSize:10}}>{r.situacao_banco}</td>
+        <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
+        <td style={{...td,textAlign:'center'}}>{w.prazo?Number(w.prazo):<span style={{color:C.warn}}>…</span>}</td>
+        <td style={{...td,fontSize:10}}>{w.nascimento?fmtDate(w.nascimento):<span style={{color:C.warn}}>…</span>}</td>
+        <td style={{...td,fontSize:10}}>{w.tabela_nome||<span style={{color:C.warn}}>aguardando robô</span>}</td>
+        <td style={{...td,fontSize:10,color:C.accent}}>{(r.parceiro||'—').slice(0,18)}</td>
+        <td style={{...td,fontSize:10}}>{w.exportado_em?'✓ '+fmtDate(w.exportado_em):'—'}</td>
+      </tr>})}
+    </tbody></table></div>
+    {g.length>200&&<div style={{fontSize:10,color:C.muted}}>Mostrando 200 de {g.length} — o arquivo sai com todas.</div>}
+  </div>
 }
 function EsteiraCompra(){
   const[rows,setRows]=useState(null),[loading,setLoading]=useState(true)
@@ -4570,6 +4715,7 @@ export default function App(){
       
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='pancartao'&&<PanCartao/>}
+      {view==='workbank'&&<WorkBankExport/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
