@@ -3712,7 +3712,7 @@ function WorkBankExport(){
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
       o.DSC_PRODUTO=w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null
       o.DAT_CTR_INCLUSAO=hoje;o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
-      o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=r.usuario||''
+      o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=r.parceiro||''
       o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
       o.DAT_NASCIMENTO=D(w.nascimento);o.QTD_PARCELA=w.prazo?Number(w.prazo):null
       o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
@@ -3821,7 +3821,7 @@ function EsteiraCompra(){
       o.DAT_CTR_INCLUSAO=hoje
       o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
       o.DAT_EMPRESTIMO=D(r.data)
-      o.NIC_CTR_USUARIO=r.usuario||''
+      o.NIC_CTR_USUARIO=r.parceiro||''
       o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
       o.DAT_NASCIMENTO=D(w.nascimento)
       o.QTD_PARCELA=w.prazo?Number(w.prazo):null
