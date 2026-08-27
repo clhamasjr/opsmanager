@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','conexoes']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3052,7 +3052,178 @@ function Notificacoes(){
   </div>
 }
 
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+// ── Conexões ────────────────────────────────────────────────────────────────
+// Um lugar só pra colar as sessões de todos os bancos. Antes estavam espalhadas
+// (token Konsig e portal dentro da Esteira Compra, cURL do Pan dentro do Cartão Pan).
+// Tudo grava em konsig_config; o robô do escritório lê de lá.
+function Conexoes(){
+  const[cfg,setCfg]=useState({})
+  const[val,setVal]=useState({})           // o que está digitado em cada campo
+  const[msg,setMsg]=useState({})           // retorno por fonte
+  const[busy,setBusy]=useState('')
+  const v=(k,x)=>setVal(p=>({...p,[k]:x}))
+  const load=async()=>{
+    const{data}=await supabase.from('konsig_config').select('key,value,updated_at')
+    const m={};(data||[]).forEach(c=>m[c.key]=c);setCfg(m)
+  }
+  useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t)},[])
+  const grava=async(pares,fonte,texto)=>{
+    setBusy(fonte)
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert(pares.map(p=>({...p,updated_at:now})),{onConflict:'key'})
+    setMsg(m=>({...m,[fonte]:error?('❌ '+error.message):('✅ '+texto)}))
+    setBusy('');if(!error)load()
+    return!error
+  }
+  // "há 12min" / "há 3h" — e a cor diz se está fresco
+  const idade=k=>{const c=cfg[k];if(!c?.updated_at)return null;return Math.round((Date.now()-new Date(c.updated_at).getTime())/60000)}
+  const Quando=({k,limite=720})=>{const min=idade(k)
+    if(min===null)return<span style={{fontSize:10,color:C.muted}}>nunca</span>
+    const t=min<60?('há '+min+'min'):min<1440?('há '+Math.floor(min/60)+'h'):('há '+Math.floor(min/1440)+'d')
+    return<span style={{fontSize:10,fontWeight:600,color:min>limite?C.danger:C.accent2}}>{t}</span>}
+
+  // ── ações por fonte ──
+  const salvarToken=async lb=>{
+    const tk=(val['kt_'+lb]||'').trim();if(!tk)return setMsg(m=>({...m,['konsig_'+lb]:'Cole o token primeiro'}))
+    if(await grava([{key:'konsig_token_'+lb,value:tk},{key:'konsig_expirado_'+lb,value:'0'}],'konsig_'+lb,'Token salvo. O robô já usa no próximo ciclo.'))v('kt_'+lb,'')
+  }
+  const sincronizar=()=>grava([{key:'sync_run_now',value:new Date().toISOString()},{key:'sync_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],'konsig','Sincronização pedida — o robô puxa as duas esteiras em ~1 min.')
+  const salvarPortal=async()=>{
+    const js=(val.pj||'').trim(),tk=(val.pt||'').trim()
+    if(!js||!tk)return setMsg(m=>({...m,portal:'Cole o JSESSIONID e o securitytoken'}))
+    const now=new Date().toISOString()
+    if(await grava([{key:'portal_jsession',value:js},{key:'portal_token',value:tk},{key:'portal_ativo',value:'1'},
+      {key:'portal_sessao_ok',value:'1'},{key:'portal_updated',value:now},{key:'portal_run_now',value:now},
+      {key:'portal_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],'portal','Sessão salva e consulta de margens disparada.')){v('pj','');v('pt','')}
+  }
+  // Pan: o cURL do cmd vem com ^ escapando aspas — desfaz antes de achar o cookie
+  const salvarPan=async()=>{
+    let t=(val.pan||'').trim();if(!t)return setMsg(m=>({...m,pan:'Cole o cURL do panconsig'}))
+    t=t.replace(/\^([\s\S])/g,'$1')
+    const m1=t.match(/(?:-b|--cookie)\s+"([\s\S]*?)"\s*(?:\\?\s*\n|\s+-H|\s+--)/)||t.match(/(?:-b|--cookie)\s+"([\s\S]*?)"/)
+    if(!m1)return setMsg(m=>({...m,pan:'❌ Não achei o cookie. Copie de novo com "Copiar como cURL (cmd)".'}))
+    const cookie=m1[1].replace(/\s*\n\s*/g,' ').trim()
+    const fis=(t.match(/FISession=([A-Za-z0-9]+)/)||[])[1],org=(t.match(/Origem3=(\d+)/)||[])[1]
+    const up=[{key:'pan_cookie',value:cookie}]
+    if(fis)up.push({key:'pan_fisession',value:fis});if(org)up.push({key:'pan_origem',value:org})
+    if(await grava(up,'pan','Sessão do Pan salva ('+cookie.length+' caracteres). Rode a higienização na aba Cartão Pan.'))v('pan','')
+  }
+  // Crefisa: guarda o cURL inteiro. O robô repete a mesma requisição e reescreve as datas
+  // pra uma janela corrida, então serve por vários dias até a sessão do portal cair.
+  const salvarCrefisa=async()=>{
+    const t=(val.cref||'').trim();if(!t)return setMsg(m=>({...m,crefisa:'Cole o cURL do relatório'}))
+    if(!/curl/i.test(t)||!/https?:\/\//.test(t))return setMsg(m=>({...m,crefisa:'❌ Isso não parece um cURL. Use "Copiar como cURL (cmd)".'}))
+    const now=new Date().toISOString()
+    if(await grava([{key:'crefisa_curl',value:t},{key:'crefisa_curl_updated',value:now},{key:'crefisa_ativo',value:'1'},
+      {key:'crefisa_run_now',value:now},{key:'crefisa_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],
+      'crefisa','cURL salvo e download disparado. O robô baixa e importa em ~1 min.'))v('cref','')
+  }
+  const rodarCrefisa=()=>grava([{key:'crefisa_run_now',value:new Date().toISOString()},{key:'crefisa_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],'crefisa','Download pedido — acompanhe o status aqui.')
+
+  // ── pedaços visuais ──
+  const card={background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'12px 16px',display:'flex',flexDirection:'column',gap:9,marginBottom:12}
+  const inp={flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'8px 11px',fontSize:11,outline:'none',fontFamily:'inherit'}
+  const bt=(cor,fundo)=>({padding:'8px 16px',borderRadius:8,border:'1px solid '+cor,background:fundo||cor,color:fundo?cor:'#fff',fontWeight:700,fontSize:11,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'})
+  const Titulo=({i,l,sub,st})=><div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+    <span style={{fontSize:15}}>{i}</span><span style={{fontSize:12,fontWeight:700}}>{l}</span>
+    {st}<span style={{fontSize:10,color:C.muted}}>{sub}</span></div>
+  const Retorno=({f})=>msg[f]?<span style={{fontSize:11,fontWeight:600,color:msg[f].startsWith('✅')?C.accent2:msg[f].startsWith('❌')?C.danger:C.muted}}>{msg[f]}</span>:null
+  const Passos=({children})=><div style={{fontSize:10,color:C.muted,lineHeight:1.7,background:C.surface,borderRadius:8,padding:'8px 11px'}}>{children}</div>
+  const st=cfg.crefisa_run_status?.value||'',stSync=cfg.sync_run_status?.value||'',stPortal=cfg.portal_run_status?.value||''
+  const Status=({t})=>t?<span style={{fontSize:10,fontWeight:600,color:t.includes('✓')||t.includes('ok')?C.accent2:t.includes('erro')||t.includes('❌')?C.danger:C.muted}}>robô: {t}</span>:null
+
+  return<div>
+    <div style={{marginBottom:14}}>
+      <h2 style={{fontSize:17,fontWeight:800,margin:0}}>🔌 Conexões</h2>
+      <div style={{fontSize:11,color:C.muted,marginTop:3}}>Onde você cola a sessão de cada banco. O robô do escritório lê daqui — não precisa mexer em mais nada.</div>
+    </div>
+
+    {/* ── KONSIG ── */}
+    <div style={card}>
+      <Titulo i="🔑" l="Konsig — esteiras Lhamas e Externa" sub="· cole de manhã, o token vence no fim do dia"/>
+      {[{lb:'lhamas',l:'🏠 Lhamas'},{lb:'externa',l:'🌐 Externa'}].map(t=>{
+        const exp=cfg['konsig_expirado_'+t.lb]?.value==='1'
+        return<div key={t.lb} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <span style={{fontSize:11,fontWeight:600,width:96,color:exp?C.danger:C.text}}>{t.l}{exp?' ⚠️':''}</span>
+          <input type="password" value={val['kt_'+t.lb]||''} onChange={e=>v('kt_'+t.lb,e.target.value)}
+            placeholder={exp?'EXPIROU — cole o token novo':'token da esteira '+t.lb} style={inp}/>
+          <Quando k={'konsig_token_'+t.lb}/>
+          <button onClick={()=>salvarToken(t.lb)} disabled={busy==='konsig_'+t.lb} style={bt(C.accent)}>Salvar</button>
+        </div>})}
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={sincronizar} style={bt(C.accent2,C.accent2+'15')}>🔄 Sincronizar esteira agora</button>
+        <span style={{fontSize:10,color:C.muted}}>sozinho ele já puxa de 30 em 30 min</span>
+        <Status t={stSync}/>
+      </div>
+      <Retorno f="konsig"/><Retorno f="konsig_lhamas"/><Retorno f="konsig_externa"/>
+      <Passos>Pegue o token pelo atalho <b>TOKEN KONSIG</b> nos favoritos (ele lê sozinho e já salva aqui), ou <b>F12 → Application → Local Storage → token</b>.</Passos>
+    </div>
+
+    {/* ── PORTAL DO CONSIGNADO ── */}
+    <div style={card}>
+      <Titulo i="🏛️" l="Portal do Consignado — consulta de margem" sub="· usado pra checar margem/benefício"
+        st={cfg.portal_sessao_ok&&<span style={{fontSize:10,fontWeight:700,color:cfg.portal_sessao_ok.value==='1'?C.accent2:C.danger}}>{cfg.portal_sessao_ok.value==='1'?'● sessão ok':'● sessão caiu'}</span>}/>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <span style={{fontSize:11,fontWeight:600,width:96}}>JSESSIONID</span>
+        <input type="password" value={val.pj||''} onChange={e=>v('pj',e.target.value)} placeholder="valor do cookie JSESSIONID=..." style={inp}/>
+        <Quando k="portal_updated"/>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <span style={{fontSize:11,fontWeight:600,width:96}}>securitytoken</span>
+        <input type="password" value={val.pt||''} onChange={e=>v('pt',e.target.value)} placeholder="header securitytoken: WW2X-..." style={inp}/>
+        <button onClick={salvarPortal} disabled={busy==='portal'} style={bt(C.accent)}>Salvar e consultar</button>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}><Status t={stPortal}/></div>
+      <Retorno f="portal"/>
+    </div>
+
+    {/* ── PAN ── */}
+    <div style={card}>
+      <Titulo i="💳" l="Cartão Pan — higienização" sub="· a operação em si fica na aba Cartão Pan"/>
+      <textarea value={val.pan||''} onChange={e=>v('pan',e.target.value)} rows={3}
+        placeholder="cole aqui o cURL copiado do panconsig..." style={{...inp,fontFamily:'monospace',fontSize:10,resize:'vertical'}}/>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={salvarPan} disabled={busy==='pan'} style={bt(C.accent)}>Salvar sessão do Pan</button>
+        <span style={{fontSize:10,color:C.muted}}>sessão atual:</span><Quando k="pan_cookie" limite={180}/>
+      </div>
+      <Retorno f="pan"/>
+      <Passos>No panconsig: <b>F12 → Network</b> → faça 1 consulta de CPF → botão direito em <b>UI.SolServicoCartEmitidoV2.aspx</b> → <b>Copiar como cURL (cmd)</b>.
+        <br/>Lembrando: cada sessão rende ~250 consultas e depois precisa <b>refazer o login</b> (não adianta recopiar o mesmo cURL).</Passos>
+    </div>
+
+    {/* ── CREFISA ── */}
+    <div style={card}>
+      <Titulo i="🏦" l="Crefisa — Relatório de Produção" sub="· alimenta a esteira e o WorkBank"/>
+      <textarea value={val.cref||''} onChange={e=>v('cref',e.target.value)} rows={3}
+        placeholder="cole aqui o cURL do relatório da Crefisa..." style={{...inp,fontFamily:'monospace',fontSize:10,resize:'vertical'}}/>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={salvarCrefisa} disabled={busy==='crefisa'} style={bt(C.accent)}>Salvar e baixar agora</button>
+        <button onClick={rodarCrefisa} style={bt(C.accent2,C.accent2+'15')}>⬇️ Baixar de novo</button>
+        <span style={{fontSize:10,color:C.muted}}>cURL salvo:</span><Quando k="crefisa_curl_updated" limite={4320}/>
+        <span style={{fontSize:10,color:C.muted}}>· último import:</span><Quando k="crefisa_last" limite={2880}/>
+      </div>
+      {cfg.crefisa_last_status&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>último: {cfg.crefisa_last_status.value}</span>}
+      <Status t={st}/>
+      <Retorno f="crefisa"/>
+      <Passos>
+        <b>O que copiar:</b> entre em <b>app1.gerencialcredito.com.br</b> → <b>Relatório de Produção</b> → abra o <b>F12 → Network</b> →
+        preencha as datas e clique em <b>Gerar</b> → na lista aparece a requisição que devolve o arquivo → botão direito nela →
+        <b> Copiar → Copiar como cURL (cmd)</b> → cole aqui em cima.
+        <br/>O robô repete essa mesma requisição sozinho e <b>atualiza as datas</b> a cada rodada, então um cURL serve por vários dias — até a sessão do portal cair (aí é só colar de novo).
+        <br/><b>Sem o cURL também funciona:</b> se você baixar o .xls na mão, o robô importa sozinho o que cair na pasta <b>Downloads</b>.
+      </Passos>
+    </div>
+  </div>
+}
+
+// Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
+const NAV_GRUPOS=[
+  {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','conexoes']},
+  {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['parceiros','notificacoes','recebimentos','alertas']},
+  {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
+]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -4039,39 +4210,11 @@ function EsteiraCompra(){
       <span style={chip}>🏛️ <span style={{color:C.muted}}>Margens consultadas:</span> <b>{fmt(pl)}</b> <span style={{color:cor(pl),fontWeight:600}}>{rel(pl)?'· '+rel(pl):''}</span></span>
     </div>})()}
     <div style={{display:'flex',gap:4}}>{[{id:'todas',l:'Todas as esteiras'},{id:'lhamas',l:'🏠 Lhamas'},{id:'externa',l:'🌐 Externa'}].map(e=><button key={e.id} onClick={()=>setFEst(e.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(fEst===e.id?C.accent2:C.border),background:fEst===e.id?C.accent2+'18':'transparent',color:fEst===e.id?C.accent2:C.muted,fontSize:11,cursor:'pointer',fontWeight:fEst===e.id?700:400}}>{e.l}</button>)}</div>
-    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
-      <div style={{fontSize:11,fontWeight:700}}>🔑 Tokens Konsig do dia <span style={{fontWeight:400,color:C.muted}}>· cole de manhã (F12 → Network → req "proposta" → copie o authorization=)</span></div>
-      {[{label:'lhamas',l:'🏠 Lhamas',ref:tokRefL},{label:'externa',l:'🌐 Externa',ref:tokRefE}].map(t=>{const exp=syncInfo?.['konsig_expirado_'+t.label]?.value==='1';return<div key={t.label} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <span style={{fontSize:11,fontWeight:600,width:90,color:exp?C.danger:C.text}}>{t.l}{exp?' ⚠️':''}</span>
-        <input ref={t.ref} type="password" placeholder={'token da esteira '+t.label+(exp?' (EXPIROU — cole novo)':'')} style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+(exp?C.danger:C.border),borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
-        <button onClick={()=>saveToken(t.label,t.ref)} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar</button>
-      </div>})}
-      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <button onClick={sincronizarEsteira} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>🔄 Sincronizar esteira agora</button>
-        <span style={{fontSize:10,color:C.muted}}>depois de salvar os 2 tokens · o robô puxa em ~1 min</span>
-        {syncInfo?.sync_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.sync_run_status.value).includes('✓')?C.accent2:String(syncInfo.sync_run_status.value).includes('erro')?C.danger:C.warn}}>· {syncInfo.sync_run_status.value}</span>}
-      </div>
-      {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:tokenMsg.includes('Erro')?C.danger:C.muted}}>{tokenMsg}</span>}
-    </div>
-    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
-      <div style={{fontSize:11,fontWeight:700}}>🏛️ Sessão do Portal do Consignado <span style={{fontWeight:400,color:C.muted}}>· logue de manhã e cole aqui (F12 → Network → req "pesquisarMargem" → Cabeçalhos: cookie JSESSIONID e securitytoken)</span>
-        {syncInfo?.portal_sessao_ok&&<span style={{marginLeft:8,fontSize:10,fontWeight:700,color:syncInfo.portal_sessao_ok.value==='1'?C.accent2:C.danger}}>{syncInfo.portal_sessao_ok.value==='1'?'● sessão ativa':'● sessão caiu — logar de novo'}</span>}
-      </div>
-      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <span style={{fontSize:11,fontWeight:600,width:90}}>JSESSIONID</span>
-        <input ref={portRefJ} type="password" placeholder="valor do cookie JSESSIONID=..." style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
-      </div>
-      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <span style={{fontSize:11,fontWeight:600,width:90}}>securitytoken</span>
-        <input ref={portRefT} type="password" placeholder="header securitytoken: WW2X-..." style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none'}}/>
-        <button onClick={savePortal} style={{padding:'7px 16px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:600,fontSize:11,cursor:'pointer'}}>Salvar e consultar</button>
-      </div>
-      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <button onClick={dispararPortal} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>🔍 Consultar margens agora</button>
-        <span style={{fontSize:10,color:C.muted}}>usa a sessão já salva · o robô roda em ~1 min</span>
-        {syncInfo?.portal_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.portal_run_status.value).includes('✓')?C.accent2:String(syncInfo.portal_run_status.value).includes('erro')?C.danger:C.warn}}>· {syncInfo.portal_run_status.value}</span>}
-      </div>
-      {(portalMsg||syncInfo?.portal_status)&&<span style={{fontSize:11,color:portalMsg.includes('✓')?C.accent2:portalMsg.includes('Erro')?C.danger:C.muted}}>{portalMsg||('robô: '+syncInfo.portal_status.value)}</span>}
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span style={{fontSize:11,fontWeight:700}}>🔌 Tokens e sessões</span>
+      <span style={{fontSize:11,color:C.muted}}>agora ficam todos juntos na aba <b>Conexões</b> (Gestão de Esteira) — Konsig, Portal, Pan e Crefisa no mesmo lugar.</span>
+      <button onClick={sincronizarEsteira} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:11,cursor:'pointer'}}>🔄 Sincronizar esteira agora</button>
+      {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:C.muted}}>{tokenMsg}</span>}
     </div>
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
       <div style={{fontSize:11,fontWeight:700}}>📱 Telefones de aviso por parceiro <span style={{fontWeight:400,color:C.muted}}>· cadastre 1 ou mais números (separe por vírgula) — o disparo avisa todos</span></div>
@@ -4509,6 +4652,7 @@ function PanCartao(){
 /* ═══ MAIN APP ═══ */
 export default function App(){
   const[user,setUser]=useState(null),[view,setView]=useState('dashboard'),[loginError,setLoginError]=useState('')
+  const[grpAberto,setGrpAberto]=useState({})   // grupos abertos/fechados do menu
   const[curOps,setCurOps]=useState([]),[prevOps,setPrevOps]=useState([])
   const[curProd,setCurProd]=useState([]),[prevProd,setPrevProd]=useState([])
   const[prevProdProp,setPrevProdProp]=useState([])
@@ -4744,7 +4888,19 @@ export default function App(){
         </div>
         <div style={{fontSize:8,color:C.accent2,marginTop:4,marginLeft:33}}>● Supabase</div>
       </div>
-      <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>{nav.map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}</nav>
+      <nav style={{flex:1,padding:'2px 7px',overflowY:'auto'}}>{user.perfil==='parceiro'?nav.map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px 7px 17px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>):<>{NAV_GRUPOS.map(g=>{
+        const itens=g.itens.map(id=>nav.find(n=>n.id===id)).filter(Boolean)
+        if(!itens.length)return null
+        const temAtivo=itens.some(n=>n.id===view)
+        const aberto=grpAberto[g.id]!==undefined?grpAberto[g.id]:temAtivo   // o grupo da tela atual já abre sozinho
+        return<div key={g.id} style={{marginBottom:2}}>
+          <button onClick={()=>setGrpAberto(p=>({...p,[g.id]:!aberto}))} style={{display:'flex',alignItems:'center',gap:6,width:'100%',padding:'7px 8px',borderRadius:7,border:'none',background:'transparent',color:temAtivo?C.text:C.muted,fontFamily:'Outfit,sans-serif',fontSize:9,fontWeight:800,letterSpacing:.5,textTransform:'uppercase',cursor:'pointer',textAlign:'left'}}>
+            <span style={{fontSize:11}}>{g.i}</span><span style={{flex:1}}>{g.l}</span>
+            <span style={{fontSize:7,opacity:.7}}>{aberto?'▼':'▶'}</span></button>
+          {aberto&&itens.map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px 7px 17px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}
+        </div>})}
+        {/* tela nova que ainda não entrou em nenhum grupo continua aparecendo */}
+        {nav.filter(n=>!NAV_GRUPOS.some(g=>g.itens.includes(n.id))).map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:7,width:'100%',padding:'7px 9px 7px 17px',marginBottom:1,borderRadius:7,border:'none',background:view===n.id?C.abg:'transparent',color:view===n.id?C.accent:C.muted,fontFamily:'Outfit,sans-serif',fontSize:11,fontWeight:view===n.id?600:400,cursor:'pointer',textAlign:'left'}}><span style={{fontSize:13}}>{n.i}</span>{n.l}</button>)}</>}</nav>
       <div style={{padding:'10px 14px',borderTop:'1px solid '+C.border}}><div style={{fontSize:11,fontWeight:600}}>{user.nome}</div><div style={{fontSize:9,color:C.muted,marginBottom:2}}>{user.perfil}{user.cod_supervisor?' · Equipe':''}</div>{myAgents&&<div style={{fontSize:8,color:C.accent,marginBottom:2}}>👥 {myAgents.size} parceiros</div>}<div style={{display:'flex',gap:8}}><button onClick={refreshAll} style={{fontSize:9,color:C.accent,background:'none',border:'none',cursor:'pointer',padding:0}}>🔄 Atualizar</button><button onClick={()=>{localStorage.removeItem('om-session');setUser(null)}} style={{fontSize:9,color:C.danger,background:'none',border:'none',cursor:'pointer',padding:0}}>Sair →</button></div></div>
     </div>
     {/* CONTENT */}
@@ -4766,6 +4922,7 @@ export default function App(){
       
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='pancartao'&&<PanCartao/>}
+      {view==='conexoes'&&<Conexoes/>}
       {view==='workbank'&&<WorkBankExport/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
