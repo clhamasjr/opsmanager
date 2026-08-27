@@ -3655,95 +3655,110 @@ const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
-  const[fonte,setFonte]=useState('NEOCREDITO')
+  const[fonte,setFonte]=useState('TODOS')
   const[rows,setRows]=useState(null),[wbd,setWbd]=useState(new Map()),[loading,setLoading]=useState(true),[err,setErr]=useState('')
-  const[de,setDe]=useState(''),[ate,setAte]=useState('')
-  const[sit,setSit]=useState('todas'),[parc,setParc]=useState(''),[soNovas,setSoNovas]=useState(true),[msg,setMsg]=useState('')
+  // filtros que o usuário edita
+  const[de,setDe]=useState(''),[ate,setAte]=useState(''),[sit,setSit]=useState('todas'),[parc,setParc]=useState(''),[busca,setBusca]=useState('')
+  // filtros efetivamente aplicados (só mudam ao clicar em Pesquisar)
+  const[fl,setFl]=useState({de:'',ate:'',sit:'todas',parc:'',busca:''})
+  const[msg,setMsg]=useState('')
+  const paginar=async(tabela,cols)=>{let all=[],from=0
+    while(true){const{data,error}=await supabase.from(tabela).select(cols).range(from,from+999)
+      if(error)throw error
+      if(!data||!data.length)break
+      all=all.concat(data);if(data.length<1000)break;from+=1000}
+    return all}
   async function carregar(){
     setLoading(true);setErr('')
     try{
-    if(fonte==='CREFISA'){
-      let cf=[],cfrom=0
-      while(true){   // PostgREST devolve no máximo 1000 por vez — pagina até acabar
-        const{data,error:ec}=await supabase.from('crefisa_esteira').select('*').range(cfrom,cfrom+999)
-        if(ec)throw ec
-        if(!data||!data.length)break
-        cf=cf.concat(data);if(data.length<1000)break;cfrom+=1000
-      }
-      setWbd(new Map((cf||[]).map(x=>[String(x.contrato_id),{
-        proposta:String(x.contrato_id),prazo:x.prazo,tabela_nome:x.tabela,exportado_em:x.exportado_em}])))
-      setRows((cf||[]).map(r=>({
-        proposta:String(r.contrato||r.contrato_id),chave:String(r.contrato_id),
-        cpf:r.cpf,cliente:r.cliente,esteira:'crefisa',
-        data:r.data_digitacao||'',datahoras:r.data_sub_status,
-        situacao:/FINALIZADO|APROVADA/i.test(r.sub_status||'')?'INT':(/CANCELADA|REJEITADO/i.test(r.sub_status||'')?'REP':'AND'),
-        situacao_banco:r.sub_status||r.sit_banco||'',
-        vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
-        operacao:r.tipo_contrato||'',convenio:r.convenio||'',usuario:r.vendedor||'',
-        parceiro:r.parceiro||'',prazo:r.prazo,tabela:r.tabela,login:r.login_sub_usuario||'',sit_pagto:r.sit_pagamento||'',sit_banco_cru:r.sit_banco||'',
-        data_nosso_credito:r.data_pagamento||null
-      })))
-      setLoading(false);return
-    }
-      // as três em paralelo (antes eram sequenciais)
-      const[r1,r2,r3]=await Promise.all([
-        supabase.from('konsig_esteira').select('proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira').limit(5000),
-        supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000),
-        supabase.from('workbank_dados').select('proposta,nascimento,prazo,tabela_nome,dat_credito,exportado_em')
+      const querNeo=fonte==='NEOCREDITO'||fonte==='TODOS'
+      const querCref=fonte==='CREFISA'||fonte==='TODOS'
+      const[neo,cref]=await Promise.all([
+        querNeo?Promise.all([
+          paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira'),
+          supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000),
+          paginar('workbank_dados','proposta,nascimento,prazo,tabela_nome,dat_credito')
+        ]):Promise.resolve(null),
+        querCref?paginar('crefisa_esteira','*'):Promise.resolve(null)
       ])
-      const est=r1.data,e1=r1.error,dig=r2.data,w=r3.data
-      if(e1)throw e1
-      const dm=new Map();(dig||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),(x.agente||'').trim())})
-      setWbd(new Map((w||[]).map(x=>[String(x.proposta),x])))
-      setRows((est||[]).map(r=>({
-        proposta:String(r.proposta),cpf:r.cpf,cliente:r.nome,esteira:r.esteira,
-        data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
-        situacao:String(r.situacao||'').toUpperCase(),
-        situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
-        vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
-        operacao:r.tipooperacao_nome||'',convenio:r.convenio_nome||'',usuario:r.usuario_nome||'',
-        parceiro:dm.get(String(r.proposta).replace(/\D/g,''))||'',
-        data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?(String(r.datahoras||'')).slice(0,10):null
-      })))
+      let out=[],mapa=new Map()
+      if(neo){
+        const[est,digR,w]=neo
+        const dm=new Map();(digR.data||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),(x.agente||'').trim())})
+        mapa=new Map((w||[]).map(x=>[String(x.proposta),x]))
+        out=out.concat((est||[]).map(r=>({
+          _fonte:'NEOCREDITO',proposta:String(r.proposta),chave:String(r.proposta),
+          cpf:r.cpf,cliente:r.nome,data:(String(r.datahorac||'')).slice(0,10),
+          situacao:String(r.situacao||'').toUpperCase(),
+          situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
+          vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
+          operacao:r.tipooperacao_nome||'',convenio:r.convenio_nome||'',
+          parceiro:dm.get(String(r.proposta).replace(/\D/g,''))||'',
+          data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?(String(r.datahoras||'')).slice(0,10):null
+        })))
+      }
+      if(cref){
+        out=out.concat((cref||[]).map(r=>({
+          _fonte:'CREFISA',proposta:String(r.contrato||r.contrato_id),chave:String(r.contrato_id),
+          cpf:r.cpf,cliente:r.cliente,data:r.data_digitacao||'',
+          situacao:/FINALIZADO|APROVADA/i.test(r.sub_status||'')?'INT':(/CANCELADA|REJEITADO/i.test(r.sub_status||'')?'REP':'AND'),
+          situacao_banco:r.sub_status||r.sit_banco||'',
+          vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
+          operacao:r.tipo_contrato||'',convenio:r.convenio||'',
+          parceiro:r.parceiro||'',prazo:r.prazo,tabela:r.tabela,login:r.login_sub_usuario||'',
+          sit_pagto:r.sit_pagamento||'',sit_banco_cru:r.sit_banco||'',
+          data_nosso_credito:r.data_pagamento||null
+        })))
+      }
+      setWbd(mapa);setRows(out)
     }catch(e){setErr('Erro ao carregar: '+(e.message||e))}
     setLoading(false)
   }
   useEffect(()=>{carregar()},[fonte])
-  if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando esteira...</div>
+  const pesquisar=()=>setFl({de,ate,sit,parc,busca})
+  const limpar=()=>{setDe('');setAte('');setSit('todas');setParc('');setBusca('');setFl({de:'',ate:'',sit:'todas',parc:'',busca:''})}
+  if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando esteiras...</div>
   if(err)return<div style={{padding:20,color:C.danger}}>{err}</div>
+  const q=(fl.busca||'').trim().toLowerCase(),qd=q.replace(/\D/g,'')
   const g=(rows||[]).filter(r=>{
-    if(de&&r.data<de)return false
-    if(ate&&r.data>ate)return false
-    if(sit==='aberto'&&!(r.situacao==='PEN'||r.situacao==='AND'))return false
-    if(['PEN','AND','INT','REP'].includes(sit)&&r.situacao!==sit)return false
-    if(parc&&r.parceiro!==parc)return false
-    if(soNovas&&wbd.get(r.proposta)?.exportado_em)return false
+    if(fl.de&&r.data<fl.de)return false
+    if(fl.ate&&r.data>fl.ate)return false
+    if(fl.sit==='aberto'&&!(r.situacao==='PEN'||r.situacao==='AND'))return false
+    if(['PEN','AND','INT','REP'].includes(fl.sit)&&r.situacao!==fl.sit)return false
+    if(fl.parc&&r.parceiro!==fl.parc)return false
+    if(q){const t=(r.cliente||'').toLowerCase().includes(q)||String(r.proposta||'').includes(q)||(r.parceiro||'').toLowerCase().includes(q)
+      const c=qd.length>=3&&String(r.cpf||'').includes(qd)
+      if(!t&&!c)return false}
     return true
   }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
   const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
-  const completas=fonte==='CREFISA'?g.filter(r=>r.proposta&&r.prazo).length:g.filter(r=>wbd.get(r.proposta)?.tabela_nome).length
-  const jaExp=(rows||[]).filter(r=>wbd.get(r.proposta)?.exportado_em).length
+  const completas=g.filter(r=>r._fonte==='CREFISA'?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
+  const porFonte={};g.forEach(r=>porFonte[r._fonte]=(porFonte[r._fonte]||0)+1)
   const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
-  async function gerar(){
+  function gerar(){
     if(!g.length)return
     const cpfF=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
     const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
     const hoje=new Date();hoje.setHours(12,0,0,0)
-    const fnt=WB_FONTES.find(f=>f.id===fonte)||WB_FONTES[0]
     const linhas=g.map(r=>{
+      const cref=r._fonte==='CREFISA'
+      const fnt=WB_FONTES.find(f=>f.id===r._fonte)
       const w=wbd.get(r.chave||r.proposta)||{}
-      const tipo=fonte==='CREFISA'?(/REFIN/i.test(r.operacao||'')?'REFINANCIAMENTO':'NOVO'):(/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO')
+      const tipo=cref?(/REFIN/i.test(r.operacao||'')?'REFINANCIAMENTO':'NOVO'):(/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO')
       const o={};WB_HDR.forEach(h=>o[h]=null)
-      o.NUM_BANCO=fnt.num;o.NOM_BANCO=fnt.nom||fnt.id
+      o.NUM_BANCO=fnt?fnt.num:null;o.NOM_BANCO=fnt?(fnt.nom||fnt.id):r._fonte
       o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
-      o.DSC_PRODUTO=fonte==='CREFISA'?((r.convenio||'')+'-'+((tipo==='REFINANCIAMENTO'&&/^EMPRESTIMO PESSOAL DESC EM CONTA$/i.test((r.tabela||'').trim()))?'REFINANCIAMENTO':(r.tabela||''))):((w.tabela_nome||r.tabela)?((r.convenio||'')+'-'+(w.tabela_nome||r.tabela)+'-'+tipo):null)
+      o.DSC_PRODUTO=cref
+        ?((r.convenio||'')+'-'+((tipo==='REFINANCIAMENTO'&&/^EMPRESTIMO PESSOAL DESC EM CONTA$/i.test((r.tabela||'').trim()))?'REFINANCIAMENTO':(r.tabela||'')))
+        :(w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null)
       o.DAT_CTR_INCLUSAO=hoje
-      o.DSC_SITUACAO_EMPRESTIMO=fonte==='CREFISA'?(/^PAGO/i.test((r.sit_pagto||'').trim())?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
-      o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=fonte==='CREFISA'?(r.login||r.parceiro||''):(r.parceiro||'')
-      o.COD_CPF_CLIENTE=fonte==='CREFISA'?Number(String(r.cpf||'').replace(/\D/g,''))||null:cpfF(r.cpf)
+      o.DSC_SITUACAO_EMPRESTIMO=cref?(/^PAGO/i.test((r.sit_pagto||'').trim())?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
+      o.DAT_EMPRESTIMO=D(r.data)
+      o.NIC_CTR_USUARIO=cref?(r.login||r.parceiro||''):(r.parceiro||'')
+      o.COD_CPF_CLIENTE=cref?(Number(String(r.cpf||'').replace(/\D/g,''))||null):cpfF(r.cpf)
       o.NOM_CLIENTE=r.cliente||''
-      o.DAT_NASCIMENTO=fonte==='CREFISA'?D('1990-01-01'):D(w.nascimento)   // Crefisa: o relatório não traz nascimento; o Work aceita o placeholder
+      o.DAT_NASCIMENTO=cref?D('1990-01-01'):D(w.nascimento)
       o.QTD_PARCELA=(w.prazo||r.prazo)?Number(w.prazo||r.prazo):null
       o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
       o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
@@ -3754,44 +3769,35 @@ function WorkBankExport(){
     const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
     XLSX.writeFile(bk,'Arquivo Padrao WORKBANK.xlsx',{cellDates:true})
     const inc=g.length-completas
-    // marca como exportadas (pra não duplicar na importação do Work)
-    try{
-      const agora=new Date().toISOString()
-      const tab=fonte==='CREFISA'?'crefisa_esteira':'workbank_dados'
-      const ups=g.map(r=>fonte==='CREFISA'?{contrato_id:r.chave,exportado_em:agora}:{proposta:r.proposta,exportado_em:agora})
-      for(let i=0;i<ups.length;i+=200){
-        const{error}=await supabase.from(tab).upsert(ups.slice(i,i+200),{onConflict:fonte==='CREFISA'?'contrato_id':'proposta'})
-        if(error)throw error
-      }
-      setMsg('✓ '+g.length+' propostas no arquivo'+(inc?(' · ⚠️ '+inc+' sem dados completos (o robô preenche aos poucos)'):'')+' · marcadas como exportadas')
-      carregar()
-    }catch(e){setMsg('✓ arquivo gerado, mas não consegui marcar como exportadas: '+(e.message||e)+' — rode: ALTER TABLE workbank_dados ADD COLUMN exportado_em timestamptz;')}
+    setMsg('✓ '+g.length+' propostas no arquivo'+(inc?(' · ⚠️ '+inc+' sem dados completos'):'')+' — pode gerar quantas vezes precisar, nada fica bloqueado')
   }
   const chip=(id,l)=><button key={id} onClick={()=>setSit(id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(sit===id?C.accent:C.border),background:sit===id?C.abg:'transparent',color:sit===id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sit===id?700:400}}>{l}</button>
+  const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}
   return<div style={{display:'flex',flexDirection:'column',gap:12}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
       <div>
         <div style={{fontSize:16,fontWeight:800}}>📤 WorkBank — central de exportação</div>
-        <div style={{fontSize:11,color:C.muted}}>Gera o "Arquivo Padrao WORKBANK" (61 colunas) pra importar no Work · marca o que já saiu pra não duplicar</div>
+        <div style={{fontSize:11,color:C.muted}}>Gera o "Arquivo Padrao WORKBANK" (61 colunas) · reexporte quantas vezes quiser pra atualizar os status no Work</div>
       </div>
-      <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Atualizar</button>
+      <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
     </div>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <Stat label="Na esteira" value={(rows||[]).length} sub="propostas sincronizadas"/>
+      <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'NeoCrédito + Crefisa':fonte}/>
       <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)} color={C.accent}/>
-      <Stat label="Prontas pra exportar" value={completas} sub="com nascimento/parcelas/produto" color={C.accent2}/>
-      <Stat label="Já exportadas" value={jaExp} sub="marcadas em rodadas anteriores" color={C.muted}/>
+      <Stat label="Prontas pra exportar" value={completas} sub="com todos os dados" color={C.accent2}/>
+      <Stat label="Por banco" value={Object.entries(porFonte).map(([k,n])=>n).join(' / ')||'0'} sub={Object.keys(porFonte).join(' / ')||'—'} color={C.muted}/>
     </div>
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:10}}>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-        <select value={fonte} onChange={e=>setFonte(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}}>
+        <select value={fonte} onChange={e=>setFonte(e.target.value)} style={{...inp,fontWeight:700,minWidth:190}}>
+          <option value="TODOS">🏦 Todos os bancos</option>
           {WB_FONTES.map(f=><option key={f.id} value={f.id}>{f.l}</option>)}
         </select>
         <span style={{fontSize:11,color:C.muted}}>digitadas de</span>
-        <input type="date" value={de} onChange={e=>setDe(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 8px',fontSize:11,outline:'none'}}/>
+        <input type="date" value={de} onChange={e=>setDe(e.target.value)} style={inp}/>
         <span style={{fontSize:11,color:C.muted}}>até</span>
-        <input type="date" value={ate} onChange={e=>setAte(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 8px',fontSize:11,outline:'none'}}/>
-        <select value={parc} onChange={e=>setParc(e.target.value)} style={{background:C.surface,border:'1px solid '+(parc?C.accent:C.border),borderRadius:8,color:parc?C.accent:C.text,padding:'7px 10px',fontSize:11,outline:'none',maxWidth:220}}>
+        <input type="date" value={ate} onChange={e=>setAte(e.target.value)} style={inp}/>
+        <select value={parc} onChange={e=>setParc(e.target.value)} style={{...inp,maxWidth:220}}>
           <option value="">Parceiro: todos</option>
           {Object.entries(parcs).sort((a,b)=>b[1]-a[1]).map(([k,n])=><option key={k} value={k}>{k.slice(0,30)} ({n})</option>)}
         </select>
@@ -3800,26 +3806,26 @@ function WorkBankExport(){
         <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
           {chip('todas','Todas')}{chip('aberto','Em aberto')}{chip('PEN','📌 Pendência')}{chip('AND','🏦 Andamento')}{chip('INT','✅ Integradas')}{chip('REP','❌ Reprovadas')}
         </div>
-        <label style={{fontSize:11,display:'flex',alignItems:'center',gap:5,color:C.text,fontWeight:600}}>
-          <input type="checkbox" checked={soNovas} onChange={e=>setSoNovas(e.target.checked)}/> só as ainda não exportadas
-        </label>
-        <div style={{flex:1}}/>
-        <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')pesquisar()}} placeholder="🔍 nome, CPF, proposta ou parceiro" style={{...inp,flex:1,minWidth:200}}/>
+        <button onClick={pesquisar} style={{padding:'8px 20px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:700,fontSize:12,cursor:'pointer'}}>🔍 Pesquisar</button>
+        <button onClick={limpar} style={{padding:'8px 12px',borderRadius:8,border:'1px solid '+C.border,background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>limpar</button>
       </div>
-      {msg&&<div style={{fontSize:11,color:msg.includes('não consegui')?C.warn:C.accent2,fontWeight:600}}>{msg}</div>}
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',borderTop:'1px solid '+C.border,paddingTop:10}}>
+        <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
+        {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
+      </div>
     </div>
-    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Nascimento','Produto','Parceiro','Exportada'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-      {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};return<tr key={i}>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+      {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};const cref=r._fonte==='CREFISA';return<tr key={i}>
+        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:C.info}}>{cref?'CREFISA':'NEO'}</td>
         <td style={{...td,fontSize:10}}>{r.proposta}</td>
         <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
         <td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td>
         <td style={{...td,fontSize:10}}>{r.situacao_banco}</td>
         <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
-        <td style={{...td,textAlign:'center'}}>{w.prazo?Number(w.prazo):<span style={{color:C.warn}}>…</span>}</td>
-        <td style={{...td,fontSize:10}}>{w.nascimento?fmtDate(w.nascimento):<span style={{color:C.warn}}>…</span>}</td>
-        <td style={{...td,fontSize:10}}>{w.tabela_nome||<span style={{color:C.warn}}>aguardando robô</span>}</td>
+        <td style={{...td,textAlign:'center'}}>{(w.prazo||r.prazo)?Number(w.prazo||r.prazo):<span style={{color:C.warn}}>…</span>}</td>
+        <td style={{...td,fontSize:10}}>{(cref?r.tabela:w.tabela_nome)||<span style={{color:C.warn}}>aguardando robô</span>}</td>
         <td style={{...td,fontSize:10,color:C.accent}}>{(r.parceiro||'—').slice(0,18)}</td>
-        <td style={{...td,fontSize:10}}>{w.exportado_em?'✓ '+fmtDate(w.exportado_em):'—'}</td>
       </tr>})}
     </tbody></table></div>
     {g.length>200&&<div style={{fontSize:10,color:C.muted}}>Mostrando 200 de {g.length} — o arquivo sai com todas.</div>}
