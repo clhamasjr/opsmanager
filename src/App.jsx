@@ -3651,7 +3651,7 @@ function cfParseComissaoNeo(wb){
 }
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
-const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410}]
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:69}]
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
@@ -3662,6 +3662,24 @@ function WorkBankExport(){
   async function carregar(){
     setLoading(true);setErr('')
     try{
+    if(fonte==='CREFISA'){
+      const{data:cf,error:ec}=await supabase.from('crefisa_esteira').select('*').limit(5000)
+      if(ec)throw ec
+      setWbd(new Map((cf||[]).map(x=>[String(x.contrato_id),{
+        proposta:String(x.contrato_id),prazo:x.prazo,tabela_nome:x.tabela,exportado_em:x.exportado_em}])))
+      setRows((cf||[]).map(r=>({
+        proposta:String(r.contrato||r.contrato_id),chave:String(r.contrato_id),
+        cpf:r.cpf,cliente:r.cliente,esteira:'crefisa',
+        data:r.data_digitacao||'',datahoras:r.data_sub_status,
+        situacao:/FINALIZADO|APROVADA/i.test(r.sub_status||'')?'INT':(/CANCELADA|REJEITADO/i.test(r.sub_status||'')?'REP':'AND'),
+        situacao_banco:r.sub_status||r.sit_banco||'',
+        vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
+        operacao:r.tipo_contrato||'',convenio:r.convenio||'',usuario:r.vendedor||'',
+        parceiro:r.parceiro||'',prazo:r.prazo,tabela:r.tabela,
+        data_nosso_credito:r.data_pagamento||null
+      })))
+      setLoading(false);return
+    }
       const{data:est,error:e1}=await supabase.from('konsig_esteira').select('proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira').limit(5000)
       if(e1)throw e1
       const{data:dig}=await supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000)
@@ -3681,7 +3699,7 @@ function WorkBankExport(){
     }catch(e){setErr('Erro ao carregar: '+(e.message||e))}
     setLoading(false)
   }
-  useEffect(()=>{carregar()},[])
+  useEffect(()=>{carregar()},[fonte])
   if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando esteira...</div>
   if(err)return<div style={{padding:20,color:C.danger}}>{err}</div>
   const g=(rows||[]).filter(r=>{
@@ -3704,17 +3722,17 @@ function WorkBankExport(){
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const fnt=WB_FONTES.find(f=>f.id===fonte)||WB_FONTES[0]
     const linhas=g.map(r=>{
-      const w=wbd.get(r.proposta)||{}
-      const tipo=/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO'
+      const w=wbd.get(r.chave||r.proposta)||{}
+      const tipo=fonte==='CREFISA'?(/REFIN/i.test(r.operacao||'')?'REFIN':'NOVO'):(/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO')
       const o={};WB_HDR.forEach(h=>o[h]=null)
       o.NUM_BANCO=fnt.num;o.NOM_BANCO=fnt.id
       o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
-      o.DSC_PRODUTO=w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null
+      o.DSC_PRODUTO=(w.tabela_nome||r.tabela)?((r.convenio||'')+'-'+(w.tabela_nome||r.tabela)+'-'+tipo):null
       o.DAT_CTR_INCLUSAO=hoje;o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
       o.DAT_EMPRESTIMO=D(r.data);o.NIC_CTR_USUARIO=r.parceiro||''
       o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
-      o.DAT_NASCIMENTO=D(w.nascimento);o.QTD_PARCELA=w.prazo?Number(w.prazo):null
+      o.DAT_NASCIMENTO=D(w.nascimento);o.QTD_PARCELA=(w.prazo||r.prazo)?Number(w.prazo||r.prazo):null
       o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
       o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
       o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
@@ -3727,9 +3745,10 @@ function WorkBankExport(){
     // marca como exportadas (pra não duplicar na importação do Work)
     try{
       const agora=new Date().toISOString()
-      const ups=g.map(r=>({proposta:r.proposta,exportado_em:agora}))
+      const tab=fonte==='CREFISA'?'crefisa_esteira':'workbank_dados'
+      const ups=g.map(r=>fonte==='CREFISA'?{contrato_id:r.chave,exportado_em:agora}:{proposta:r.proposta,exportado_em:agora})
       for(let i=0;i<ups.length;i+=200){
-        const{error}=await supabase.from('workbank_dados').upsert(ups.slice(i,i+200),{onConflict:'proposta'})
+        const{error}=await supabase.from(tab).upsert(ups.slice(i,i+200),{onConflict:fonte==='CREFISA'?'contrato_id':'proposta'})
         if(error)throw error
       }
       setMsg('✓ '+g.length+' propostas no arquivo'+(inc?(' · ⚠️ '+inc+' sem dados completos (o robô preenche aos poucos)'):'')+' · marcadas como exportadas')
@@ -3778,7 +3797,7 @@ function WorkBankExport(){
       {msg&&<div style={{fontSize:11,color:msg.includes('não consegui')?C.warn:C.accent2,fontWeight:600}}>{msg}</div>}
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Nascimento','Produto','Parceiro','Exportada'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
-      {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.proposta)||{};return<tr key={i}>
+      {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};return<tr key={i}>
         <td style={{...td,fontSize:10}}>{r.proposta}</td>
         <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
         <td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td>
