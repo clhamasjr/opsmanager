@@ -4211,10 +4211,14 @@ function EsteiraCompra(){
     </div>})()}
     <div style={{display:'flex',gap:4}}>{[{id:'todas',l:'Todas as esteiras'},{id:'lhamas',l:'🏠 Lhamas'},{id:'externa',l:'🌐 Externa'}].map(e=><button key={e.id} onClick={()=>setFEst(e.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(fEst===e.id?C.accent2:C.border),background:fEst===e.id?C.accent2+'18':'transparent',color:fEst===e.id?C.accent2:C.muted,fontSize:11,cursor:'pointer',fontWeight:fEst===e.id?700:400}}>{e.l}</button>)}</div>
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-      <span style={{fontSize:11,fontWeight:700}}>🔌 Tokens e sessões</span>
-      <span style={{fontSize:11,color:C.muted}}>agora ficam todos juntos na aba <b>Conexões</b> (Gestão de Esteira) — Konsig, Portal, Pan e Crefisa no mesmo lugar.</span>
-      <button onClick={sincronizarEsteira} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:11,cursor:'pointer'}}>🔄 Sincronizar esteira agora</button>
-      {tokenMsg&&<span style={{fontSize:11,color:tokenMsg.includes('✓')?C.accent2:C.muted}}>{tokenMsg}</span>}
+      {/* os campos de sessão foram pra aba Conexões; os botões de ação continuam aqui, que é onde se trabalha */}
+      <button onClick={sincronizarEsteira} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>🔄 Sincronizar esteira agora</button>
+      <button onClick={dispararPortal} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>🔍 Consultar margens agora</button>
+      {syncInfo?.portal_sessao_ok&&<span style={{fontSize:10,fontWeight:700,color:syncInfo.portal_sessao_ok.value==='1'?C.accent2:C.danger}}>{syncInfo.portal_sessao_ok.value==='1'?'● sessão do portal ok':'● sessão do portal caiu'}</span>}
+      <span style={{fontSize:10,color:C.muted}}>🔌 tokens e sessões ficam na aba <b>Conexões</b></span>
+      {syncInfo?.sync_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.sync_run_status.value).includes('✓')?C.accent2:C.muted}}>{syncInfo.sync_run_status.value}</span>}
+      {syncInfo?.portal_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.portal_run_status.value).includes('✓')?C.accent2:C.muted}}>{syncInfo.portal_run_status.value}</span>}
+      {(tokenMsg||portalMsg)&&<span style={{fontSize:11,color:(tokenMsg+portalMsg).includes('✓')?C.accent2:C.muted}}>{portalMsg||tokenMsg}</span>}
     </div>
     <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
       <div style={{fontSize:11,fontWeight:700}}>📱 Telefones de aviso por parceiro <span style={{fontWeight:400,color:C.muted}}>· cadastre 1 ou mais números (separe por vírgula) — o disparo avisa todos</span></div>
