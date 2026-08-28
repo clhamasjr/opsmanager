@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','govparana','conexoes']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','govsp','prefsp','govparana','conexoes']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3279,6 +3279,8 @@ function GovParana(){
   const[aberto,setAberto]=useState(null)      // chave da linha expandida
   const[fl,setFl]=useState('todos')           // todos | liberou | averbou
   const[busca,setBusca]=useState('')
+  const[lote,setLote]=useState('')
+  const[verLote,setVerLote]=useState(false)
   const load=async()=>{
     const{data}=await supabase.from('parana_margem').select('*').order('checked_at',{ascending:false}).limit(2000)
     setRows(data||[])
@@ -3301,6 +3303,28 @@ function GovParana(){
     setMsg(error?('Erro: '+error.message):'Pedido enviado — o resultado aparece em ~1 min.')
     if(!error)setTimeout(load,8000)
   }
+  // lote: aceita colar de planilha (quebra de linha, vírgula, ponto e vírgula ou tab)
+  const enviarLote=async()=>{
+    const itens=[...new Set(lote.split(/[\s,;]+/).map(x=>x.replace(/\D/g,'')).filter(x=>x.length>=5))]
+    if(!itens.length)return setMsg('Cole as matrículas ou CPFs, um por linha')
+    setMsg('Enfileirando '+itens.length+'...')
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([
+      {key:'parana_lote',value:JSON.stringify(itens),updated_at:now},
+      {key:'parana_lote_feitos',value:'0',updated_at:now},
+      {key:'parana_lote_status',value:'0 de '+itens.length+' — começando...',updated_at:now},
+      {key:'parana_run_now',value:now,updated_at:now}],{onConflict:'key'})
+    setMsg(error?('Erro: '+error.message):'✓ '+itens.length+' na fila. O robô consulta ~40 por vez, 1 a cada 1,2s.')
+    if(!error){setLote('');setTimeout(load,8000)}
+  }
+  const limparLote=async()=>{
+    const now=new Date().toISOString()
+    await supabase.from('konsig_config').upsert([
+      {key:'parana_lote',value:'[]',updated_at:now},
+      {key:'parana_lote_status',value:'fila limpa',updated_at:now}],{onConflict:'key'})
+    setMsg('Fila do lote limpa.');load()
+  }
+  let loteFila=0;try{loteFila=(JSON.parse(cfg.parana_lote?.value||'[]')||[]).length}catch{}
 
   // ── recortes ──
   const ultima=r=>(r.variacoes&&r.variacoes.length)?r.variacoes[0]:null
@@ -3369,8 +3393,28 @@ function GovParana(){
         placeholder="matrícula ou CPF" style={{minWidth:170,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'8px 11px',fontSize:11,outline:'none',fontFamily:'inherit'}}/>
       <button onClick={consultar} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent,background:C.accent,color:'#fff',fontWeight:700,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>🔍 Consultar</button>
       {cfg.parana_consulta_res&&<span style={{fontSize:11,fontWeight:600,color:String(cfg.parana_consulta_res.value).startsWith('✓')?C.accent2:String(cfg.parana_consulta_res.value).startsWith('❌')?C.danger:C.muted}}>{cfg.parana_consulta_res.value}</span>}
+      <div style={{flex:1}}/>
+      <button onClick={()=>setVerLote(!verLote)} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>
+        📋 Consultar em lote{loteFila?(' ('+loteFila+' na fila)'):''}</button>
       {msg&&<span style={{fontSize:11,color:msg.startsWith('Erro')?C.danger:C.muted}}>{msg}</span>}
     </div>
+
+    {/* lote */}
+    {verLote&&<div style={{...card,marginBottom:12,display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:11,fontWeight:700}}>📋 Consulta em lote <span style={{fontWeight:400,color:C.muted}}>· cole as matrículas ou CPFs — um por linha, ou direto de uma coluna da planilha</span></div>
+      <textarea value={lote} onChange={e=>setLote(e.target.value)} rows={6}
+        placeholder={'0020084210524972\n842.105.249-72\n...'}
+        style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'8px 11px',fontSize:11,outline:'none',fontFamily:'monospace',resize:'vertical'}}/>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={enviarLote} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent,background:C.accent,color:'#fff',fontWeight:700,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>▶️ Enfileirar e consultar</button>
+        {loteFila>0&&<button onClick={limparLote} style={{padding:'8px 14px',borderRadius:8,border:'1px solid '+C.border,background:'transparent',color:C.danger,fontWeight:600,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>limpar fila</button>}
+        {cfg.parana_lote_status&&<span style={{fontSize:11,fontWeight:600,color:String(cfg.parana_lote_status.value).startsWith('✓')?C.accent2:String(cfg.parana_lote_status.value).startsWith('⚠️')?C.warn:C.muted}}>{cfg.parana_lote_status.value}</span>}
+      </div>
+      <div style={{fontSize:10,color:C.muted,lineHeight:1.6}}>
+        O robô faz ~40 por rodada, uma consulta a cada 1,2s, e continua no ciclo seguinte até acabar.
+        <b> Se a sessão cair no meio, o que faltou fica esperando</b> — cole uma sessão nova em Conexões e ele retoma de onde parou, sem repetir o que já fez.
+      </div>
+    </div>}
 
     {/* filtros */}
     <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
@@ -3437,14 +3481,158 @@ function GovParana(){
     </div>
   </div>
 }
+// ── Portais de São Paulo ─────────────────────────────────────────────────────
+// Mesma tela servindo Governo SP e Prefeitura SP: muda o convênio filtrado.
+// Governo SP roda no portaldoconsignado.com.br (portal.mjs). A Prefeitura é OUTRO
+// sistema, ainda não integrado — a tela existe e diz o que falta em vez de fingir.
+// O que importa aqui: quem está com margem ABERTA (desaverbou) já pode receber proposta.
+function PortalSP({conv,titulo,icone,semPortal}){
+  const[rows,setRows]=useState([])
+  const[est,setEst]=useState(new Map())
+  const[cfg,setCfg]=useState({})
+  const[loading,setLoading]=useState(true)
+  const[fl,setFl]=useState('todos')
+  const[busca,setBusca]=useState('')
+  const[msg,setMsg]=useState('')
+  const load=async()=>{
+    // margens já consultadas + o convênio/nome que só a esteira tem
+    const[{data:pm},{data:ke},{data:c}]=await Promise.all([
+      supabase.from('portal_margem').select('*').order('checked_at',{ascending:false}).limit(2000),
+      supabase.from('konsig_esteira').select('cpf,nome,convenio_nome,status,proposta,valorparcela').limit(2000),
+      supabase.from('konsig_config').select('key,value,updated_at').like('key','portal%')
+    ])
+    const m=new Map();(ke||[]).forEach(e=>{if(e.cpf&&!m.has(String(e.cpf)))m.set(String(e.cpf),e)})
+    setEst(m);setRows(pm||[])
+    const o={};(c||[]).forEach(x=>o[x.key]=x);setCfg(o)
+    setLoading(false)
+  }
+  useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t)},[])
+  const consultar=async()=>{
+    setMsg('Disparando...')
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([
+      {key:'portal_run_now',value:now,updated_at:now},
+      {key:'portal_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR'),updated_at:now}],{onConflict:'key'})
+    setMsg(error?('Erro: '+error.message):'Consulta pedida — o robô roda em ~1 min.')
+    if(!error)setTimeout(load,10000)
+  }
+
+  // só as margens de quem é deste convênio
+  const doConv=rows.filter(r=>{const e=est.get(String(r.cpf));return e&&new RegExp(conv,'i').test(e.convenio_nome||'')})
+  const lista=doConv.filter(r=>{
+    if(fl==='aberto'&&r.status!=='aberto')return false
+    if(fl==='averbado'&&r.status!=='averbado')return false
+    if(fl==='problema'&&['aberto','averbado'].includes(r.status))return false
+    if(busca){const b=busca.toLowerCase(),e=est.get(String(r.cpf))
+      if(!((r.nome||e?.nome||'').toLowerCase().includes(b)||String(r.cpf||'').includes(b)||String(r.matricula||'').includes(b)))return false}
+    return true
+  })
+  const abertos=doConv.filter(r=>r.status==='aberto').length
+  const averbados=doConv.filter(r=>r.status==='averbado').length
+  const problemas=doConv.filter(r=>!['aberto','averbado'].includes(r.status)).length
+  const dispTotal=doConv.reduce((s,r)=>s+(Number(r.benef_disp)||0),0)
+  // quantos deste convênio estão aguardando liquidação na esteira (o alvo da consulta)
+  const naEsteira=[...est.values()].filter(e=>new RegExp(conv,'i').test(e.convenio_nome||'')).length
+
+  const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+  const desde=v=>{if(!v)return'—';const min=Math.round((Date.now()-new Date(v).getTime())/60000)
+    return min<60?('há '+min+'min'):min<1440?('há '+Math.floor(min/60)+'h'):('há '+Math.floor(min/1440)+'d')}
+  const rotulo={aberto:'💚 Liberada',averbado:'🔒 Averbada',bloqueado:'🚫 Servidor bloqueou',sem_matricula:'sem matrícula',sem_dado:'sem dado',erro:'erro',aviso:'aviso'}
+  const cor=s=>s==='aberto'?C.accent2:s==='averbado'?C.text:C.warn
+
+  const card={background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'12px 16px'}
+  const th={textAlign:'left',padding:'7px 9px',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:.4,borderBottom:'1px solid '+C.border,whiteSpace:'nowrap'}
+  const td={padding:'7px 9px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const Stat=({l,v,s,c2})=><div style={{...card,flex:1,minWidth:140}}>
+    <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:.5}}>{l}</div>
+    <div style={{fontSize:19,fontWeight:800,color:c2||C.text,marginTop:3}}>{v}</div>
+    {s&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{s}</div>}</div>
+  const sessaoOk=cfg.portal_sessao_ok?.value==='1'
+
+  return<div>
+    <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
+      <div>
+        <h2 style={{fontSize:17,fontWeight:800,margin:0}}>{icone} {titulo}</h2>
+        <div style={{fontSize:11,color:C.muted,marginTop:3}}>Margem consultada no portal · margem liberada = desaverbou, pode receber proposta</div>
+      </div>
+      <div style={{flex:1}}/>
+      {!semPortal&&<>
+        <span style={{fontSize:11,fontWeight:700,color:sessaoOk?C.accent2:C.danger}}>{sessaoOk?'● sessão do portal ok':'● sessão caiu — cole em Conexões'}</span>
+        <button onClick={consultar} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>🔍 Consultar margens agora</button>
+      </>}
+    </div>
+
+    {semPortal&&<div style={{...card,marginBottom:12,borderLeft:'3px solid '+C.warn}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>⚠️ Portal da Prefeitura ainda não integrado</div>
+      <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
+        O robô de margem que já roda atende <b>só o Governo de SP</b> — o portaldoconsignado.com.br não cobre servidor municipal, é outro sistema.
+        Por isso esta tela mostra as propostas da esteira, mas ainda sem margem consultada.
+        <br/><b>Para ligar:</b> entre no portal que você usa pra Prefeitura, faça uma consulta de margem, copie a requisição
+        (<b>F12 → Network → botão direito → Copiar como cURL (cmd)</b>) e me mande — eu ligo aqui do mesmo jeito que fiz com o Paraná e a Crefisa.
+      </div>
+    </div>}
+
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
+      <Stat l="Margem liberada" v={abertos} s="pronto pra atuar" c2={abertos?C.accent2:C.text}/>
+      <Stat l="Ainda averbada" v={averbados} s="contrato em curso"/>
+      <Stat l="Sem leitura" v={problemas} s="bloqueio ou erro" c2={problemas?C.warn:C.text}/>
+      <Stat l="Margem disponível" v={'R$ '+brl(dispTotal)} s={doConv.length+' consultados'}/>
+      <Stat l="Na esteira" v={naEsteira} s="propostas deste convênio"/>
+    </div>
+
+    <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+      {[{id:'todos',l:'Todos'},{id:'aberto',l:'💚 Liberada'},{id:'averbado',l:'🔒 Averbada'},{id:'problema',l:'⚠️ Sem leitura'}].map(f=>
+        <button key={f.id} onClick={()=>setFl(f.id)} style={{padding:'6px 13px',borderRadius:8,border:'1px solid '+(fl===f.id?C.accent:C.border),background:fl===f.id?C.abg:'transparent',color:fl===f.id?C.accent:C.muted,fontSize:11,fontWeight:fl===f.id?700:400,cursor:'pointer',fontFamily:'inherit'}}>{f.l}</button>)}
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="filtrar por nome, CPF ou matrícula"
+        style={{marginLeft:4,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'6px 11px',fontSize:11,outline:'none',fontFamily:'inherit'}}/>
+      <span style={{fontSize:10,color:C.muted}}>{lista.length} de {doConv.length}</span>
+      {msg&&<span style={{fontSize:11,color:msg.startsWith('Erro')?C.danger:C.muted}}>{msg}</span>}
+      {cfg.portal_run_status&&<span style={{fontSize:10,color:C.muted}}>robô: {cfg.portal_run_status.value}</span>}
+    </div>
+
+    <div style={{...card,padding:0,overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+        <thead><tr>
+          <th style={th}>Cliente</th><th style={th}>CPF</th><th style={th}>Matrícula</th><th style={th}>Órgão</th>
+          <th style={{...th,textAlign:'right'}}>Margem bruta</th><th style={{...th,textAlign:'right'}}>Disponível</th>
+          <th style={th}>Situação</th><th style={th}>Folha</th><th style={th}>Checado</th>
+        </tr></thead>
+        <tbody>
+          {loading&&<tr><td style={{...td,color:C.muted}} colSpan={9}>Carregando...</td></tr>}
+          {!loading&&!lista.length&&<tr><td style={{...td,color:C.muted}} colSpan={9}>
+            {semPortal?'Sem margem consultada — o portal da Prefeitura ainda não está ligado (veja o aviso acima).'
+             :doConv.length?'Nenhum com esse filtro.':'Nenhuma margem consultada ainda. Clique em "Consultar margens agora".'}</td></tr>}
+          {lista.map(r=>{const e=est.get(String(r.cpf))
+            return<tr key={r.cpf} style={{background:r.status==='aberto'?C.accent2+'0D':'transparent'}}>
+              <td style={{...td,fontWeight:600}}>{r.nome||e?.nome||<span style={{color:C.muted,fontWeight:400}}>—</span>}</td>
+              <td style={{...td,fontFamily:'monospace',fontSize:10}}>{r.cpf}</td>
+              <td style={{...td,fontFamily:'monospace',fontSize:10,color:C.muted}}>{r.matricula||'—'}</td>
+              <td style={{...td,fontSize:10}}>{r.orgao||'—'}</td>
+              <td style={{...td,textAlign:'right'}}>{r.benef_bruta!=null?('R$ '+brl(r.benef_bruta)):'—'}</td>
+              <td style={{...td,textAlign:'right',fontWeight:700,color:Number(r.benef_disp)>0?C.accent2:C.text}}>{r.benef_disp!=null?('R$ '+brl(r.benef_disp)):'—'}</td>
+              <td style={{...td,fontWeight:600,color:cor(r.status)}}>{rotulo[r.status]||r.status||'—'}
+                {r.cartoes&&r.cartoes.aviso&&<div style={{fontSize:9,color:C.muted,fontWeight:400}}>{String(r.cartoes.aviso).slice(0,60)}</div>}</td>
+              <td style={{...td,fontSize:10,color:C.muted}}>{r.prox_folha||r.ref||'—'}</td>
+              <td style={{...td,fontSize:10,color:C.muted}}>{desde(r.checked_at)}</td>
+            </tr>})}
+        </tbody>
+      </table>
+    </div>
+    <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.6}}>
+      <b>Como ler:</b> <b style={{color:C.accent2}}>Liberada</b> = a margem inteira voltou, o contrato antigo saiu — é aqui que dá pra atuar.
+      <b> Averbada</b> = ainda tem contrato consumindo. <b>Servidor bloqueou</b> = o órgão não permite consulta de margem (ESCC8017), não é erro nosso.
+      <br/>Só entram na consulta as propostas em <b>aguardando liquidação</b>; o robô recheca cada uma a cada 3h e respeita a quota diária do portal.
+    </div>
+  </div>
+}
 // Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
-  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','govparana','conexoes']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','govsp','prefsp','govparana','conexoes']},
   {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -5147,6 +5335,8 @@ export default function App(){
       
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='pancartao'&&<PanCartao/>}
+      {view==='govsp'&&<PortalSP conv='GOVERNO SP' titulo='Governo SP' icone='🏛️'/>}
+      {view==='prefsp'&&<PortalSP conv='PREF' titulo='Prefeitura SP' icone='🏙️' semPortal={true}/>}
       {view==='govparana'&&<GovParana/>}
       {view==='conexoes'&&<Conexoes/>}
       {view==='workbank'&&<WorkBankExport/>}
