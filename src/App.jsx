@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { supabase } from './supabase.js'
 import * as XLSX from 'xlsx'
 
@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','conexoes']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','govparana','conexoes']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3265,14 +3265,186 @@ function Conexoes(){
   </div>
 }
 
+// ── Governo Paraná ───────────────────────────────────────────────────────────
+// Margem dos servidores do PR (eConsig). O robô (parana.mjs) guarda o histórico de
+// 24 meses em parana_margem; aqui a gente lê e destaca o que interessa comercialmente:
+// quem LIBEROU margem — margem que sobe = contrato que saiu = cliente disponível.
+// A sessão do portal é colada na aba Conexões; esta tela só consome e dispara consulta.
+function GovParana(){
+  const[rows,setRows]=useState([])
+  const[cfg,setCfg]=useState({})
+  const[loading,setLoading]=useState(true)
+  const[alvo,setAlvo]=useState('')
+  const[msg,setMsg]=useState('')
+  const[aberto,setAberto]=useState(null)      // chave da linha expandida
+  const[fl,setFl]=useState('todos')           // todos | liberou | averbou
+  const[busca,setBusca]=useState('')
+  const load=async()=>{
+    const{data}=await supabase.from('parana_margem').select('*').order('checked_at',{ascending:false}).limit(2000)
+    setRows(data||[])
+    const{data:c}=await supabase.from('konsig_config').select('key,value,updated_at').like('key','parana%')
+    const m={};(c||[]).forEach(x=>m[x.key]=x);setCfg(m)
+    setLoading(false)
+  }
+  useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t)},[])
+
+  const consultar=async()=>{
+    const so=alvo.replace(/\D/g,'')
+    if(so.length<5)return setMsg('Digite a matrícula ou o CPF')
+    setMsg('Consultando...')
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([
+      {key:'parana_consulta_alvo',value:so,updated_at:now},
+      {key:'parana_consulta_now',value:now,updated_at:now},
+      {key:'parana_consulta_res',value:'consultando...',updated_at:now},
+      {key:'parana_run_now',value:now,updated_at:now}],{onConflict:'key'})
+    setMsg(error?('Erro: '+error.message):'Pedido enviado — o resultado aparece em ~1 min.')
+    if(!error)setTimeout(load,8000)
+  }
+
+  // ── recortes ──
+  const ultima=r=>(r.variacoes&&r.variacoes.length)?r.variacoes[0]:null
+  const lista=rows.filter(r=>{
+    const u=ultima(r)
+    if(fl==='liberou'&&!(u&&u.delta>0))return false
+    if(fl==='averbou'&&!(u&&u.delta<0))return false
+    if(busca){const b=busca.toLowerCase()
+      if(!((r.nome||'').toLowerCase().includes(b)||String(r.matricula||'').includes(b)||String(r.cpf||'').includes(b)))return false}
+    return true
+  })
+  const comMargem=rows.filter(r=>r.margem_atual!=null)
+  const totalMargem=comMargem.reduce((s,r)=>s+Number(r.margem_atual||0),0)
+  const liberaram=rows.filter(r=>{const u=ultima(r);return u&&u.delta>0}).length
+  const valorLiberado=rows.reduce((s,r)=>{const u=ultima(r);return s+(u&&u.delta>0?u.delta:0)},0)
+  const erros=rows.filter(r=>r.status&&r.status!=='ok').length
+
+  const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+  const dt=v=>v?String(v).slice(0,10).split('-').reverse().join('/'):'—'
+  const desde=v=>{if(!v)return'—';const min=Math.round((Date.now()-new Date(v).getTime())/60000)
+    return min<60?('há '+min+'min'):min<1440?('há '+Math.floor(min/60)+'h'):('há '+Math.floor(min/1440)+'d')}
+
+  // gráfico simples do histórico — 24 pontos, sem biblioteca
+  const Spark=({h,w=180,alt=34})=>{
+    if(!h||h.length<2)return null
+    const v=[...h].reverse().map(x=>Number(x.valor))
+    const min=Math.min(...v),max=Math.max(...v),amp=(max-min)||1
+    const pts=v.map((y,i)=>[(i/(v.length-1))*w,alt-((y-min)/amp)*(alt-4)-2])
+    return<svg width={w} height={alt} style={{display:'block'}}>
+      <polyline fill="none" stroke={C.accent} strokeWidth="1.5" points={pts.map(p=>p[0]+','+p[1]).join(' ')}/>
+      <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill={C.accent}/>
+    </svg>
+  }
+
+  const card={background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'12px 16px'}
+  const th={textAlign:'left',padding:'7px 9px',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:.4,borderBottom:'1px solid '+C.border,whiteSpace:'nowrap'}
+  const td={padding:'7px 9px',fontSize:11,borderBottom:'1px solid '+C.border,verticalAlign:'middle'}
+  const Stat=({l,v,s,cor})=><div style={{...card,flex:1,minWidth:135}}>
+    <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:.5}}>{l}</div>
+    <div style={{fontSize:19,fontWeight:800,color:cor||C.text,marginTop:3}}>{v}</div>
+    {s&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{s}</div>}</div>
+  const sessaoOk=cfg.parana_sessao_ok?.value==='1'
+
+  return<div>
+    <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
+      <div>
+        <h2 style={{fontSize:17,fontWeight:800,margin:0}}>🌲 Governo Paraná</h2>
+        <div style={{fontSize:11,color:C.muted,marginTop:3}}>Margem dos servidores do PR · o robô guarda 24 meses de histórico e aponta quem liberou margem</div>
+      </div>
+      <div style={{flex:1}}/>
+      <span style={{fontSize:11,fontWeight:700,color:sessaoOk?C.accent2:C.danger}}>
+        {sessaoOk?'● sessão do portal ok':'● sessão caiu — cole de novo em Conexões'}</span>
+    </div>
+
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
+      <Stat l="Servidores consultados" v={rows.length} s={erros?(erros+' com erro'):'todos ok'}/>
+      <Stat l="Liberaram margem" v={liberaram} s="na última mudança" cor={liberaram?C.accent2:C.text}/>
+      <Stat l="Margem liberada" v={'R$ '+brl(valorLiberado)} s="soma das liberações" cor={valorLiberado?C.accent2:C.text}/>
+      <Stat l="Margem total" v={'R$ '+brl(totalMargem)} s={comMargem.length+' com margem lida'}/>
+    </div>
+
+    {/* consulta avulsa */}
+    <div style={{...card,marginBottom:12,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span style={{fontSize:11,fontWeight:700}}>Consultar servidor</span>
+      <input value={alvo} onChange={e=>setAlvo(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')consultar()}}
+        placeholder="matrícula ou CPF" style={{minWidth:170,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'8px 11px',fontSize:11,outline:'none',fontFamily:'inherit'}}/>
+      <button onClick={consultar} style={{padding:'8px 18px',borderRadius:8,border:'1px solid '+C.accent,background:C.accent,color:'#fff',fontWeight:700,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>🔍 Consultar</button>
+      {cfg.parana_consulta_res&&<span style={{fontSize:11,fontWeight:600,color:String(cfg.parana_consulta_res.value).startsWith('✓')?C.accent2:String(cfg.parana_consulta_res.value).startsWith('❌')?C.danger:C.muted}}>{cfg.parana_consulta_res.value}</span>}
+      {msg&&<span style={{fontSize:11,color:msg.startsWith('Erro')?C.danger:C.muted}}>{msg}</span>}
+    </div>
+
+    {/* filtros */}
+    <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+      {[{id:'todos',l:'Todos'},{id:'liberou',l:'💚 Liberaram margem'},{id:'averbou',l:'🔻 Averbaram'}].map(f=>
+        <button key={f.id} onClick={()=>setFl(f.id)} style={{padding:'6px 13px',borderRadius:8,border:'1px solid '+(fl===f.id?C.accent:C.border),background:fl===f.id?C.abg:'transparent',color:fl===f.id?C.accent:C.muted,fontSize:11,fontWeight:fl===f.id?700:400,cursor:'pointer',fontFamily:'inherit'}}>{f.l}</button>)}
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="filtrar por nome, matrícula ou CPF"
+        style={{marginLeft:4,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'6px 11px',fontSize:11,outline:'none',fontFamily:'inherit'}}/>
+      <span style={{fontSize:10,color:C.muted}}>{lista.length} de {rows.length}</span>
+    </div>
+
+    <div style={{...card,padding:0,overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+        <thead><tr>
+          <th style={th}>Servidor</th><th style={th}>Matrícula / CPF</th>
+          <th style={{...th,textAlign:'right'}}>Margem atual</th><th style={{...th,textAlign:'right'}}>Média 24m</th>
+          <th style={th}>Última mudança</th><th style={th}>Histórico</th><th style={th}>Checado</th>
+        </tr></thead>
+        <tbody>
+          {loading&&<tr><td style={{...td,color:C.muted}} colSpan={7}>Carregando...</td></tr>}
+          {!loading&&!lista.length&&<tr><td style={{...td,color:C.muted}} colSpan={7}>
+            {rows.length?'Nenhum servidor com esse filtro.':'Nenhuma consulta ainda — use o campo acima para consultar uma matrícula ou CPF.'}</td></tr>}
+          {lista.map(r=>{
+            const u=ultima(r),exp=aberto===r.chave
+            return<Fragment key={r.chave}>
+              <tr onClick={()=>setAberto(exp?null:r.chave)} style={{cursor:'pointer',background:exp?C.abg:'transparent'}}>
+                <td style={{...td,fontWeight:600}}>{r.nome||<span style={{color:C.muted,fontWeight:400}}>(sem nome)</span>}</td>
+                <td style={{...td,fontFamily:'monospace',fontSize:10}}>{r.matricula||r.cpf||'—'}</td>
+                <td style={{...td,textAlign:'right',fontWeight:700}}>{r.margem_atual!=null?('R$ '+brl(r.margem_atual)):<span style={{color:C.danger,fontWeight:600,fontSize:10}}>{r.status||'—'}</span>}</td>
+                <td style={{...td,textAlign:'right',color:C.muted}}>{r.margem_media!=null?('R$ '+brl(r.margem_media)):'—'}</td>
+                <td style={td}>{u?<span style={{color:u.delta>0?C.accent2:C.danger,fontWeight:700}}>
+                    {u.delta>0?'▲ +':'▼ '}{brl(u.delta)} <span style={{color:C.muted,fontWeight:400}}>em {dt(u.data)}</span></span>
+                  :<span style={{color:C.muted}}>sem mudança</span>}</td>
+                <td style={td}><Spark h={r.historico}/></td>
+                <td style={{...td,color:C.muted,fontSize:10}}>{desde(r.checked_at)}</td>
+              </tr>
+              {exp&&<tr><td colSpan={7} style={{...td,background:C.bg,padding:'12px 16px'}}>
+                <div style={{display:'flex',gap:24,flexWrap:'wrap'}}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',marginBottom:5}}>Todas as mudanças ({(r.variacoes||[]).length})</div>
+                    {(r.variacoes||[]).length?(r.variacoes||[]).map((v,i)=>
+                      <div key={i} style={{fontSize:11,marginBottom:2}}>
+                        <span style={{color:C.muted}}>{dt(v.data)}</span>{' '}
+                        <b style={{color:v.delta>0?C.accent2:C.danger}}>{v.delta>0?'+':''}{brl(v.delta)}</b>{' '}
+                        <span style={{color:C.muted}}>{v.tipo} · {brl(v.de)} → {brl(v.para)}</span>
+                      </div>):<div style={{fontSize:11,color:C.muted}}>margem estável no período</div>}
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',marginBottom:5}}>Histórico ({(r.historico||[]).length} meses)</div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:'1px 14px',maxWidth:520}}>
+                      {(r.historico||[]).map((h,i)=><div key={i} style={{fontSize:11}}>
+                        <span style={{color:C.muted}}>{dt(h.data)}</span> <b>R$ {brl(h.valor)}</b></div>)}
+                    </div>
+                  </div>
+                </div>
+              </td></tr>}
+            </Fragment>})}
+        </tbody>
+      </table>
+    </div>
+    <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.6}}>
+      <b>Como ler:</b> margem que <b style={{color:C.accent2}}>sobe</b> = contrato saiu, o servidor tem espaço livre. Margem que <b style={{color:C.danger}}>desce</b> = averbou contrato novo.
+      O portal só entrega o histórico da margem — a lista de contratos não existe neste perfil de acesso.
+      <br/>A sessão do PR dura menos de uma hora; quando cair, cole outra em <b>Conexões → 🌲 Paraná</b>.
+    </div>
+  </div>
+}
 // Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
-  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','conexoes']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','govparana','conexoes']},
   {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -4975,6 +5147,7 @@ export default function App(){
       
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='pancartao'&&<PanCartao/>}
+      {view==='govparana'&&<GovParana/>}
       {view==='conexoes'&&<Conexoes/>}
       {view==='workbank'&&<WorkBankExport/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
