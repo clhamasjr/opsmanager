@@ -3119,6 +3119,25 @@ function Conexoes(){
       'crefisa','cURL salvo e download disparado. O robô baixa e importa em ~1 min.'))v('cref','')
   }
   const rodarCrefisa=()=>grava([{key:'crefisa_run_now',value:new Date().toISOString()},{key:'crefisa_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],'crefisa','Download pedido — acompanhe o status aqui.')
+  // Paraná (eConsig/Zetra): guarda o cURL da consulta. O token da página é de uso único,
+  // então o robô refaz o GET e pega um token novo a cada consulta — o cURL serve só de molde.
+  const salvarParana=async()=>{
+    const t=(val.pr||'').trim();if(!t)return setMsg(m=>({...m,parana:'Cole o cURL da consulta de margem'}))
+    if(!/curl/i.test(t)||!/paranaconsig/i.test(t))return setMsg(m=>({...m,parana:'❌ Não parece o cURL do paranaconsig. Use "Copiar como cURL (cmd)".'}))
+    const now=new Date().toISOString()
+    if(await grava([{key:'parana_curl',value:t},{key:'parana_curl_updated',value:now},{key:'parana_ativo',value:'1'},
+      {key:'parana_sessao_ok',value:'1'},{key:'parana_run_now',value:now},
+      {key:'parana_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],
+      'parana','Sessão do Paraná salva. O robô já consulta a fila em ~1 min.'))v('pr','')
+  }
+  const consultarParana=async()=>{
+    const alvo=(val.pra||'').replace(/\D/g,'')
+    if(alvo.length<5)return setMsg(m=>({...m,parana:'Digite a matrícula ou o CPF'}))
+    const now=new Date().toISOString()
+    await grava([{key:'parana_consulta_alvo',value:alvo},{key:'parana_consulta_now',value:now},
+      {key:'parana_consulta_res',value:'consultando...'},{key:'parana_run_now',value:now}],
+      'parana','Consulta pedida — o resultado aparece aqui em ~1 min.')
+  }
 
   // ── pedaços visuais ──
   const card={background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'12px 16px',display:'flex',flexDirection:'column',gap:9,marginBottom:12}
@@ -3211,6 +3230,36 @@ function Conexoes(){
         <b> Copiar → Copiar como cURL (cmd)</b> → cole aqui em cima.
         <br/>O robô repete essa mesma requisição sozinho e <b>atualiza as datas</b> a cada rodada, então um cURL serve por vários dias — até a sessão do portal cair (aí é só colar de novo).
         <br/><b>Sem o cURL também funciona:</b> se você baixar o .xls na mão, o robô importa sozinho o que cair na pasta <b>Downloads</b>.
+      </Passos>
+    </div>
+
+    {/* ── PARANÁ ── */}
+    <div style={card}>
+      <Titulo i="🌲" l="Paraná — margem do servidor" sub="· eConsig do Governo do PR"
+        st={cfg.parana_sessao_ok&&<span style={{fontSize:10,fontWeight:700,color:cfg.parana_sessao_ok.value==='1'?C.accent2:C.danger}}>{cfg.parana_sessao_ok.value==='1'?'● sessão ok':'● sessão caiu'}</span>}/>
+      <textarea value={val.pr||''} onChange={e=>v('pr',e.target.value)} rows={3}
+        placeholder="cole aqui o cURL da consulta de margem do paranaconsig..." style={{...inp,fontFamily:'monospace',fontSize:10,resize:'vertical'}}/>
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button onClick={salvarParana} disabled={busy==='parana'} style={bt(C.accent)}>Salvar sessão do Paraná</button>
+        <span style={{fontSize:10,color:C.muted}}>sessão salva:</span><Quando k="parana_curl_updated" limite={90}/>
+        <span style={{fontSize:10,color:C.muted}}>· última consulta:</span><Quando k="parana_last" limite={1440}/>
+      </div>
+      {/* consulta avulsa: útil enquanto não há proposta do PR na esteira */}
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',borderTop:'1px solid '+C.border,paddingTop:9}}>
+        <span style={{fontSize:11,fontWeight:600}}>Consultar agora</span>
+        <input value={val.pra||''} onChange={e=>v('pra',e.target.value)} onKeyDown={e=>{if(e.key==='Enter')consultarParana()}}
+          placeholder="matrícula ou CPF" style={{...inp,minWidth:150,maxWidth:220}}/>
+        <button onClick={consultarParana} style={bt(C.accent2,C.accent2+'15')}>🔍 Consultar</button>
+      </div>
+      {cfg.parana_consulta_res&&<span style={{fontSize:11,fontWeight:600,color:String(cfg.parana_consulta_res.value).startsWith('✓')?C.accent2:String(cfg.parana_consulta_res.value).startsWith('❌')?C.danger:C.muted}}>{cfg.parana_consulta_res.value}</span>}
+      <Status t={cfg.parana_run_status?.value||''}/>
+      <Retorno f="parana"/>
+      <Passos>
+        <b>O que copiar:</b> entre em <b>paranaconsig.pr.gov.br</b> → <b>Operacional → Consultar Margem</b> → abra o <b>F12 → Network</b> →
+        faça <b>uma</b> consulta de matrícula → botão direito na requisição <b>consultarVariacaoMargem</b> → <b>Copiar → Copiar como cURL (cmd)</b>.
+        <br/>O robô usa esse cURL só como molde: o token da página é de <b>uso único</b>, então ele busca um token novo a cada consulta.
+        <br/>⚠️ A sessão do Paraná dura <b>menos de uma hora</b> — quando cair, o indicador aqui em cima fica vermelho e é só colar de novo.
+        <br/>O que vem: o <b>histórico de 24 meses</b> da margem. Quando ela sobe, liberou contrato; quando desce, averbou — e o robô já calcula o valor de cada mudança.
       </Passos>
     </div>
   </div>
