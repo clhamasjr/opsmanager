@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','govsp','prefsp','govparana','conexoes']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','govsp','prefsp','govparana','agente','conexoes']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3625,14 +3625,141 @@ function PortalSP({conv,titulo,icone,semPortal}){
     </div>
   </div>
 }
+// ── Agente de Parceiros ──────────────────────────────────────────────────────
+// Liga/desliga o atendimento automático no WhatsApp, escolhe em quais conversas
+// ele pode falar e mostra tudo que ele já respondeu. O robô é o agente.mjs.
+// A chave da IA NÃO passa por aqui: mora em C:\konsig-sync\agente.key, na máquina.
+function AgenteParceiros(){
+  const[cfg,setCfg]=useState({})
+  const[logs,setLogs]=useState([])
+  const[msg,setMsg]=useState('')
+  const[busca,setBusca]=useState('')
+  const load=async()=>{
+    const[{data:c},{data:l}]=await Promise.all([
+      supabase.from('konsig_config').select('key,value,updated_at').like('key','agente%'),
+      supabase.from('agente_log').select('*').order('criado_em',{ascending:false}).limit(200)
+    ])
+    const m={};(c||[]).forEach(x=>m[x.key]=x);setCfg(m);setLogs(l||[])
+  }
+  useEffect(()=>{load();const t=setInterval(load,15000);return()=>clearInterval(t)},[])
+  const grava=async(pares,texto)=>{
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert(pares.map(p=>({...p,updated_at:now})),{onConflict:'key'})
+    setMsg(error?('Erro: '+error.message):texto);load()
+  }
+  const ativo=cfg.agente_ativo?.value==='1'
+  let disponiveis=[];try{disponiveis=JSON.parse(cfg.agente_chats_disponiveis?.value||'[]')}catch{}
+  let habilitados=[];try{habilitados=JSON.parse(cfg.agente_chats?.value||'[]')}catch{}
+  const maxHora=cfg.agente_max_hora?.value||'20'
+
+  const alternarChat=id=>{
+    const novo=habilitados.includes(id)?habilitados.filter(x=>x!==id):[...habilitados,id]
+    grava([{key:'agente_chats',value:JSON.stringify(novo)}],
+      novo.includes(id)?'Conversa habilitada — o agente passa a responder ali.':'Conversa desabilitada.')
+  }
+  const ligar=()=>grava([{key:'agente_ativo',value:ativo?'0':'1'}],ativo?'Agente desligado.':'Agente ligado.')
+
+  const dt=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'
+  const nomeChat=id=>{const c=disponiveis.find(x=>x.id===id);return c&&c.nome?c.nome:String(id).split('@')[0]}
+  const lista=logs.filter(l=>!busca||JSON.stringify(l).toLowerCase().includes(busca.toLowerCase()))
+  const respondidas=logs.filter(l=>l.resposta).length
+  const silencios=logs.filter(l=>l.erro==='silencio').length
+  const erros=logs.filter(l=>l.erro&&l.erro!=='silencio').length
+
+  const card={background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'12px 16px'}
+  const Stat=({l,v,s,c2})=><div style={{...card,flex:1,minWidth:130}}>
+    <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:.5}}>{l}</div>
+    <div style={{fontSize:19,fontWeight:800,color:c2||C.text,marginTop:3}}>{v}</div>
+    {s&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{s}</div>}</div>
+  const st=cfg.agente_status?.value||''
+
+  return<div>
+    <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
+      <div>
+        <h2 style={{fontSize:17,fontWeight:800,margin:0}}>🤖 Agente de Parceiros</h2>
+        <div style={{fontSize:11,color:C.muted,marginTop:3}}>Responde no WhatsApp as perguntas dos parceiros sobre as propostas, usando os dados da esteira</div>
+      </div>
+      <div style={{flex:1}}/>
+      <button onClick={ligar} style={{padding:'9px 20px',borderRadius:8,border:'1px solid '+(ativo?C.danger:C.accent2),
+        background:ativo?'transparent':C.accent2,color:ativo?C.danger:'#fff',fontWeight:800,fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+        {ativo?'⏹️ Desligar agente':'▶️ Ligar agente'}</button>
+    </div>
+
+    <div style={{...card,marginBottom:12,borderLeft:'3px solid '+(ativo?C.accent2:C.muted),display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+      <span style={{fontSize:12,fontWeight:800,color:ativo?C.accent2:C.muted}}>{ativo?'● LIGADO':'○ desligado'}</span>
+      {st&&<span style={{fontSize:11,color:st.startsWith('❌')?C.danger:st.startsWith('⏸️')?C.warn:C.muted}}>{st}</span>}
+      <div style={{flex:1}}/>
+      <span style={{fontSize:10,color:C.muted}}>teto por hora:</span>
+      <input defaultValue={maxHora} onBlur={e=>grava([{key:'agente_max_hora',value:String(parseInt(e.target.value,10)||20)}],'Teto atualizado.')}
+        style={{width:56,background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'5px 8px',fontSize:11,outline:'none',fontFamily:'inherit'}}/>
+      {msg&&<span style={{fontSize:11,color:msg.startsWith('Erro')?C.danger:C.accent2}}>{msg}</span>}
+    </div>
+
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
+      <Stat l="Respondidas" v={respondidas} s="últimas 200" c2={respondidas?C.accent2:C.text}/>
+      <Stat l="Ficou quieto" v={silencios} s="não era pergunta"/>
+      <Stat l="Erros" v={erros} s="falha ao responder" c2={erros?C.danger:C.text}/>
+      <Stat l="Conversas ligadas" v={habilitados.length} s={'de '+disponiveis.length+' disponíveis'}/>
+    </div>
+
+    {/* escolha das conversas */}
+    <div style={{...card,marginBottom:12}}>
+      <div style={{fontSize:11,fontWeight:700,marginBottom:7}}>Onde ele pode falar
+        <span style={{fontWeight:400,color:C.muted}}> · comece por um grupo só; ele fica mudo em todo o resto</span></div>
+      {!disponiveis.length&&<div style={{fontSize:11,color:C.muted}}>Carregando a lista de conversas... o robô publica a cada 5 min.</div>}
+      <div style={{display:'flex',flexWrap:'wrap',gap:6,maxHeight:200,overflowY:'auto'}}>
+        {disponiveis.filter(c=>c.grupo||c.nome).map(c=>{const on=habilitados.includes(c.id)
+          return<button key={c.id} onClick={()=>alternarChat(c.id)} title={c.id}
+            style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(on?C.accent2:C.border),
+              background:on?C.accent2+'18':'transparent',color:on?C.accent2:C.muted,
+              fontSize:11,fontWeight:on?700:400,cursor:'pointer',fontFamily:'inherit'}}>
+            {on?'✓ ':''}{c.grupo?'👥 ':'👤 '}{c.nome||String(c.id).split('@')[0]}</button>})}
+      </div>
+      {habilitados.length>0&&<div style={{fontSize:10,color:C.accent2,marginTop:7,fontWeight:600}}>
+        Respondendo em: {habilitados.map(nomeChat).join(' · ')}</div>}
+    </div>
+
+    {/* histórico */}
+    <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+      <span style={{fontSize:11,fontWeight:700}}>O que ele respondeu</span>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="buscar no histórico"
+        style={{minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'6px 11px',fontSize:11,outline:'none',fontFamily:'inherit'}}/>
+      <span style={{fontSize:10,color:C.muted}}>{lista.length} de {logs.length}</span>
+    </div>
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      {!lista.length&&<div style={{...card,fontSize:11,color:C.muted}}>
+        Nada ainda. Ligue o agente, escolha uma conversa e espere um parceiro perguntar algo.</div>}
+      {lista.map(l=><div key={l.id||l.criado_em} style={{...card,borderLeft:'3px solid '+(l.erro&&l.erro!=='silencio'?C.danger:l.resposta?C.accent2:C.muted)}}>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:5}}>
+          <span style={{fontSize:10,fontWeight:700,color:C.muted}}>{nomeChat(l.chat)}</span>
+          <span style={{fontSize:10,color:C.muted}}>{dt(l.criado_em)}</span>
+          {(l.propostas||[]).length>0&&<span style={{fontSize:9,color:C.accent,fontFamily:'monospace'}}>{(l.propostas||[]).join(' · ')}</span>}
+          {l.erro==='silencio'&&<span style={{fontSize:9,color:C.muted,fontWeight:700}}>FICOU QUIETO</span>}
+          {l.erro&&l.erro!=='silencio'&&<span style={{fontSize:9,color:C.danger,fontWeight:700}}>ERRO</span>}
+        </div>
+        <div style={{fontSize:11,color:C.muted,whiteSpace:'pre-wrap',marginBottom:l.resposta?6:0}}>
+          <b style={{color:C.text}}>Parceiro:</b> {l.pergunta}</div>
+        {l.resposta&&<div style={{fontSize:11,whiteSpace:'pre-wrap',background:C.accent2+'0D',borderRadius:7,padding:'7px 10px'}}>
+          <b style={{color:C.accent2}}>Agente:</b> {l.resposta}</div>}
+        {l.erro&&l.erro!=='silencio'&&<div style={{fontSize:10,color:C.danger}}>{l.erro}</div>}
+      </div>)}
+    </div>
+    <div style={{fontSize:10,color:C.muted,marginTop:10,lineHeight:1.6}}>
+      O agente só usa o que está na esteira e é instruído a nunca inventar situação, valor ou prazo — quando não sabe, diz que vai verificar com a equipe.
+      Não promete data de pagamento, não fala de comissão e não envia arquivo.
+      <br/>Ele espera 25s depois da última mensagem antes de responder, pra não cortar o parceiro no meio de uma sequência.
+      <b> A chave da IA fica na máquina do escritório</b>, nunca no banco.
+    </div>
+  </div>
+}
 // Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
-  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','govsp','prefsp','govparana','conexoes']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','govsp','prefsp','govparana','agente','conexoes']},
   {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -5338,6 +5465,7 @@ export default function App(){
       {view==='govsp'&&<PortalSP conv='GOVERNO SP' titulo='Governo SP' icone='🏛️'/>}
       {view==='prefsp'&&<PortalSP conv='PREF' titulo='Prefeitura SP' icone='🏙️' semPortal={true}/>}
       {view==='govparana'&&<GovParana/>}
+      {view==='agente'&&<AgenteParceiros/>}
       {view==='conexoes'&&<Conexoes/>}
       {view==='workbank'&&<WorkBankExport/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
