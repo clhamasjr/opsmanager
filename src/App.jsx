@@ -3658,6 +3658,11 @@ function AgenteParceiros(){
       novo.includes(id)?'Conversa habilitada — o agente passa a responder ali.':'Conversa desabilitada.')
   }
   const ligar=()=>grava([{key:'agente_ativo',value:ativo?'0':'1'}],ativo?'Agente desligado.':'Agente ligado.')
+  // modo TODAS as conversas: o robô pega a lista da Evolution sozinho; os botões abaixo viram EXCLUSÃO
+  const todos=cfg.agente_todos?.value==='1'
+  let excluidos=[];try{excluidos=JSON.parse(cfg.agente_excluir?.value||'[]')}catch{}
+  const alternarTodos=()=>grava([{key:'agente_todos',value:todos?'0':'1'}],todos?'Voltou pra lista fixa: só responde nas conversas marcadas.':'Respondendo em TODAS as conversas (menos as excluídas).')
+  const alternarExcluir=id=>{const novo=excluidos.includes(id)?excluidos.filter(x=>x!==id):[...excluidos,id];grava([{key:'agente_excluir',value:JSON.stringify(novo)}],novo.includes(id)?'Conversa excluída — o agente fica mudo nela.':'Conversa liberada de novo.')}
 
   const dt=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'
   const nomeChat=id=>{const c=disponiveis.find(x=>x.id===id);return c&&c.nome?c.nome:String(id).split('@')[0]}
@@ -3699,24 +3704,29 @@ function AgenteParceiros(){
       <Stat l="Respondidas" v={respondidas} s="últimas 200" c2={respondidas?C.accent2:C.text}/>
       <Stat l="Ficou quieto" v={silencios} s="não era pergunta"/>
       <Stat l="Erros" v={erros} s="falha ao responder" c2={erros?C.danger:C.text}/>
-      <Stat l="Conversas ligadas" v={habilitados.length} s={'de '+disponiveis.length+' disponíveis'}/>
+      <Stat l="Conversas ligadas" v={todos?(disponiveis.length-excluidos.length):habilitados.length} s={todos?('todas, menos '+excluidos.length+' excluída(s)'):('de '+disponiveis.length+' disponíveis')} c2={todos?C.accent2:undefined}/>
     </div>
 
     {/* escolha das conversas */}
     <div style={{...card,marginBottom:12}}>
-      <div style={{fontSize:11,fontWeight:700,marginBottom:7}}>Onde ele pode falar
-        <span style={{fontWeight:400,color:C.muted}}> · comece por um grupo só; ele fica mudo em todo o resto</span></div>
+      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:9}}>
+        <div style={{fontSize:11,fontWeight:700}}>Onde ele pode falar</div>
+        <button onClick={alternarTodos} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(todos?C.accent2:C.border),background:todos?C.accent2+'18':'transparent',color:todos?C.accent2:C.muted,fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>{todos?'✓ Respondendo em TODAS as conversas':'Responder em todas as conversas'}</button>
+        <span style={{fontSize:10,color:C.muted}}>{todos?'clique numa conversa abaixo pra EXCLUIR (ele fica mudo só nela). Conversa nova entra sozinha.':'só fala nas conversas marcadas abaixo'}</span>
+      </div>
       {!disponiveis.length&&<div style={{fontSize:11,color:C.muted}}>Carregando a lista de conversas... o robô publica a cada 5 min.</div>}
       <div style={{display:'flex',flexWrap:'wrap',gap:6,maxHeight:200,overflowY:'auto'}}>
-        {disponiveis.filter(c=>c.grupo||c.nome).map(c=>{const on=habilitados.includes(c.id)
-          return<button key={c.id} onClick={()=>alternarChat(c.id)} title={c.id}
-            style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(on?C.accent2:C.border),
-              background:on?C.accent2+'18':'transparent',color:on?C.accent2:C.muted,
-              fontSize:11,fontWeight:on?700:400,cursor:'pointer',fontFamily:'inherit'}}>
-            {on?'✓ ':''}{c.grupo?'👥 ':'👤 '}{c.nome||String(c.id).split('@')[0]}</button>})}
+        {disponiveis.filter(c=>c.grupo||c.nome).map(c=>{
+          const ex=excluidos.includes(c.id),on=todos?!ex:habilitados.includes(c.id)
+          const cor=todos?(ex?C.danger:C.accent2):(on?C.accent2:C.muted)
+          return<button key={c.id} onClick={()=>todos?alternarExcluir(c.id):alternarChat(c.id)} title={c.id}
+            style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(on||ex?cor:C.border),
+              background:(on||ex)?cor+'18':'transparent',color:(on||ex)?cor:C.muted,
+              fontSize:11,fontWeight:(on||ex)?700:400,cursor:'pointer',fontFamily:'inherit',textDecoration:ex?'line-through':'none'}}>
+            {ex?'✕ ':(on?'✓ ':'')}{c.grupo?'👥 ':'👤 '}{c.nome||String(c.id).split('@')[0]}</button>})}
       </div>
-      {habilitados.length>0&&<div style={{fontSize:10,color:C.accent2,marginTop:7,fontWeight:600}}>
-        Respondendo em: {habilitados.map(nomeChat).join(' · ')}</div>}
+      {todos?(excluidos.length>0&&<div style={{fontSize:10,color:C.danger,marginTop:7,fontWeight:600}}>Mudo em: {excluidos.map(nomeChat).join(' · ')}</div>)
+        :(habilitados.length>0&&<div style={{fontSize:10,color:C.accent2,marginTop:7,fontWeight:600}}>Respondendo em: {habilitados.map(nomeChat).join(' · ')}</div>)}
     </div>
 
     {/* histórico */}
