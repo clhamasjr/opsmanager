@@ -4369,9 +4369,47 @@ function cfParseComissaoNeo(wb){
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
 const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'}]
+/* ═══ Trocar o parceiro de uma proposta — grava em digitacoes.agente ═══
+   Quem recebe os avisos no WhatsApp vem de digitacoes.agente, não do digitador do Konsig.
+   Quando a extração do banco chega sem esse campo, a proposta fica órfã: não entra na batida
+   de pendências e nenhum aviso sai. Aqui dá pra corrigir na própria tela, sem abrir o Konsig. */
+function useParceirosNomes(){
+  const[nomes,setNomes]=useState([])
+  useEffect(()=>{supabase.from('parceiros').select('nome').order('nome').then(({data})=>{
+    setNomes([...new Set((data||[]).map(x=>(x.nome||'').trim()).filter(Boolean))])})},[])
+  return nomes
+}
+function ParceiroEdit({proposta,valor,nomes,onSalvo,max=18}){
+  const[edit,setEdit]=useState(false),[sal,setSal]=useState(false),[erro,setErro]=useState('')
+  const atual=String(valor||'').trim()
+  const vazio=!atual||atual==='(sem parceiro)'||atual==='—'
+  async function salvar(novo){
+    setSal(true);setErro('')
+    const{data,error}=await supabase.from('digitacoes').update({agente:novo})
+      .eq('proposta',String(proposta)).eq('banco','NEOCREDITO').select('proposta')
+    setSal(false)
+    if(error)return setErro(error.message.slice(0,50))
+    if(!data||!data.length)return setErro('proposta fora da extração NEOCRÉDITO')
+    setEdit(false);onSalvo&&onSalvo(String(proposta),novo)
+  }
+  if(!edit)return <span onClick={e=>{e.stopPropagation();setEdit(true)}} title="clique para trocar o parceiro que recebe os avisos"
+    style={{cursor:'pointer',borderBottom:'1px dashed '+C.border}}>
+    {vazio?<span style={{color:C.warn}}>sem parceiro</span>:atual.slice(0,max)} <span style={{opacity:.45}}>✏️</span></span>
+  return <span style={{display:'inline-flex',gap:4,alignItems:'center',flexWrap:'wrap'}} onClick={e=>e.stopPropagation()}>
+    <select autoFocus defaultValue={vazio?'':atual} disabled={sal} onChange={e=>salvar(e.target.value)}
+      style={{fontSize:11,padding:'2px 4px',borderRadius:6,border:'1px solid '+C.border,maxWidth:200}}>
+      <option value="">(sem parceiro)</option>
+      {nomes.map(n=><option key={n} value={n}>{n}</option>)}
+    </select>
+    <button onClick={()=>{setEdit(false);setErro('')}} style={{border:'none',background:'none',cursor:'pointer',color:C.muted,fontSize:12}}>✕</button>
+    {sal&&<span style={{fontSize:10,color:C.muted}}>salvando…</span>}
+    {erro&&<span style={{fontSize:10,color:C.danger}}>{erro}</span>}
+  </span>
+}
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const pnomes=useParceirosNomes()
   const[fonte,setFonte]=useState('TODOS')
   const[rows,setRows]=useState(null),[wbd,setWbd]=useState(new Map()),[loading,setLoading]=useState(true),[err,setErr]=useState('')
   // filtros que o usuário edita
@@ -4542,13 +4580,16 @@ function WorkBankExport(){
         <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
         <td style={{...td,textAlign:'center'}}>{(w.prazo||r.prazo)?Number(w.prazo||r.prazo):<span style={{color:C.warn}}>…</span>}</td>
         <td style={{...td,fontSize:10}}>{(cref?r.tabela:w.tabela_nome)||<span style={{color:C.warn}}>aguardando robô</span>}</td>
-        <td style={{...td,fontSize:10,color:C.accent}}>{(r.parceiro||'—').slice(0,18)}</td>
+        <td style={{...td,fontSize:10,color:C.accent}}>{cref?(r.parceiro||'—').slice(0,18)
+          :<ParceiroEdit proposta={r.proposta} valor={r.parceiro} nomes={pnomes}
+             onSalvo={(prop,novo)=>setRows(rs=>(rs||[]).map(x=>String(x.proposta)===prop?{...x,parceiro:novo}:x))}/>}</td>
       </tr>})}
     </tbody></table></div>
     {g.length>200&&<div style={{fontSize:10,color:C.muted}}>Mostrando 200 de {g.length} — o arquivo sai com todas.</div>}
   </div>
 }
 function EsteiraCompra(){
+  const pnomes=useParceirosNomes()
   const[rows,setRows]=useState(null),[loading,setLoading]=useState(true)
   const[fase,setFase]=useState(null),[per,setPer]=useState('tudo')
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
@@ -4878,7 +4919,8 @@ function EsteiraCompra(){
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8,fontSize:11,padding:'10px 0'}}>
                   <div><span style={{color:C.muted}}>Esteira:</span> <b>{r.esteira}</b></div>
                   <div><span style={{color:C.muted}}>Convênio:</span> <b>{r.convenio||'—'}</b></div>
-                  <div><span style={{color:C.muted}}>Parceiro:</span> <b>{r.parceiro||'—'}</b></div>
+                  <div><span style={{color:C.muted}}>Parceiro:</span> <b><ParceiroEdit proposta={r.proposta} valor={r.parceiro} nomes={pnomes} max={40}
+                    onSalvo={(prop,novo)=>setRows(rs=>(rs||[]).map(x=>String(x.proposta)===prop?{...x,parceiro:novo||'(sem parceiro)'}:x))}/></b></div>
                   <div><span style={{color:C.muted}}>Corban:</span> <b>{r.corban||'—'}</b></div>
                   <div><span style={{color:C.muted}}>Digitado em:</span> <b>{fmtDate(r.data)}</b></div>
                   <div><span style={{color:C.muted}}>Valor parcela:</span> <b>{cfMoney(r.vr_parcela)}</b></div>
