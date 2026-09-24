@@ -3114,7 +3114,7 @@ function Conexoes(){
     const t=(val.cref||'').trim();if(!t)return setMsg(m=>({...m,crefisa:'Cole o cURL do relatório'}))
     if(!/curl/i.test(t)||!/https?:\/\//.test(t))return setMsg(m=>({...m,crefisa:'❌ Isso não parece um cURL. Use "Copiar como cURL (cmd)".'}))
     const now=new Date().toISOString()
-    if(await grava([{key:'crefisa_curl',value:t},{key:'crefisa_curl_updated',value:now},{key:'crefisa_ativo',value:'1'},
+    if(await grava([{key:'crefisa_curl',value:t},{key:'crefisa_curl_updated',value:now},{key:'crefisa_ativo',value:'1'},{key:'crefisa_expirado',value:'0'},{key:'crefisa_avisado',value:'0'},
       {key:'crefisa_run_now',value:now},{key:'crefisa_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR')}],
       'crefisa','cURL salvo e download disparado. O robô baixa e importa em ~1 min.'))v('cref','')
   }
@@ -3213,8 +3213,12 @@ function Conexoes(){
     {/* ── CREFISA ── */}
     <div style={card}>
       <Titulo i="🏦" l="Crefisa — Relatório de Produção" sub="· alimenta a esteira e o WorkBank"/>
+      {cfg.crefisa_expirado?.value==='1'&&<div style={{background:C.danger+'12',border:'1px solid '+C.danger+'55',borderRadius:8,padding:'8px 10px',fontSize:11,color:C.danger,fontWeight:600}}>
+        ⚠️ A sessão da Crefisa venceu — o robô parou de baixar. Copie o cURL de novo no portal e cole aqui embaixo.
+      </div>}
       <textarea value={val.cref||''} onChange={e=>v('cref',e.target.value)} rows={3}
-        placeholder="cole aqui o cURL do relatório da Crefisa..." style={{...inp,fontFamily:'monospace',fontSize:10,resize:'vertical'}}/>
+        placeholder={cfg.crefisa_expirado?.value==='1'?'SESSÃO VENCIDA — cole o cURL novo aqui':'cole aqui o cURL do relatório da Crefisa...'}
+        style={{...inp,fontFamily:'monospace',fontSize:10,resize:'vertical',borderColor:cfg.crefisa_expirado?.value==='1'?C.danger:undefined}}/>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
         <button onClick={salvarCrefisa} disabled={busy==='crefisa'} style={bt(C.accent)}>Salvar e baixar agora</button>
         <button onClick={rodarCrefisa} style={bt(C.accent2,C.accent2+'15')}>⬇️ Baixar de novo</button>
@@ -4410,6 +4414,22 @@ function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
   const pnomes=useParceirosNomes()
+  // Puxar a esteira da Crefisa sem sair do WorkBank — e saber na hora se a sessão venceu,
+  // que era o que deixava a base parada em silêncio.
+  const[cref,setCref]=useState({})
+  const lerCref=async()=>{const{data}=await supabase.from('konsig_config').select('key,value,updated_at')
+      .in('key',['crefisa_expirado','crefisa_run_status','crefisa_last','crefisa_last_status','crefisa_curl_updated'])
+    const m={};(data||[]).forEach(x=>m[x.key]=x);setCref(m)}
+  useEffect(()=>{lerCref();const t=setInterval(lerCref,20000);return()=>clearInterval(t)},[])
+  const[puxando,setPuxando]=useState(false)
+  const puxarCrefisa=async()=>{
+    setPuxando(true)
+    const now=new Date().toISOString()
+    await supabase.from('konsig_config').upsert([
+      {key:'crefisa_run_now',value:now,updated_at:now},
+      {key:'crefisa_run_status',value:'solicitado '+new Date().toLocaleTimeString('pt-BR'),updated_at:now}],{onConflict:'key'})
+    setTimeout(()=>{lerCref();setPuxando(false)},3000)
+  }
   const[fonte,setFonte]=useState('TODOS')
   const[rows,setRows]=useState(null),[wbd,setWbd]=useState(new Map()),[loading,setLoading]=useState(true),[err,setErr]=useState('')
   // filtros que o usuário edita
@@ -4533,6 +4553,17 @@ function WorkBankExport(){
       <div>
         <div style={{fontSize:16,fontWeight:800}}>📤 WorkBank — central de exportação</div>
         <div style={{fontSize:11,color:C.muted}}>Gera o "Arquivo Padrao WORKBANK" (61 colunas) · reexporte quantas vezes quiser pra atualizar os status no Work</div>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginTop:8,padding:'8px 10px',borderRadius:8,
+          background:cref.crefisa_expirado?.value==='1'?C.danger+'12':C.abg,border:'1px solid '+(cref.crefisa_expirado?.value==='1'?C.danger+'55':C.border)}}>
+          <button onClick={puxarCrefisa} disabled={puxando} style={{padding:'6px 12px',borderRadius:8,border:'none',cursor:puxando?'wait':'pointer',
+            background:C.accent2,color:'#fff',fontWeight:700,fontSize:11}}>{puxando?'pedindo...':'⬇️ Puxar esteira da Crefisa'}</button>
+          {cref.crefisa_expirado?.value==='1'
+            ? <span style={{fontSize:11,color:C.danger,fontWeight:700}}>⚠️ Sessão da Crefisa venceu — cole o cURL novo em Conexões → Crefisa</span>
+            : <span style={{fontSize:11,color:C.muted}}>último import: <b style={{color:C.text}}>{cref.crefisa_last_status?.value||'—'}</b>
+                {cref.crefisa_last?.value?(' · '+new Date(cref.crefisa_last.value).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):''}</span>}
+          {cref.crefisa_run_status?.value&&<span style={{fontSize:10,color:String(cref.crefisa_run_status.value).startsWith('❌')?C.danger:C.muted}}>
+            {cref.crefisa_run_status.value}</span>}
+        </div>
       </div>
       <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
     </div>
