@@ -4410,6 +4410,33 @@ function ParceiroEdit({proposta,valor,nomes,onSalvo,max=18}){
     {erro&&<span style={{fontSize:10,color:C.danger}}>{erro}</span>}
   </span>
 }
+// e-mail do digitador para o NIC_CTR_USUARIO: nas linhas antigas o campo veio com o nome
+// truncado em 17 letras, então casamos pelo nome de quem digitou no Konsig.
+// DAT_CTR_INCLUSAO (dia da geração) nunca pode coincidir com DAT_EMPRESTIMO (dia da proposta):
+// quando a proposta é do próprio dia, a data do empréstimo recua 1 dia.
+const diaAntes=d=>{const x=new Date(d);x.setDate(x.getDate()-1);return x}
+const mesmoDia=(a,b)=>!!a&&!!b&&a.toDateString()===b.toDateString()
+const ajustaEmprestimo=(dEmp,dInc)=>dEmp&&mesmoDia(dEmp,dInc)?diaAntes(dEmp):dEmp
+const ehEmail=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v||'').trim())
+const normNome=v=>String(v||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z ]/g,'').trim()
+function mapaEmailPorNome(digRows,esteiraRows){
+  const propNome=new Map();(esteiraRows||[]).forEach(r=>{if(r.proposta&&r.usuario_nome)propNome.set(String(r.proposta).replace(/\D/g,''),normNome(r.usuario_nome))})
+  const m=new Map()
+  ;(digRows||[]).forEach(d=>{
+    if(!ehEmail(d.usuario))return
+    const nome=propNome.get(String(d.proposta||'').replace(/\D/g,''))
+    if(nome&&!m.has(nome))m.set(nome,String(d.usuario).trim())})
+  return m
+}
+const resolveEmail=(usuario,usuarioNome,mapa)=>{
+  if(ehEmail(usuario))return String(usuario).trim()
+  const n=normNome(usuarioNome)
+  if(n&&mapa){
+    if(mapa.has(n))return mapa.get(n)
+    for(const [k,v] of mapa)if(k.startsWith(n)||n.startsWith(k))return v   // pega o nome truncado
+  }
+  return ''
+}
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
@@ -4451,7 +4478,7 @@ function WorkBankExport(){
       const[neo,cref]=await Promise.all([
         querNeo?Promise.all([
           paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira'),
-          supabase.from('digitacoes').select('proposta,agente').eq('banco','NEOCREDITO').limit(5000),
+          supabase.from('digitacoes').select('proposta,agente,usuario').eq('banco','NEOCREDITO').limit(5000),
           paginar('workbank_dados','proposta,nascimento,prazo,tabela_nome,dat_credito')
         ]):Promise.resolve(null),
         querCref?paginar('crefisa_esteira','*'):Promise.resolve(null)
@@ -4459,7 +4486,8 @@ function WorkBankExport(){
       let out=[],mapa=new Map()
       if(neo){
         const[est,digR,w]=neo
-        const dm=new Map();(digR.data||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),(x.agente||'').trim())})
+        const dm=new Map();(digR.data||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),{agente:(x.agente||'').trim(),usuario:(x.usuario||'').trim()})})
+        const mEmail=mapaEmailPorNome(digR.data||[],neo[0]||[])
         mapa=new Map((w||[]).map(x=>[String(x.proposta),x]))
         out=out.concat((est||[]).map(r=>({
           _fonte:'NEOCREDITO',proposta:String(r.proposta),chave:String(r.proposta),
@@ -4468,7 +4496,8 @@ function WorkBankExport(){
           situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
           vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
           operacao:r.tipooperacao_nome||'',convenio:r.convenio_nome||'',
-          parceiro:dm.get(String(r.proposta).replace(/\D/g,''))||'',
+          parceiro:(dm.get(String(r.proposta).replace(/\D/g,''))||{}).agente||'',
+          email_digitador:resolveEmail((dm.get(String(r.proposta).replace(/\D/g,''))||{}).usuario,r.usuario_nome,mEmail),
           data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?(String(r.datahoras||'')).slice(0,10):null
         })))
       }
@@ -4520,20 +4549,22 @@ function WorkBankExport(){
       const fnt=WB_FONTES.find(f=>f.id===r._fonte)
       const w=wbd.get(r.chave||r.proposta)||{}
       const tipo=cref?(/REFIN/i.test(r.operacao||'')?'REFINANCIAMENTO':'NOVO'):(/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO')
+      // no DSC_PRODUTO o NEO espera "CARTAO BENEF" onde o tipo é "CARTÃO" (conferido no padrão de 25/09/2026)
+      const tipoProd=tipo==='CARTÃO'?'CARTAO BENEF':tipo
       const o={};WB_HDR.forEach(h=>o[h]=null)
       o.NUM_BANCO=fnt?fnt.num:null;o.NOM_BANCO=fnt?(fnt.nom||fnt.id):r._fonte
       o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
       o.DSC_PRODUTO=cref
         ?((r.convenio||'')+'-'+((tipo==='REFINANCIAMENTO'&&/^EMPRESTIMO PESSOAL DESC EM CONTA$/i.test((r.tabela||'').trim()))?'REFINANCIAMENTO':(r.tabela||'')))
-        :(w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null)
+        :(w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipoProd):null)
       o.DAT_CTR_INCLUSAO=hoje
       o.DSC_SITUACAO_EMPRESTIMO=cref?(/^PAGO/i.test((r.sit_pagto||'').trim())?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
-      o.DAT_EMPRESTIMO=D(r.data)
-      o.NIC_CTR_USUARIO=cref?(r.login||r.parceiro||''):(r.parceiro||'')
+      o.DAT_EMPRESTIMO=ajustaEmprestimo(D(r.data),hoje)
+      o.NIC_CTR_USUARIO=cref?(r.login||r.parceiro||''):(r.email_digitador||r.parceiro||'')
       o.COD_CPF_CLIENTE=cref?(Number(String(r.cpf||'').replace(/\D/g,''))||null):cpfF(r.cpf)
       o.NOM_CLIENTE=r.cliente||''
-      o.DAT_NASCIMENTO=cref?D('1990-01-01'):D(w.nascimento)
+      o.DAT_NASCIMENTO=cref?D('1990-01-01'):(D(w.nascimento)||D('1989-12-31'))
       o.QTD_PARCELA=(w.prazo||r.prazo)?Number(w.prazo||r.prazo):null
       o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
       o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
@@ -4639,17 +4670,18 @@ function EsteiraCompra(){
       const w=W.get(String(r.proposta))||{}
       if(!w.tabela_nome)semDados++
       const tipo=/COMPRA/i.test(r.operacao||'')?'RECOMPRA':'CARTÃO'
+      const tipoProd=tipo==='CARTÃO'?'CARTAO BENEF':tipo   // sufixo do DSC_PRODUTO
       const o={};HDR.forEach(h=>o[h]=null)
       o.NUM_BANCO=410;o.NOM_BANCO='NEOCREDITO'
       o.NUM_PROPOSTA=r.proposta;o.NUM_CONTRATO=r.proposta
       o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
-      o.DSC_PRODUTO=w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipo):null
+      o.DSC_PRODUTO=w.tabela_nome?((r.convenio||'')+'-'+w.tabela_nome+'-'+tipoProd):null
       o.DAT_CTR_INCLUSAO=hoje
       o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
-      o.DAT_EMPRESTIMO=D(r.data)
-      o.NIC_CTR_USUARIO=r.parceiro||''
+      o.DAT_EMPRESTIMO=ajustaEmprestimo(D(r.data),hoje)
+      o.NIC_CTR_USUARIO=r.email_digitador||r.parceiro||''
       o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
-      o.DAT_NASCIMENTO=D(w.nascimento)
+      o.DAT_NASCIMENTO=D(w.nascimento)||D('1989-12-31')
       o.QTD_PARCELA=w.prazo?Number(w.prazo):null
       o.VAL_PRESTACAO=r.vr_parcela||null;o.VAL_BRUTO=r.vr_bruto||null;o.VAL_LIQUIDO=r.vr_liquido||null
       o.DAT_CREDITO=D(w.dat_credito||r.data_nosso_credito)
@@ -4680,6 +4712,7 @@ function EsteiraCompra(){
       dg.forEach(d=>{if(d.proposta)digMap.set(cfDig(d.proposta),{agente:(d.agente||'').trim(),usuario:(d.usuario||'').trim()})})
       if(dg.length<PAGE)break;dfrom+=PAGE
     }
+    const mEmail=mapaEmailPorNome([...digMap].map(([prop,v])=>({proposta:prop,usuario:v.usuario})),all)
     // Margem do Portal do Consignado (tabela separada, por CPF) — 🟢 aberto / 🔴 averbado
     const margemMap=new Map()
     const{data:pm}=await supabase.from('portal_margem').select('cpf,status,benef_disp,benef_bruta,prox_folha,ref,checked_at')
@@ -4695,6 +4728,7 @@ function EsteiraCompra(){
       situacao:(r.situacao_descricao||'').toUpperCase(),
       situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
       usuario:r.usuario_nome||'',agente:r.usuario_nome||'',parceiro,
+      email_digitador:resolveEmail(dig&&dig.usuario,r.usuario_nome,mEmail),
       corban:r.corban_nome||'',convenio:r.convenio_nome||'',operacao:r.tipooperacao_nome||'',
       obs_texto:r.obs_texto||'',obs_autor:r.obs_autor||'',obs_data:r.obs_data||null,
       margem:mg?{status:mg.status,disp:mg.benef_disp,bruta:mg.benef_bruta,folha:mg.prox_folha,ref:mg.ref,at:mg.checked_at}:null,
