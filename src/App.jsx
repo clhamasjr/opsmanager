@@ -4464,8 +4464,10 @@ function WorkBankExport(){
   // filtros efetivamente aplicados (só mudam ao clicar em Pesquisar)
   const[fl,setFl]=useState({de:'',ate:'',sit:'todas',parc:'',busca:''})
   const[msg,setMsg]=useState('')
-  const paginar=async(tabela,cols)=>{let all=[],from=0
-    while(true){const{data,error}=await supabase.from(tabela).select(cols).range(from,from+999)
+  const paginar=async(tabela,cols,filtro)=>{let all=[],from=0
+    while(true){let qy=supabase.from(tabela).select(cols).range(from,from+999)
+      if(filtro)qy=filtro(qy)
+      const{data,error}=await qy
       if(error)throw error
       if(!data||!data.length)break
       all=all.concat(data);if(data.length<1000)break;from+=1000}
@@ -4478,7 +4480,7 @@ function WorkBankExport(){
       const[neo,cref]=await Promise.all([
         querNeo?Promise.all([
           paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira'),
-          supabase.from('digitacoes').select('proposta,agente,usuario').eq('banco','NEOCREDITO').limit(5000),
+          paginar('digitacoes','proposta,agente,usuario',qy=>qy.eq('banco','NEOCREDITO')),
           paginar('workbank_dados','proposta,nascimento,prazo,tabela_nome,dat_credito')
         ]):Promise.resolve(null),
         querCref?paginar('crefisa_esteira','*'):Promise.resolve(null)
@@ -4486,8 +4488,8 @@ function WorkBankExport(){
       let out=[],mapa=new Map()
       if(neo){
         const[est,digR,w]=neo
-        const dm=new Map();(digR.data||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),{agente:(x.agente||'').trim(),usuario:(x.usuario||'').trim()})})
-        const mEmail=mapaEmailPorNome(digR.data||[],neo[0]||[])
+        const dm=new Map();(digR||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),{agente:(x.agente||'').trim(),usuario:(x.usuario||'').trim()})})
+        const mEmail=mapaEmailPorNome(digR||[],est||[])
         mapa=new Map((w||[]).map(x=>[String(x.proposta),x]))
         out=out.concat((est||[]).map(r=>({
           _fonte:'NEOCREDITO',proposta:String(r.proposta),chave:String(r.proposta),
@@ -4498,6 +4500,7 @@ function WorkBankExport(){
           operacao:r.tipooperacao_nome||'',convenio:r.convenio_nome||'',
           parceiro:(dm.get(String(r.proposta).replace(/\D/g,''))||{}).agente||'',
           email_digitador:resolveEmail((dm.get(String(r.proposta).replace(/\D/g,''))||{}).usuario,r.usuario_nome,mEmail),
+          digitador:r.usuario_nome||'',
           data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?(String(r.datahoras||'')).slice(0,10):null
         })))
       }
@@ -4561,7 +4564,7 @@ function WorkBankExport(){
       o.DAT_CTR_INCLUSAO=hoje
       o.DSC_SITUACAO_EMPRESTIMO=cref?(/^PAGO/i.test((r.sit_pagto||'').trim())?'PAGO':(r.sit_banco_cru||'EM ANALISE')):(r.situacao_banco||'')
       o.DAT_EMPRESTIMO=ajustaEmprestimo(D(r.data),hoje)
-      o.NIC_CTR_USUARIO=cref?(r.login||r.parceiro||''):(r.email_digitador||r.parceiro||'')
+      o.NIC_CTR_USUARIO=cref?(r.login||''):(r.email_digitador||r.digitador||'')
       o.COD_CPF_CLIENTE=cref?(Number(String(r.cpf||'').replace(/\D/g,''))||null):cpfF(r.cpf)
       o.NOM_CLIENTE=r.cliente||''
       o.DAT_NASCIMENTO=cref?D('1990-01-01'):(D(w.nascimento)||D('1989-12-31'))
@@ -4679,7 +4682,7 @@ function EsteiraCompra(){
       o.DAT_CTR_INCLUSAO=hoje
       o.DSC_SITUACAO_EMPRESTIMO=r.situacao_banco||''
       o.DAT_EMPRESTIMO=ajustaEmprestimo(D(r.data),hoje)
-      o.NIC_CTR_USUARIO=r.email_digitador||r.parceiro||''
+      o.NIC_CTR_USUARIO=r.email_digitador||r.usuario||''
       o.COD_CPF_CLIENTE=cpfF(r.cpf);o.NOM_CLIENTE=r.cliente||''
       o.DAT_NASCIMENTO=D(w.nascimento)||D('1989-12-31')
       o.QTD_PARCELA=w.prazo?Number(w.prazo):null
