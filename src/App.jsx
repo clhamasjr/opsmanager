@@ -4414,6 +4414,10 @@ function ParceiroEdit({proposta,valor,nomes,onSalvo,max=18}){
 // truncado em 17 letras, então casamos pelo nome de quem digitou no Konsig.
 // DAT_CTR_INCLUSAO (dia da geração) nunca pode coincidir com DAT_EMPRESTIMO (dia da proposta):
 // quando a proposta é do próprio dia, a data do empréstimo recua 1 dia.
+// Konsig manda datahorac/datahoras em UTC: cortar o texto em 10 caracteres dava o dia SEGUINTE para quem digitou
+// depois das 21h (12 propostas em 02/10/2026, ex.: 20260922285513 digitada 22:58 de 22/09 aparecia como 23/09).
+// O dia que vale é o de Brasília — o mesmo que o número da proposta carrega.
+const diaBR=v=>{if(!v)return '';const t=Date.parse(v);return isNaN(t)?String(v).slice(0,10):new Date(t-3*3600000).toISOString().slice(0,10)}
 const diaAntes=d=>{const x=new Date(d);x.setDate(x.getDate()-1);return x}
 const mesmoDia=(a,b)=>!!a&&!!b&&a.toDateString()===b.toDateString()
 const ajustaEmprestimo=(dEmp,dInc)=>dEmp&&mesmoDia(dEmp,dInc)?diaAntes(dEmp):dEmp
@@ -4493,7 +4497,7 @@ function WorkBankExport(){
         mapa=new Map((w||[]).map(x=>[String(x.proposta),x]))
         out=out.concat((est||[]).map(r=>({
           _fonte:'NEOCREDITO',proposta:String(r.proposta),chave:String(r.proposta),
-          cpf:r.cpf,cliente:r.nome,data:(String(r.datahorac||'')).slice(0,10),
+          cpf:r.cpf,cliente:r.nome,data:diaBR(r.datahorac),
           situacao:String(r.situacao||'').toUpperCase(),
           situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
           vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
@@ -4501,7 +4505,7 @@ function WorkBankExport(){
           parceiro:(dm.get(String(r.proposta).replace(/\D/g,''))||{}).agente||'',
           email_digitador:resolveEmail((dm.get(String(r.proposta).replace(/\D/g,''))||{}).usuario,r.usuario_nome,mEmail),
           digitador:r.usuario_nome||'',
-          data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?(String(r.datahoras||'')).slice(0,10):null
+          data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?diaBR(r.datahoras):null
         })))
       }
       if(cref){
@@ -4726,7 +4730,7 @@ function EsteiraCompra(){
       const mg=margemMap.get(String(r.cpf))
       return{
       proposta:r.proposta,cpf:r.cpf,cliente:r.nome,esteira:r.esteira||'?',
-      data:(String(r.datahorac||'')).slice(0,10),datahoras:r.datahoras,
+      data:diaBR(r.datahorac),datahoras:r.datahoras,
       vr_bruto:Number(r.valorbruto)||0,vr_parcela:Number(r.valorparcela)||0,vr_liquido:Number(r.valorliquido)||0,
       situacao:(r.situacao_descricao||'').toUpperCase(),
       situacao_banco:((r.situacao||'')+' - '+(r.status||'')).trim(),
@@ -4735,7 +4739,7 @@ function EsteiraCompra(){
       corban:r.corban_nome||'',convenio:r.convenio_nome||'',operacao:r.tipooperacao_nome||'',
       obs_texto:r.obs_texto||'',obs_autor:r.obs_autor||'',obs_data:r.obs_data||null,
       margem:mg?{status:mg.status,disp:mg.benef_disp,bruta:mg.benef_bruta,folha:mg.prox_folha,ref:mg.ref,at:mg.checked_at}:null,
-      crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?(String(r.datahoras||'')).slice(0,10):null
+      crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?diaBR(r.datahoras):null
     }})
     setRows(mapped);setLoading(false)
     const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at')
