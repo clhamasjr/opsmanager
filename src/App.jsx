@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','pancartao','govsp','prefsp','govparana','agente','conexoes']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3769,11 +3769,11 @@ function AgenteParceiros(){
 // Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
-  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','govsp','prefsp','govparana','agente','conexoes']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','wbcomissao','govsp','prefsp','govparana','agente','conexoes']},
   {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -4441,6 +4441,171 @@ const resolveEmail=(usuario,usuarioNome,mapa)=>{
   }
   return ''
 }
+/* ═══ WORKBANK COMISSÃO — comissão das duas contas (18006 LhamasCred · 19094 CLJ), modelo de confirmação do WorkBank ═══
+   Fonte: credfranco_comissao, que o robô do PC (credfranco.mjs) atualiza a cada 30 min. Regras do Carlos (02–05/10/2026):
+   - "extrai tudo dos dois codigos" — inclusive QualiBanking; MENOS a Facta, que entra direto no WorkBank;
+   - comissão R$ 0 não tem o que confirmar e fica fora;
+   - "em hipotese alguma deve enviar nome de promotora, sempre o banco e LHAMASCRED" — DSC_OBSERVACAO = LHAMASCRED e
+     wbcLimpo() em todo texto do arquivo.
+   Código do banco no WorkBank = Febraban (C6 626 e Facta 149 vieram do modelo); os que faltam o Carlos preenche aqui e
+   ficam em konsig_config.wb_codigo_banco. */
+const WBC_HDR=['NUM_BANCO','NOM_BANCO','NUM_PROPOSTA','NUM_CONTRATO','NOM_CLIENTE','COD_CPF_CLIENTE','DSC_PRODUTO','DSC_SITUACAO_BANCO','DSC_OBSERVACAO','DAT_CREDITO','VAL_BRUTO','VAL_LIQUIDO','VAL_SALDO_REFINANCIAMENTO','VAL_BASE_COMISSAO','VAL_COMISSAO','PCL_COMISSAO','DSC_TIPO_COMISSAO','COD_LOJA','COD_UNIDADE_EMPRESA','COD_BANCO','COD_TIPO_PROPOSTA_EMPRESTIMO','DSC_TIPO_PROPOSTA_EMPRESTIMO','NIC_CTR_USUARIO','COD_PRODUTO','COD_PRODUTOR_VENDA','COD_PRODUTOR_VENDA_BANCO','COD_TIPO_COMISSAO','COD_SITUACAO_EMPRESTIMO','QTD_PARCELA','NUM_PARCELA_DIFERIDA_EMPRESA','DAT_EMPRESTIMO','DAT_CONFIRMACAO','DAT_ESTORNO','DAT_CTR_INCLUSAO','TIPO_COMISSAO_BANCO','PCL_TAXA_EMPRESTIMO']
+const WBC_NUM_PADRAO={'C6 BANK':626,'FACTA':149,'PAN':623,'DIGIO':335}
+const WBC_NOM={'C6 BANK':'C6 BANK','FACTA':'FACTA FINANCEIRA','PAN':'PAN','DIGIO':'DIGIO','QUALI':'QUALIBANKING','AGIL':'AGIL','AMIGOZ':'AMIGOZ','MEU CREDBANK':'MEU CREDBANK'}
+const WBC_CONTAS={'18006':'LhamasCred (18006)','19094':'CLJ (19094)'}
+const wbcLimpo=t=>String(t??'').replace(/sistemas?[\s-]*cred\s*franco|cred\s*franco/ig,'LHAMASCRED').replace(/\bSCF\b/g,'').trim()
+const wbcEhFacta=r=>/FACTA/i.test(String(r.banco||''))
+const wbcData=v=>{if(!v)return null;const m=String(v).match(/^(\d{2})\/(\d{2})\/(\d{4})/);const iso=m?(m[3]+'-'+m[2]+'-'+m[1]):String(v).slice(0,10);const d=new Date(iso+'T12:00:00');return isNaN(d)?null:d}
+const wbcSemAcento=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim()
+const wbcNum=v=>/^\d+$/.test(String(v||''))?Number(v):(v||null)
+const wbcBrl=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+function wbcLinha(r,codigos){
+  const o={};WBC_HDR.forEach(h=>o[h]=null)
+  o.NUM_BANCO=codigos[r.banco]??null;o.NOM_BANCO=WBC_NOM[r.banco]||wbcLimpo(r.banco)
+  o.NUM_PROPOSTA=wbcNum(r.cod_banco);o.NUM_CONTRATO=wbcNum(r.cod_banco)
+  o.NOM_CLIENTE=wbcLimpo(r.cliente);o.COD_CPF_CLIENTE=r.cpf?Number(String(r.cpf).replace(/\D/g,'')):null
+  o.DSC_PRODUTO=wbcLimpo(r.produto);o.DSC_SITUACAO_BANCO=wbcLimpo(r.status)
+  o.DSC_OBSERVACAO='LHAMASCRED'
+  o.DAT_CREDITO=wbcData(r.averbacao)
+  o.VAL_BRUTO=Number(r.vr_bruto)||null;o.VAL_LIQUIDO=Number(r.vr_liquido)||null
+  // a CredFranco diz sobre o que a comissão incide; conferido em 02/10: base × percentual = comissão em 240 de 240
+  o.VAL_BASE_COMISSAO=/l[ií]quido/i.test(r.incidencia||'')?(Number(r.vr_liquido)||null):(Number(r.vr_bruto)||null)
+  o.VAL_COMISSAO=Number(r.comissao)||null;o.PCL_COMISSAO=Number(r.perc_comissao)||null
+  o.DSC_TIPO_COMISSAO=0;o.COD_LOJA=0
+  o.DSC_TIPO_PROPOSTA_EMPRESTIMO=wbcSemAcento(r.tipo)||null
+  o.QTD_PARCELA=Number(r.parcelas)||null
+  o.DAT_EMPRESTIMO=wbcData(r.data_proposta);o.DAT_CONFIRMACAO=wbcData(r.data_pagamento)
+  o.TIPO_COMISSAO_BANCO='DIRETA'
+  return o
+}
+function WorkBankComissao(){
+  const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
+  const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
+  const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}
+  const[rows,setRows]=useState(null),[loading,setLoading]=useState(true),[err,setErr]=useState(''),[msg,setMsg]=useState('')
+  const[codigos,setCodigos]=useState(WBC_NUM_PADRAO),[editCod,setEditCod]=useState({}),[salvandoCod,setSalvandoCod]=useState(false)
+  // filtros editáveis × aplicados (só mudam no Pesquisar, como na tela do WorkBank)
+  const[sit,setSit]=useState('pago'),[de,setDe]=useState(''),[ate,setAte]=useState(''),[conta,setConta]=useState(''),[banco,setBanco]=useState(''),[busca,setBusca]=useState('')
+  const[fl,setFl]=useState({sit:'pago',de:'',ate:'',conta:'',banco:'',busca:''})
+  async function carregar(){
+    setLoading(true);setErr('')
+    try{
+      let all=[],from=0
+      while(true){
+        const{data,error}=await supabase.from('credfranco_comissao')
+          .select('cod_webcred,corretor,cod_banco,data_proposta,status,cpf,cliente,banco,convenio,produto,parcelas,vr_bruto,vr_liquido,incidencia,comissao,perc_comissao,bonus,status_pagamento,data_pagamento,averbacao:raw->>Data_Averbacao,tipo:raw->>ProductType')
+          .order('data_pagamento',{ascending:false,nullsFirst:false}).range(from,from+999)
+        if(error)throw error
+        if(!data||!data.length)break
+        all=all.concat(data);if(data.length<1000)break;from+=1000
+      }
+      setRows(all.filter(r=>!wbcEhFacta(r)))
+      const{data:cfg}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
+      let salvo={};try{salvo=JSON.parse(cfg?.value||'{}')}catch{}
+      setCodigos({...WBC_NUM_PADRAO,...salvo})
+    }catch(e){setErr('Erro ao carregar: '+(e.message||e))}
+    setLoading(false)
+  }
+  useEffect(()=>{carregar()},[])
+  const pesquisar=()=>setFl({sit,de,ate,conta,banco,busca})
+  const limpar=()=>{setSit('pago');setDe('');setAte('');setConta('');setBanco('');setBusca('');setFl({sit:'pago',de:'',ate:'',conta:'',banco:'',busca:''})}
+  if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando comissões...</div>
+  if(err)return<div style={{padding:20,color:C.danger}}>{err}</div>
+  const pagoR=r=>/^pago/i.test(String(r.status_pagamento||''))
+  const q=(fl.busca||'').trim().toLowerCase(),qd=q.replace(/\D/g,'')
+  // o período vale sobre o PAGAMENTO da comissão quando o filtro é "pagas"; nas demais, sobre a data da proposta
+  const dataRef=r=>fl.sit==='pago'?String(r.data_pagamento||''):String(r.data_proposta||'')
+  const g=(rows||[]).filter(r=>{
+    if(!(Number(r.comissao)>0))return false
+    if(fl.sit==='pago'&&!pagoR(r))return false
+    if(fl.sit==='nao'&&pagoR(r))return false
+    if(fl.de&&dataRef(r)<fl.de)return false
+    if(fl.ate&&dataRef(r)>fl.ate)return false
+    if(fl.conta&&String(r.corretor)!==fl.conta)return false
+    if(fl.banco&&r.banco!==fl.banco)return false
+    if(q){const t=String(r.cliente||'').toLowerCase().includes(q)||String(r.cod_banco||'').includes(q);const c=qd.length>=3&&String(r.cpf||'').includes(qd);if(!t&&!c)return false}
+    return true
+  })
+  const total=g.reduce((t,r)=>t+(Number(r.comissao)||0),0)
+  const porBanco={};g.forEach(r=>{const k=r.banco||'?';porBanco[k]=porBanco[k]||{n:0,v:0};porBanco[k].n++;porBanco[k].v+=Number(r.comissao)||0})
+  const bancosTodos=[...new Set((rows||[]).map(r=>r.banco).filter(Boolean))].sort()
+  const semCodigo=Object.keys(porBanco).filter(b=>codigos[b]==null||codigos[b]==='')
+  async function salvarCodigos(){
+    setSalvandoCod(true)
+    const novo={...codigos};Object.entries(editCod).forEach(([b,v])=>{const n=String(v).replace(/\D/g,'');if(n)novo[b]=Number(n);else delete novo[b]})
+    const{error}=await supabase.from('konsig_config').upsert([{key:'wb_codigo_banco',value:JSON.stringify(novo),updated_at:new Date().toISOString()}],{onConflict:'key'})
+    if(error)setMsg('❌ '+error.message);else{setCodigos(novo);setEditCod({});setMsg('✅ Códigos de banco salvos')}
+    setSalvandoCod(false)
+  }
+  function gerar(){
+    if(!g.length)return
+    const linhas=g.map(r=>wbcLinha(r,codigos))
+    // trava final: nenhuma célula pode citar a promotora
+    const vaza=linhas.some(o=>WBC_HDR.some(h=>typeof o[h]==='string'&&/cred\s*franco|\bscf\b|promotora/i.test(o[h])))
+    if(vaza){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
+    const ws=XLSX.utils.aoa_to_sheet([WBC_HDR,...linhas.map(o=>WBC_HDR.map(h=>o[h]))],{cellDates:true})
+    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Extrator')
+    XLSX.writeFile(bk,'WorkBank Comissao LHAMASCRED.xlsx',{cellDates:true})
+    setMsg('✓ '+g.length+' comissões no arquivo · '+wbcBrl(total)+(semCodigo.length?(' · ⚠️ sem código de banco: '+semCodigo.join(', ')):''))
+  }
+  const chip=(id,l)=><button key={id} onClick={()=>setSit(id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(sit===id?C.accent:C.border),background:sit===id?C.abg:'transparent',color:sit===id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sit===id?700:400}}>{l}</button>
+  const fmtD=v=>{const d=wbcData(v);return d?d.toLocaleDateString('pt-BR'):'—'}
+  return<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div>
+        <div style={{fontSize:16,fontWeight:800}}>💰 WorkBank — comissão</div>
+        <div style={{fontSize:11,color:C.muted}}>Arquivo de confirmação de comissão (36 colunas) · contas LhamasCred (18006) e CLJ (19094) · sem Facta (entra direto no WorkBank) · comissão R$ 0 fica fora</div>
+      </div>
+      <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
+    </div>
+    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',padding:10,borderRadius:10,border:'1px solid '+C.border,background:C.card}}>
+      {chip('pago','Pagas')}{chip('nao','Não pagas')}{chip('todas','Todas')}
+      <span style={{fontSize:11,color:C.muted,marginLeft:6}}>{sit==='pago'?'pagas de':'digitadas de'}</span>
+      <input type="date" value={de} onChange={e=>setDe(e.target.value)} style={inp}/>
+      <span style={{fontSize:11,color:C.muted}}>até</span>
+      <input type="date" value={ate} onChange={e=>setAte(e.target.value)} style={inp}/>
+      <select value={conta} onChange={e=>setConta(e.target.value)} style={inp}><option value="">Todas as contas</option>{Object.entries(WBC_CONTAS).map(([k,l])=><option key={k} value={k}>{l}</option>)}</select>
+      <select value={banco} onChange={e=>setBanco(e.target.value)} style={inp}><option value="">Todos os bancos</option>{bancosTodos.map(b=><option key={b} value={b}>{WBC_NOM[b]||b}</option>)}</select>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')pesquisar()}} placeholder="nome, CPF ou proposta" style={{...inp,minWidth:180}}/>
+      <button onClick={pesquisar} style={{padding:'7px 14px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontWeight:700,fontSize:11,cursor:'pointer'}}>🔍 Pesquisar</button>
+      <button onClick={limpar} style={{padding:'7px 10px',borderRadius:8,border:'1px solid '+C.border,background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>limpar</button>
+    </div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <div style={{padding:'10px 14px',borderRadius:10,border:'1px solid '+C.border,background:C.card}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase'}}>Comissões</div><div style={{fontSize:18,fontWeight:800}}>{g.length}</div></div>
+      <div style={{padding:'10px 14px',borderRadius:10,border:'1px solid '+C.border,background:C.card}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase'}}>Total</div><div style={{fontSize:18,fontWeight:800,color:C.accent2}}>{wbcBrl(total)}</div></div>
+      {Object.entries(porBanco).sort((a,b)=>b[1].v-a[1].v).map(([b,v])=><div key={b} style={{padding:'10px 14px',borderRadius:10,border:'1px solid '+(semCodigo.includes(b)?C.warn+'88':C.border),background:C.card}}>
+        <div style={{fontSize:9,color:C.muted,textTransform:'uppercase'}}>{WBC_NOM[b]||b}{codigos[b]!=null&&codigos[b]!==''?(' · '+codigos[b]):' · sem código'}</div><div style={{fontSize:13,fontWeight:700}}>{v.n} · {wbcBrl(v.v)}</div></div>)}
+    </div>
+    {semCodigo.length>0&&<div style={{padding:10,borderRadius:10,border:'1px solid '+C.warn+'66',background:C.warn+'14'}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.warn,marginBottom:6}}>⚠️ Banco sem código do WorkBank — no arquivo, NUM_BANCO sai em branco. Preencha e salve:</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        {semCodigo.map(b=><label key={b} style={{fontSize:11,display:'flex',gap:4,alignItems:'center'}}>{WBC_NOM[b]||b}<input value={editCod[b]??''} onChange={e=>setEditCod(x=>({...x,[b]:e.target.value}))} placeholder="código" style={{...inp,width:80}}/></label>)}
+        <button onClick={salvarCodigos} disabled={salvandoCod} style={{padding:'6px 12px',borderRadius:8,border:'none',background:C.accent2,color:'#fff',fontWeight:700,fontSize:11,cursor:'pointer'}}>{salvandoCod?'salvando...':'Salvar códigos'}</button>
+      </div>
+    </div>}
+    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <button onClick={gerar} disabled={!g.length} style={{padding:'9px 18px',borderRadius:8,border:'none',background:g.length?C.accent:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:g.length?'pointer':'not-allowed'}}>📥 Gerar arquivo do WorkBank ({g.length})</button>
+      {msg&&<span style={{fontSize:11,color:msg.startsWith('❌')?C.danger:C.accent2}}>{msg}</span>}
+    </div>
+    <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>
+      {['Pagamento','Conta','Banco','Proposta','Cliente','Produto','Base','%','Comissão','Situação'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+      {g.slice(0,400).map(r=><tr key={r.cod_webcred}>
+        <td style={td}>{fmtD(r.data_pagamento)}</td>
+        <td style={{...td,fontSize:10,color:C.muted}}>{WBC_CONTAS[r.corretor]||r.corretor}</td>
+        <td style={td}>{WBC_NOM[r.banco]||r.banco}</td>
+        <td style={{...td,fontFamily:'monospace',fontSize:10}}>{r.cod_banco}</td>
+        <td style={td}>{r.cliente}</td>
+        <td style={{...td,fontSize:10,color:C.muted,maxWidth:260,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={r.produto}>{r.produto}</td>
+        <td style={td}>{wbcBrl(/l[ií]quido/i.test(r.incidencia||'')?r.vr_liquido:r.vr_bruto)}</td>
+        <td style={td}>{Number(r.perc_comissao)||0}%</td>
+        <td style={{...td,fontWeight:700}}>{wbcBrl(r.comissao)}</td>
+        <td style={{...td,fontSize:10,color:pagoR(r)?C.accent2:C.muted}}>{r.status_pagamento}</td>
+      </tr>)}
+      {g.length>400&&<tr><td colSpan={10} style={{...td,textAlign:'center',color:C.muted}}>… mostrando 400 de {g.length} — o arquivo leva todas</td></tr>}
+    </tbody></table></div>
+  </div>
+}
+
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
@@ -5592,6 +5757,7 @@ export default function App(){
       {view==='agente'&&<AgenteParceiros/>}
       {view==='conexoes'&&<Conexoes/>}
       {view==='workbank'&&<WorkBankExport/>}
+      {view==='wbcomissao'&&<WorkBankComissao/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
     </div>
   </div>
