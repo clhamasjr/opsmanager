@@ -4372,7 +4372,7 @@ function cfParseComissaoNeo(wb){
 }
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
-const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'}]
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'}]   // CredFranco: código por banco (cfLinha)
 /* ═══ Trocar o parceiro de uma proposta — grava em digitacoes.agente ═══
    Quem recebe os avisos no WhatsApp vem de digitacoes.agente, não do digitador do Konsig.
    Quando a extração do banco chega sem esse campo, a proposta fica órfã: não entra na batida
@@ -4450,8 +4450,11 @@ const resolveEmail=(usuario,usuarioNome,mapa)=>{
    Código do banco no WorkBank = Febraban (C6 626 e Facta 149 vieram do modelo); os que faltam o Carlos preenche aqui e
    ficam em konsig_config.wb_codigo_banco. */
 const WBC_HDR=['NUM_BANCO','NOM_BANCO','NUM_PROPOSTA','NUM_CONTRATO','NOM_CLIENTE','COD_CPF_CLIENTE','DSC_PRODUTO','DSC_SITUACAO_BANCO','DSC_OBSERVACAO','DAT_CREDITO','VAL_BRUTO','VAL_LIQUIDO','VAL_SALDO_REFINANCIAMENTO','VAL_BASE_COMISSAO','VAL_COMISSAO','PCL_COMISSAO','DSC_TIPO_COMISSAO','COD_LOJA','COD_UNIDADE_EMPRESA','COD_BANCO','COD_TIPO_PROPOSTA_EMPRESTIMO','DSC_TIPO_PROPOSTA_EMPRESTIMO','NIC_CTR_USUARIO','COD_PRODUTO','COD_PRODUTOR_VENDA','COD_PRODUTOR_VENDA_BANCO','COD_TIPO_COMISSAO','COD_SITUACAO_EMPRESTIMO','QTD_PARCELA','NUM_PARCELA_DIFERIDA_EMPRESA','DAT_EMPRESTIMO','DAT_CONFIRMACAO','DAT_ESTORNO','DAT_CTR_INCLUSAO','TIPO_COMISSAO_BANCO','PCL_TAXA_EMPRESTIMO']
-const WBC_NUM_PADRAO={'C6 BANK':626,'FACTA':149,'PAN':623,'DIGIO':335}
-const WBC_NOM={'C6 BANK':'C6 BANK','FACTA':'FACTA FINANCEIRA','PAN':'PAN','DIGIO':'DIGIO','QUALI':'QUALIBANKING','AGIL':'AGIL','AMIGOZ':'AMIGOZ','MEU CREDBANK':'MEU CREDBANK'}
+// Códigos do WorkBank tirados do arquivo REAL de produção que o Carlos mandou em 05/10/2026 ("Arquivo Padrao WORKBANK
+// (16).xlsx", 368 propostas das contas 18006 e 19094). O modelo de comissão de teste trazia C6 = 626; o real é 336.
+// Facta 149 veio do modelo de comissão. QualiBanking ainda sem código. Ajustes ficam em konsig_config.wb_codigo_banco.
+const WBC_NUM_PADRAO={'C6 BANK':336,'FACTA':149,'PAN':623,'DIGIO':335,'AGIL':2106,'MEU CREDBANK':321654,'AMIGOZ':1902}
+const WBC_NOM={'C6 BANK':'C6 BANK','FACTA':'FACTA FINANCEIRA','PAN':'PAN','DIGIO':'DIGIO','QUALI':'QUALIBANKING','AGIL':'AGIL','AMIGOZ':'AMIGOZ','MEU CREDBANK':'FINTECH DO CORBAN'}
 const WBC_CONTAS={'18006':'LhamasCred (18006)','19094':'CLJ (19094)'}
 const wbcLimpo=t=>String(t??'').replace(/sistemas?[\s-]*cred\s*franco|cred\s*franco/ig,'LHAMASCRED').replace(/\bSCF\b/g,'').trim()
 const wbcEhFacta=r=>/FACTA/i.test(String(r.banco||''))
@@ -4459,6 +4462,30 @@ const wbcData=v=>{if(!v)return null;const m=String(v).match(/^(\d{2})\/(\d{2})\/
 const wbcSemAcento=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim()
 const wbcNum=v=>/^\d+$/.test(String(v||''))?Number(v):(v||null)
 const wbcBrl=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+// Produção (61 colunas) da CredFranco, igual ao "Arquivo Padrao WORKBANK (16).xlsx": tipo e situação traduzidos,
+// NIC_CTR_USUARIO = código do digitador, DAT_EMPRESTIMO = data da proposta SEM recuar (diferente do NEO),
+// DAT_CREDITO = averbação, CPF com pontuação, nascimento 01/01/1990, parcela como vem (até a de R$ 0,01).
+const CF_TIPO={'Novo':'Novo','Refin':'REFINANCIAMENTO','Portabilidade':'Portabilidade','Refin / Portabilidade':'PORTAB/REFIN','Cartão':'Cartão','Cartão Beneficio':'Cartão','Cartão Benefício':'Cartão'}
+const cfSit=s=>/pago cliente|averbad/i.test(s||'')?'Averbada':(/em an[aá]lise/i.test(s||'')?'Em Análise':(s||''))
+const wbCpf=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
+function cfLinha(r,hoje,codigos){
+  const o={};WB_HDR.forEach(h=>o[h]=null)
+  o.NUM_BANCO=codigos[r.banco]??null;o.NOM_BANCO=WBC_NOM[r.banco]||wbcLimpo(r.banco)
+  o.NUM_PROPOSTA=wbcNum(r.proposta);o.NUM_CONTRATO=wbcNum(r.proposta)
+  o.DSC_TIPO_PROPOSTA_EMPRESTIMO=CF_TIPO[r.operacao]||r.operacao||null
+  o.DSC_PRODUTO=wbcLimpo(r.produto)
+  o.DAT_CTR_INCLUSAO=hoje
+  o.DSC_SITUACAO_EMPRESTIMO=cfSit(r.situacao_banco)
+  o.DAT_EMPRESTIMO=wbcData(r.data)
+  o.NIC_CTR_USUARIO=r.digitador||''
+  o.COD_CPF_CLIENTE=wbCpf(r.cpf);o.NOM_CLIENTE=wbcLimpo(r.cliente)
+  o.DAT_NASCIMENTO=new Date('1990-01-01T12:00:00')
+  o.QTD_PARCELA=Number(r.prazo)||null
+  o.VAL_PRESTACAO=Number(r.vr_parcela)||null;o.VAL_BRUTO=Number(r.vr_bruto)||null;o.VAL_LIQUIDO=Number(r.vr_liquido)||null
+  o.DAT_CREDITO=wbcData(r.averbacao)
+  o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
+  return o
+}
 function wbcLinha(r,codigos){
   const o={};WBC_HDR.forEach(h=>o[h]=null)
   o.NUM_BANCO=codigos[r.banco]??null;o.NOM_BANCO=WBC_NOM[r.banco]||wbcLimpo(r.banco)
@@ -4627,6 +4654,7 @@ function WorkBankExport(){
     setTimeout(()=>{lerCref();setPuxando(false)},3000)
   }
   const[fonte,setFonte]=useState('TODOS')
+  const[cfCod,setCfCod]=useState(WBC_NUM_PADRAO)
   const[rows,setRows]=useState(null),[wbd,setWbd]=useState(new Map()),[loading,setLoading]=useState(true),[err,setErr]=useState('')
   // filtros que o usuário edita
   const[de,setDe]=useState(''),[ate,setAte]=useState(''),[sit,setSit]=useState('todas'),[parc,setParc]=useState(''),[busca,setBusca]=useState('')
@@ -4646,13 +4674,20 @@ function WorkBankExport(){
     try{
       const querNeo=fonte==='NEOCREDITO'||fonte==='TODOS'
       const querCref=fonte==='CREFISA'||fonte==='TODOS'
-      const[neo,cref]=await Promise.all([
+      const querCf=fonte==='CREDFRANCO'||fonte==='TODOS'
+      const[neo,cref,cf]=await Promise.all([
         querNeo?Promise.all([
           paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira'),
           paginar('digitacoes','proposta,agente,usuario',qy=>qy.eq('banco','NEOCREDITO')),
           paginar('workbank_dados','proposta,nascimento,prazo,tabela_nome,dat_credito')
         ]):Promise.resolve(null),
-        querCref?paginar('crefisa_esteira','*'):Promise.resolve(null)
+        querCref?paginar('crefisa_esteira','*'):Promise.resolve(null),
+        // CredFranco: a esteira já vem sem Facta e sem QualiBanking (entram direto); parceiro = digitacoes pelo contrato
+        querCf?Promise.all([
+          paginar('credfranco_esteira','cod_webcred,cod_banco,data_proposta,status,cpf,cliente,banco,convenio,produto,parcelas,vr_bruto,vr_liquido,vr_parcela,data_averbacao,digitador,tipo:raw->>ProductType'),
+          paginar('digitacoes','proposta,agente',qy=>qy.in('banco',['C6 BANK','PAN','DIGIO','AGIL','AMIGOZ','FINTECH DO CORBAN','MEU CREDBANK'])),
+          supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
+        ]):Promise.resolve(null)
       ])
       let out=[],mapa=new Map()
       if(neo){
@@ -4686,6 +4721,22 @@ function WorkBankExport(){
           data_nosso_credito:r.data_pagamento||null
         })))
       }
+      if(cf){
+        const[est,dig,cfg]=cf
+        const ag=new Map();(dig||[]).forEach(x=>{if(x.proposta&&x.agente)ag.set(String(x.proposta).trim(),x.agente.trim())})
+        let salvo={};try{salvo=JSON.parse(cfg?.data?.value||'{}')}catch{}
+        setCfCod({...WBC_NUM_PADRAO,...salvo})
+        out=out.concat((est||[]).filter(r=>!/FACTA|^QUALI/i.test(String(r.banco||''))).map(r=>({
+          _fonte:'CREDFRANCO',proposta:String(r.cod_banco||r.cod_webcred),chave:'CF'+r.cod_webcred,
+          cpf:r.cpf,cliente:r.cliente,data:r.data_proposta||'',
+          situacao:/pago|averbad/i.test(r.status||'')?'INT':(/cancel|negad|estorn/i.test(r.status||'')?'REP':'AND'),
+          situacao_banco:r.status||'',
+          vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
+          operacao:r.tipo||'',convenio:r.convenio||'',parceiro:ag.get(String(r.cod_banco||'').trim())||'',
+          banco:r.banco||'',produto:r.produto||'',digitador:r.digitador||'',averbacao:r.data_averbacao||'',prazo:r.parcelas,
+          data_nosso_credito:r.data_averbacao||null
+        })))
+      }
       setWbd(mapa);setRows(out)
     }catch(e){setErr('Erro ao carregar: '+(e.message||e))}
     setLoading(false)
@@ -4708,7 +4759,7 @@ function WorkBankExport(){
     return true
   }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
   const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
-  const completas=g.filter(r=>r._fonte==='CREFISA'?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
+  const completas=g.filter(r=>(r._fonte==='CREFISA'||r._fonte==='CREDFRANCO')?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
   const porFonte={};g.forEach(r=>porFonte[r._fonte]=(porFonte[r._fonte]||0)+1)
   const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
   function gerar(){
@@ -4717,6 +4768,7 @@ function WorkBankExport(){
     const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const linhas=g.map(r=>{
+      if(r._fonte==='CREDFRANCO'){const o=cfLinha(r,hoje,cfCod);return WB_HDR.map(h=>o[h])}
       const cref=r._fonte==='CREFISA'
       const fnt=WB_FONTES.find(f=>f.id===r._fonte)
       const w=wbd.get(r.chave||r.proposta)||{}
@@ -4743,6 +4795,7 @@ function WorkBankExport(){
       o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
       return WB_HDR.map(h=>o[h])
     })
+    if(linhas.some(l=>l.some(v=>typeof v==='string'&&/cred\s*franco|\bscf\b|promotora/i.test(v)))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
     const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...linhas],{cellDates:true})
     const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
     XLSX.writeFile(bk,'Arquivo Padrao WORKBANK.xlsx',{cellDates:true})
@@ -4806,15 +4859,15 @@ function WorkBankExport(){
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
       {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};const cref=r._fonte==='CREFISA';return<tr key={i}>
-        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:C.info}}>{cref?'CREFISA':'NEO'}</td>
+        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:(r._fonte==='CREDFRANCO'?C.accent2:C.info)}}>{cref?'CREFISA':(r._fonte==='CREDFRANCO'?(WBC_NOM[r.banco]||r.banco):'NEO')}</td>
         <td style={{...td,fontSize:10}}>{r.proposta}</td>
         <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
         <td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td>
         <td style={{...td,fontSize:10}}>{r.situacao_banco}</td>
         <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
         <td style={{...td,textAlign:'center'}}>{(w.prazo||r.prazo)?Number(w.prazo||r.prazo):<span style={{color:C.warn}}>…</span>}</td>
-        <td style={{...td,fontSize:10}}>{(cref?r.tabela:w.tabela_nome)||<span style={{color:C.warn}}>aguardando robô</span>}</td>
-        <td style={{...td,fontSize:10,color:C.accent}}>{cref?(r.parceiro||'—').slice(0,18)
+        <td style={{...td,fontSize:10}}>{(cref?r.tabela:(r._fonte==='CREDFRANCO'?r.produto:w.tabela_nome))||<span style={{color:C.warn}}>aguardando robô</span>}</td>
+        <td style={{...td,fontSize:10,color:C.accent}}>{(cref||r._fonte==='CREDFRANCO')?(r.parceiro||'—').slice(0,18)
           :<ParceiroEdit proposta={r.proposta} valor={r.parceiro} nomes={pnomes}
              onSalvo={(prop,novo)=>setRows(rs=>(rs||[]).map(x=>String(x.proposta)===prop?{...x,parceiro:novo}:x))}/>}</td>
       </tr>})}
