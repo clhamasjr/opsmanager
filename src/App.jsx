@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes','avisosparc']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3048,6 +3048,296 @@ function Notificacoes(){
           <td style={{padding:'6px 8px'}}><input defaultValue={p.telefone_notificacao||''} placeholder="Ex: 5515999998888" onBlur={e=>{if(e.target.value!==(p.telefone_notificacao||''))savePhone(p.id,e.target.value)}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'4px 8px',fontSize:10,fontFamily:'monospace',width:180}}/></td>
         </tr>)}</tbody>
       </table></div>
+    </div>}
+  </div>
+}
+
+// ── Avisos aos parceiros ────────────────────────────────────────────────────
+// 07/10/2026, Carlos: "deixa um lugar onde colocamos todos os parceiros que vão receber os avisos de todas as
+// propostas". A lista É o cadastro que os três robôs já leem: parceiro com WhatsApp de aviso
+// (parceiros.telefone_notificacao) e receber_notificacoes ligado. Konsig (sync.mjs), QualiBanking (quali.mjs) e os
+// bancos da CredFranco (credfranco.mjs) mandam para esse mesmo número — e o parceiro de cada proposta é sempre o
+// digitacoes.agente (na Quali, também o mapa do digitador). O nome tem que bater EXATO com parceiros.nome, igual ao robô.
+// QualiBanking e CredFranco só mandam para a lista com o modo "parceiros" (quali_aviso_modo / credfranco_aviso_modo);
+// em "previa" só o dono recebe (e, na Quali, quem está em quali_aviso_liberados).
+const AV_DIAS=30,AV_SEM_DIAS=15
+// mesmo tratamento do cadastro antigo (DDI 55 automático, grupo …@g.us como está) + tira número repetido, que dobrava
+// a mensagem (o Leonardo tinha o mesmo número duas vezes)
+const avNorm=s=>{const ok=[],ruins=[]
+  String(s||'').split(/[,;\n]/).map(x=>x.trim()).filter(Boolean).forEach(n=>{
+    if(/@/.test(n)){ok.push(n);return}
+    let d=n.replace(/\D/g,'').replace(/^0+/,'')      // "(015) 9…" vinha com o zero e virava número que não entrega
+    if(d.length<=11)d='55'+d
+    if(/^55\d{10,11}$/.test(d))ok.push(d);else ruins.push(n)})
+  return{tel:[...new Set(ok)].join(','),ruins}}
+const avForaPadrao=tel=>String(tel||'').split(',').map(x=>x.trim()).filter(Boolean).some(x=>!/@/.test(x)&&!/^55\d{10,11}$/.test(x))
+const avMostra=tel=>String(tel||'').split(',').map(x=>x.trim()).filter(Boolean).map(x=>/@g\.us$/.test(x)?'👥 grupo':('📱 '+x.replace(/^55(\d{2})(\d{4,5})(\d{4})$/,'($1) $2-$3'))).join('  ')
+const avNaLista=p=>!!String(p.telefone_notificacao||'').trim()
+// os robôs não tiram repetido: número duas vezes no cadastro = mensagem em dobro (Leonardo, corrigido em 07/10/2026)
+const avRepetido=tel=>{const a=String(tel||'').split(',').map(x=>x.trim()).filter(Boolean);return a.length!==new Set(a).size}
+function AvisosParceiros(){
+  const[parcs,setParcs]=useState([]),[cfg,setCfg]=useState({}),[uso,setUso]=useState(null),[sem,setSem]=useState([])
+  const[loading,setLoading]=useState(true),[erro,setErro]=useState(''),[msg,setMsg]=useState(''),[busy,setBusy]=useState('')
+  const[busca,setBusca]=useState(''),[novoTel,setNovoTel]=useState(''),[edit,setEdit]=useState({}),[filtro,setFiltro]=useState('')
+  const telRef=useRef(null)
+  const versao=useRef(0)   // sobe a cada gravação: o carregar() não pode pôr de volta a foto antiga dos parceiros
+  const paginar=async(tabela,cols,f)=>{let all=[],from=0
+    while(true){let qy=supabase.from(tabela).select(cols).range(from,from+999);if(f)qy=f(qy)
+      const{data,error}=await qy;if(error)throw error
+      all=all.concat(data||[]);if(!data||data.length<1000)break;from+=1000}
+    return all}
+  // digitacoes tem 100 mil linhas: busca só as propostas que interessam, 150 por vez
+  const emLotes=async(cols,valores,f)=>{const v=[...new Set(valores.map(x=>String(x||'').trim()).filter(Boolean))],lotes=[]
+    for(let i=0;i<v.length;i+=150)lotes.push(v.slice(i,i+150))
+    const r=await Promise.all(lotes.map(async l=>{let qy=supabase.from('digitacoes').select(cols).in('proposta',l).limit(1000);if(f)qy=f(qy)
+      const{data,error}=await qy;if(error)throw error;return data||[]}))
+    return r.flat()}
+  const carregar=async()=>{
+    setLoading(true);setErro('')
+    const v0=versao.current
+    try{
+      const desde=new Date(Date.now()-AV_DIAS*86400000),semDesde=new Date(Date.now()-AV_SEM_DIAS*86400000).toISOString()
+      const[p,c,neo,port,cf]=await Promise.all([
+        paginar('parceiros','id,nome,telefone_notificacao,receber_notificacoes,ativo',q=>q.order('nome')),
+        supabase.from('konsig_config').select('key,value').in('key',['aviso_mov_ativo','quali_aviso_ativo','quali_aviso_modo','quali_aviso_liberados','quali_parceiro_so_acao','quali_parceiro_por_digitador','credfranco_ativo','credfranco_aviso_modo','credfranco_aviso_liberados']),
+        paginar('konsig_esteira','proposta,nome,datahorac,situacao,status',q=>q.gte('datahorac',desde.toISOString())),
+        // a Quali precisa do histórico inteiro: o parceiro pode vir do digitador que só trabalhou para um parceiro
+        paginar('portabilidades','contract_number,borrower_name,borrower_identity,proposal_date,status_name,acesso:raw_data->>accessId'),
+        paginar('credfranco_esteira','cod_banco,cod_webcred,cliente,banco,data_proposta,status',q=>q.gte('data_proposta',desde.toISOString().slice(0,10)))
+      ])
+      if(c.error)throw c.error
+      const m={};(c.data||[]).forEach(x=>m[x.key]=x.value);setCfg(m)
+      if(versao.current===v0)setParcs(p)
+      const cfOp=cf.filter(r=>!/FACTA|^QUALI/i.test(String(r.banco||'')))   // Facta e Quali têm robô próprio
+      const[dNeo,dQ,dCf]=await Promise.all([
+        emLotes('proposta,agente',neo.map(r=>r.proposta),q=>q.eq('banco','NEOCREDITO')),
+        emLotes('proposta,agente',port.map(r=>r.contract_number),q=>q.eq('banco','QUALIBANKING')),
+        emLotes('proposta,agente',cfOp.map(r=>r.cod_banco))
+      ])
+      // mesmas regras dos robôs
+      const agNeo=new Map();dNeo.forEach(x=>{if(x.proposta)agNeo.set(String(x.proposta).replace(/\D/g,''),(x.agente||'').trim())})
+      const agCf=new Map();dCf.forEach(x=>{if(x.proposta&&x.agente)agCf.set(String(x.proposta).trim(),x.agente.trim())})
+      const porContrato=new Map();dQ.forEach(d=>{if(d.agente&&d.proposta)porContrato.set(String(d.proposta).trim().toUpperCase(),d.agente.trim())})
+      let manual={};try{manual=JSON.parse(m.quali_parceiro_por_digitador||'{}')}catch{}
+      const manualL=new Map(Object.entries(manual).map(([k,v])=>[k.trim().toLowerCase(),String(v).trim()]))
+      const hist={};port.forEach(r=>{const ag=porContrato.get(String(r.contract_number||'').toUpperCase()),a=String(r.acesso||'').toLowerCase();if(ag&&a)(hist[a]=hist[a]||new Set()).add(ag)})
+      const auto=new Map(Object.entries(hist).filter(([,s])=>s.size===1).map(([a,s])=>[a,[...s][0]]))
+      const agQ=r=>{const a=String(r.acesso||'').toLowerCase();return porContrato.get(String(r.contract_number||'').toUpperCase())||manualL.get(a)||auto.get(a)||''}
+      // propostas dos últimos 30 dias por parceiro e por fonte
+      const u=new Map(),conta=(ag,f,k)=>{if(!u.has(ag))u.set(ag,{neo:new Set(),quali:new Set(),cf:new Set()});u.get(ag)[f].add(k)}
+      const semP=[]
+      neo.forEach(r=>{const ch=String(r.proposta).replace(/\D/g,''),ag=agNeo.get(ch)||''
+        if(ag)conta(ag,'neo',r.proposta)
+        // sem linha em digitacoes o ParceiroEdit não tem o que atualizar: avisa em vez de oferecer a edição
+        else if(String(r.datahorac||'')>=semDesde)semP.push({fonte:'NEOCRÉDITO',neo:true,semLinha:!agNeo.has(ch),proposta:String(r.proposta),cliente:r.nome,data:r.datahorac,status:(r.situacao||'')+' · '+(r.status||'')})})
+      const vistosQ=new Set()
+      port.filter(r=>String(r.proposal_date||'')>=desde.toISOString().slice(0,10)).forEach(r=>{const ag=agQ(r),cli=String(r.borrower_identity||r.borrower_name||'')
+        if(ag)conta(ag,'quali',cli)
+        else if(String(r.proposal_date||'')>=semDesde.slice(0,10)&&!vistosQ.has(cli)){vistosQ.add(cli);semP.push({fonte:'QUALIBANKING',proposta:r.contract_number,cliente:r.borrower_name,data:r.proposal_date,status:r.status_name||''})}})
+      cfOp.forEach(r=>{const ag=agCf.get(String(r.cod_banco||'').trim())||''
+        if(ag)conta(ag,'cf',r.cod_banco||r.cod_webcred)
+        else if(String(r.data_proposta||'')>=semDesde.slice(0,10))semP.push({fonte:String(r.banco||'').toUpperCase(),proposta:String(r.cod_banco||r.cod_webcred),cliente:r.cliente,data:r.data_proposta,status:r.status||''})})
+      setUso(u);setSem(semP.sort((a,b)=>String(b.data).localeCompare(String(a.data))))
+    }catch(e){setErro('Não consegui carregar: '+(e.message||e))}
+    setLoading(false)
+  }
+  useEffect(()=>{carregar()},[])
+
+  const porNome=useMemo(()=>{const mp=new Map();parcs.forEach(p=>mp.set((p.nome||'').trim(),p));return mp},[parcs])
+  const lista=parcs.filter(avNaLista)
+  const recebendo=lista.filter(p=>p.receber_notificacoes!==false)
+  const qtd=nome=>{const x=uso&&uso.get((nome||'').trim());return x?{neo:x.neo.size,quali:x.quali.size,cf:x.cf.size}:{neo:0,quali:0,cf:0}}
+  // quem tem proposta nos últimos 30 dias e NÃO recebe aviso nenhum
+  const fora=useMemo(()=>{if(!uso)return[]
+    return[...uso.keys()].map(nome=>({nome,p:porNome.get(nome)}))
+      .filter(x=>!x.p||!avNaLista(x.p)||x.p.receber_notificacoes===false)
+      .map(x=>({...x,...qtd(x.nome)})).sort((a,b)=>(b.neo+b.quali+b.cf)-(a.neo+a.quali+a.cf))},[uso,porNome])
+
+  const salvar=async(p,telTxt,recebe)=>{
+    const{tel,ruins}=avNorm(telTxt)
+    if(ruins.length){setMsg('❌ Número inválido: '+ruins.join(', ')+' — use DDD + número (ex.: 15998583505) ou o ID do grupo (termina em @g.us)');return false}
+    if(!tel){setMsg('❌ Coloque pelo menos um WhatsApp');return false}
+    setBusy(p.id);versao.current++
+    const{data,error}=await supabase.from('parceiros').update({telefone_notificacao:tel,receber_notificacoes:recebe}).eq('id',p.id).select('id')
+    setBusy('')
+    if(error||!data||!data.length){setMsg('❌ Não salvou'+(error?(': '+error.message):' (sem permissão para alterar o cadastro)'));return false}
+    setParcs(l=>l.map(x=>x.id===p.id?{...x,telefone_notificacao:tel,receber_notificacoes:recebe}:x))
+    setEdit(e=>{const n={...e};delete n[p.id];return n})
+    setMsg('✅ '+p.nome+(recebe?' recebe':' fica pausado')+' — '+avMostra(tel)+'. O robô já usa no próximo ciclo.')
+    return true
+  }
+  const adicionar=async()=>{
+    // nome EXATO, como o robô casa. Sem diferenciar maiúsculas só quando há um único parceiro com aquele nome
+    const b=busca.trim();let p=porNome.get(b)
+    if(!p){const cand=parcs.filter(x=>(x.nome||'').trim().toLowerCase()===b.toLowerCase())
+      if(cand.length>1){setMsg('❌ Há mais de um parceiro com esse nome (maiúsculas diferentes) — escolha exatamente o da lista de sugestões');return}
+      p=cand[0]}
+    if(!p){setMsg('❌ Escolha o parceiro pelo nome, nas sugestões que aparecem ao digitar');return}
+    if(avNaLista(p)){setMsg('ℹ️ '+p.nome+' já está na lista — para trocar o WhatsApp, clique no número dele na tabela');return}
+    if(await salvar(p,novoTel,true)){setBusca('');setNovoTel('')}
+  }
+  const pausar=async(p,recebe)=>{
+    setBusy(p.id);versao.current++
+    const{data,error}=await supabase.from('parceiros').update({receber_notificacoes:recebe}).eq('id',p.id).select('id')
+    setBusy('')
+    if(error||!data||!data.length)return setMsg('❌ Não salvou'+(error?(': '+error.message):''))
+    setParcs(l=>l.map(x=>x.id===p.id?{...x,receber_notificacoes:recebe}:x))
+    setMsg(recebe?('▶️ '+p.nome+' voltou a receber os avisos'):('⏸ '+p.nome+' pausado — não recebe aviso nenhum até reativar'))
+  }
+  const tirar=async p=>{
+    if(!window.confirm('Tirar '+p.nome+' da lista?\n\nEle para de receber os avisos de TODAS as propostas e o WhatsApp de aviso dele é apagado do cadastro.\n(Para parar só por um tempo, use ⏸ Pausar.)'))return
+    setBusy(p.id);versao.current++
+    const{data,error}=await supabase.from('parceiros').update({telefone_notificacao:''}).eq('id',p.id).select('id')
+    setBusy('')
+    if(error||!data||!data.length)return setMsg('❌ Não saiu da lista'+(error?(': '+error.message):''))
+    setParcs(l=>l.map(x=>x.id===p.id?{...x,telefone_notificacao:''}:x))
+    setMsg('🗑️ '+p.nome+' saiu da lista')
+  }
+  const preparar=nome=>{setBusca(nome);setNovoTel('');setMsg('Coloque o WhatsApp de '+nome+' e clique em Adicionar');setTimeout(()=>{telRef.current&&telRef.current.focus();telRef.current&&telRef.current.scrollIntoView({behavior:'smooth',block:'center'})},50)}
+  // os textos dizem exatamente o que os robôs fazem (conferido na revisão de 07/10/2026)
+  const setModo=async(chave,banco,valendo,lib)=>{
+    const quali=chave==='quali_aviso_modo'
+    const extra=quali?(cfg.quali_parceiro_so_acao==='1'
+        ?'\n\nNa hora vai só o que pede ação do parceiro (assinatura, documento, benefício, anuência, saldo em aprovação). Reprovada, cancelada, retida, concluída e fases vão no resumo das 18h. A cobrança de saldo do dia (9h) também passa a ir para eles.'
+        :'\n\nVai toda mudança de status, o resumo das 18h e a cobrança de saldo do dia (9h).')
+      :'\n\nVai: pago, pendência, reprovada, cancelada e estornada.'
+    if(valendo&&!window.confirm('Ligar os avisos de '+banco+' para a lista?\n\nA partir do próximo ciclo do robô, os '+recebendo.length+' parceiros da lista passam a receber no WhatsApp os avisos das propostas DELES em '+banco+'.'+extra+'\n\nParceiro fora da lista: continua só a cópia para você.\nProposta sem parceiro: passa a ir para o grupo operacional (com cópia para você).'))return
+    if(!valendo&&!window.confirm('Voltar '+banco+' para prévia?\n\nOs parceiros da lista param de receber esses avisos — só você recebe, com "iria para: …".'+(lib&&lib.length?('\n\n⚠️ Continua(m) recebendo, porque está(ão) liberado(s) individualmente: '+lib.join(', ')+'.'):'')))return
+    setBusy(chave)
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([{key:chave,value:valendo?'parceiros':'previa',updated_at:now}],{onConflict:'key'})
+    setBusy('')
+    if(error)return setMsg('❌ '+error.message)
+    setCfg(c=>({...c,[chave]:valendo?'parceiros':'previa'}))
+    setMsg(valendo?('✅ '+banco+': avisos ligados para a lista'):('👀 '+banco+': voltou para prévia'))
+  }
+
+  const card={background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}
+  const th={padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:9,fontWeight:600,whiteSpace:'nowrap'}
+  const td={padding:'6px 8px',fontSize:11,verticalAlign:'middle'}
+  const btn=(cor,cheio)=>({padding:'5px 11px',borderRadius:7,border:'1px solid '+cor,background:cheio?cor:cor+'14',color:cheio?'#fff':cor,fontWeight:600,fontSize:11,cursor:'pointer',whiteSpace:'nowrap'})
+  const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}
+  const libQ=(()=>{try{return JSON.parse(cfg.quali_aviso_liberados||'[]')}catch{return[]}})()
+  const libCf=(()=>{try{return JSON.parse(cfg.credfranco_aviso_liberados||'[]')}catch{return[]}})()
+  const fontes=[
+    {id:'neo',nome:'NEOCRÉDITO (Konsig)',ativo:cfg.aviso_mov_ativo==='1',valendo:true,obs:'pagamento, pendência, nota promissória, assinatura, reprovação e mudanças de fase'},
+    {id:'quali',nome:'QualiBanking',chave:'quali_aviso_modo',ativo:cfg.quali_aviso_ativo==='1',valendo:cfg.quali_aviso_modo==='parceiros',lib:libQ,
+      obs:cfg.quali_parceiro_so_acao==='1'?'na hora só o que pede ação do parceiro; o resto vai no resumo das 18h · cobrança de saldo do dia às 9h':'todas as mudanças de status'},
+    {id:'cf',nome:'C6 · PAN · Digio · Ágil · outros',chave:'credfranco_aviso_modo',ativo:cfg.credfranco_ativo==='1',valendo:cfg.credfranco_aviso_modo==='parceiros',lib:libCf,
+      obs:'pago, pendência, reprovada, cancelada e estornada (Facta e Quali ficam de fora: têm robô próprio)'}
+  ]
+  const destinoSem=s=>{if(s.neo)return'👥 grupo operacional'
+    const modo=s.fonte==='QUALIBANKING'?cfg.quali_aviso_modo:cfg.credfranco_aviso_modo
+    return modo==='parceiros'?'👥 grupo operacional':'👀 só você (prévia)'}
+  const nomesParc=useMemo(()=>parcs.map(p=>(p.nome||'').trim()).filter(Boolean),[parcs])
+  const busq=filtro.trim().toLowerCase()
+  const listaVis=lista.filter(p=>!busq||(p.nome||'').toLowerCase().includes(busq))
+  const sugestoes=useMemo(()=>parcs.filter(p=>!avNaLista(p)&&p.nome).map(p=>p.nome.trim()),[parcs])
+
+  return<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={card}>
+      <div style={{fontSize:15,fontWeight:700}}>📣 Avisos aos parceiros</div>
+      <div style={{fontSize:11,color:C.muted,marginTop:4,lineHeight:1.5}}>
+        Quem está nesta lista recebe no WhatsApp os avisos de <b>todas as propostas dele</b>, de todos os bancos ligados abaixo.
+        Quem <b>não</b> está na lista não recebe nada — o aviso vai só para a sua cópia. Proposta <b>sem parceiro</b>: no NEOCRÉDITO e nos bancos ligados vai para o grupo operacional; nos bancos em prévia, só você vê.
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}>
+        {fontes.map(f=><div key={f.id} style={{flex:'1 1 250px',border:'1px solid '+C.border,borderLeft:'4px solid '+(!f.ativo?C.danger:f.valendo?C.accent2:C.warn),borderRadius:10,padding:'9px 11px'}}>
+          <div style={{fontSize:12,fontWeight:700}}>{f.nome}</div>
+          <div style={{fontSize:11,fontWeight:600,marginTop:3,color:!f.ativo?C.danger:f.valendo?C.accent2:C.warn}}>
+            {!f.ativo?'⛔ robô desligado':f.valendo?'✅ ligado — a lista recebe':'👀 prévia — só você recebe'}</div>
+          {f.ativo&&f.lib&&f.lib.length>0&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>liberado(s) individualmente (recebe mesmo em prévia): {f.lib.join(', ')}</div>}
+          <div style={{fontSize:10,color:C.muted,marginTop:3}}>{f.obs}</div>
+          {f.chave&&f.ativo&&<div style={{marginTop:7}}>{f.valendo
+            ?<button disabled={!!busy||loading} onClick={()=>setModo(f.chave,f.nome,false,f.lib)} style={{...btn(C.muted),fontSize:10,padding:'3px 9px'}}>voltar para prévia</button>
+            :<button disabled={!!busy||loading} onClick={()=>setModo(f.chave,f.nome,true,f.lib)} style={btn(C.accent2,true)}>Ligar para a lista</button>}</div>}
+        </div>)}
+      </div>
+    </div>
+
+    <div style={card}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>➕ Colocar parceiro na lista</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <input list="av-parceiros" value={busca} onChange={e=>setBusca(e.target.value)} placeholder="nome do parceiro (comece a digitar)" style={{...inp,flex:'2 1 260px'}}/>
+        <datalist id="av-parceiros">{sugestoes.map(n=><option key={n} value={n}/>)}</datalist>
+        <input ref={telRef} value={novoTel} onChange={e=>setNovoTel(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')adicionar()}} placeholder="WhatsApp: 15998583505 · vários separados por vírgula · ou ID do grupo (…@g.us)" style={{...inp,flex:'3 1 300px'}}/>
+        <button disabled={!!busy||loading||!busca.trim()} onClick={adicionar} style={btn(C.accent,true)}>Adicionar</button>
+      </div>
+      <div style={{fontSize:10,color:C.muted,marginTop:6}}>💡 DDI 55 entra sozinho. Para mandar num <b>grupo</b>, o nosso número de envio precisa estar no grupo — cole o ID do grupo (termina em <code>@g.us</code>).</div>
+      {msg&&<div style={{fontSize:11,marginTop:8,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✅')||msg.startsWith('▶')?C.accent2:C.text}}>{msg}</div>}
+    </div>
+
+    {erro&&<div style={{background:C.danger+'18',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{erro}</div>}
+
+    <div style={card}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}}>
+        <div style={{fontSize:12,fontWeight:700}}>✅ Na lista — {recebendo.length} recebendo{lista.length>recebendo.length?(' · '+(lista.length-recebendo.length)+' pausado(s)'):''}</div>
+        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="procurar na lista" style={{...inp,padding:'5px 9px',width:170}}/>
+          <button onClick={carregar} disabled={loading} style={btn(C.accent)}>{loading?'carregando…':'🔄 Atualizar'}</button>
+        </div>
+      </div>
+      <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr style={{background:C.bg}}>
+          <th style={th}>Parceiro</th><th style={th}>WhatsApp de aviso</th>
+          <th style={{...th,textAlign:'center'}} title={'propostas dos últimos '+AV_DIAS+' dias'}>NEO</th>
+          <th style={{...th,textAlign:'center'}} title={'clientes dos últimos '+AV_DIAS+' dias'}>Quali</th>
+          <th style={{...th,textAlign:'center'}} title={'propostas dos últimos '+AV_DIAS+' dias'}>C6·PAN·outros</th>
+          <th style={th}>Situação</th><th style={th}></th>
+        </tr></thead>
+        <tbody>{listaVis.map(p=>{const q=qtd(p.nome),ed=edit[p.id]!==undefined,pausado=p.receber_notificacoes===false,ocupado=busy===p.id||loading
+          return<tr key={p.id} style={{borderBottom:'1px solid '+C.border,opacity:pausado?.6:1}}>
+            <td style={{...td,fontWeight:600,maxWidth:260}}>{p.nome}{p.ativo===false&&<span style={{marginLeft:6}}><Badge text="inativo" color={C.muted}/></span>}</td>
+            <td style={td}>{ed
+              ?<span style={{display:'inline-flex',gap:5,alignItems:'center'}}>
+                <input autoFocus value={edit[p.id]} onChange={e=>setEdit(x=>({...x,[p.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')salvar(p,edit[p.id],!pausado);if(e.key==='Escape')setEdit(x=>{const n={...x};delete n[p.id];return n})}} style={{...inp,padding:'4px 8px',minWidth:230}}/>
+                <button disabled={ocupado} onClick={()=>salvar(p,edit[p.id],!pausado)} style={btn(C.accent,true)}>Salvar</button>
+                <button onClick={()=>setEdit(x=>{const n={...x};delete n[p.id];return n})} style={{border:'none',background:'none',cursor:'pointer',color:C.muted}}>✕</button></span>
+              :<span onClick={()=>setEdit(x=>({...x,[p.id]:p.telefone_notificacao||''}))} title="clique para trocar o WhatsApp" style={{cursor:'pointer',borderBottom:'1px dashed '+C.border}}>{avMostra(p.telefone_notificacao)} <span style={{opacity:.45}}>✏️</span>{avRepetido(p.telefone_notificacao)&&<span style={{marginLeft:6,color:C.danger,fontSize:10,fontWeight:700}}>⚠️ número repetido — recebe em dobro, clique e salve</span>}{avForaPadrao(p.telefone_notificacao)&&<span style={{marginLeft:6,color:C.danger,fontSize:10,fontWeight:700}}>⚠️ número fora do padrão — pode não entregar, clique e confira</span>}</span>}</td>
+            {['neo','quali','cf'].map(k=><td key={k} style={{...td,textAlign:'center',color:q[k]?C.text:C.muted}}>{q[k]||'—'}</td>)}
+            <td style={td}>{pausado?<Badge text="⏸ pausado" color={C.warn}/>:<Badge text="recebendo" color={C.accent2}/>}</td>
+            <td style={{...td,whiteSpace:'nowrap',textAlign:'right'}}>
+              <button disabled={ocupado} onClick={()=>pausar(p,pausado)} style={{...btn(pausado?C.accent2:C.warn),marginRight:5}}>{pausado?'▶ Reativar':'⏸ Pausar'}</button>
+              <button disabled={ocupado} onClick={()=>tirar(p)} title="tirar da lista" style={btn(C.danger)}>✕</button></td>
+          </tr>})}</tbody>
+      </table></div>
+      {!loading&&!listaVis.length&&<div style={{textAlign:'center',color:C.muted,fontSize:11,padding:14}}>{lista.length?'Ninguém com esse nome na lista.':'Ninguém na lista ainda — use o campo acima.'}</div>}
+      <div style={{fontSize:10,color:C.muted,marginTop:8}}>NEO, Quali e C6·PAN·outros = propostas (na Quali, clientes) dos últimos {AV_DIAS} dias de cada parceiro.</div>
+    </div>
+
+    {!loading&&uso&&<div style={{...card,borderLeft:'4px solid '+(fora.length?C.warn:C.accent2)}}>
+      <div style={{fontSize:12,fontWeight:700}}>⚠️ Têm proposta nos últimos {AV_DIAS} dias e NÃO recebem aviso — {fora.length}</div>
+      <div style={{fontSize:10,color:C.muted,margin:'3px 0 8px'}}>Os avisos destes parceiros hoje chegam só para você. Coloque na lista para eles receberem direto.</div>
+      {fora.length>0&&<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr style={{background:C.bg}}><th style={th}>Parceiro</th><th style={{...th,textAlign:'center'}}>NEO</th><th style={{...th,textAlign:'center'}}>Quali</th><th style={{...th,textAlign:'center'}}>C6·PAN·outros</th><th style={th}></th></tr></thead>
+        <tbody>{fora.map(x=><tr key={x.nome} style={{borderBottom:'1px solid '+C.border}}>
+          <td style={{...td,fontWeight:600}}>{x.nome}</td>
+          {['neo','quali','cf'].map(k=><td key={k} style={{...td,textAlign:'center',color:x[k]?C.text:C.muted}}>{x[k]||'—'}</td>)}
+          <td style={{...td,textAlign:'right',whiteSpace:'nowrap'}}>{!x.p
+            ?<span style={{fontSize:10,color:C.danger}} title="o robô procura o parceiro pelo nome exato do cadastro">não está no cadastro de Parceiros com este nome</span>
+            :x.p.receber_notificacoes===false&&avNaLista(x.p)
+              ?<button disabled={busy===x.p.id||loading} onClick={()=>pausar(x.p,true)} style={btn(C.accent2)}>▶ Reativar</button>
+              :<button onClick={()=>preparar(x.nome)} style={btn(C.accent)}>➕ Colocar na lista</button>}</td>
+        </tr>)}</tbody>
+      </table></div>}
+    </div>}
+
+    {!loading&&uso&&<div style={card}>
+      <div style={{fontSize:12,fontWeight:700}}>🔎 Propostas sem parceiro (últimos {AV_SEM_DIAS} dias) — {sem.length}</div>
+      <div style={{fontSize:10,color:C.muted,margin:'3px 0 8px'}}>Sem parceiro o aviso não chega a ninguém da lista — a coluna “Aviso vai para” mostra para onde vai hoje. Nas do NEOCRÉDITO dá para escolher o parceiro aqui mesmo (clique em “sem parceiro”); nas outras, o parceiro vem do cadastro de digitações.</div>
+      {sem.length>0&&<div style={{overflowX:'auto',maxHeight:360}}><table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr style={{background:C.bg,position:'sticky',top:0}}><th style={th}>Banco</th><th style={th}>Cliente</th><th style={th}>Proposta</th><th style={th}>Data</th><th style={th}>Status</th><th style={th}>Aviso vai para</th><th style={th}>Parceiro</th></tr></thead>
+        <tbody>{sem.map(s=><tr key={s.fonte+s.proposta} style={{borderBottom:'1px solid '+C.border}}>
+          <td style={{...td,fontSize:10,fontWeight:700,color:C.info}}>{s.fonte}</td>
+          <td style={{...td,fontWeight:600}}>{s.cliente}</td>
+          <td style={{...td,fontFamily:'monospace',fontSize:10}}>{s.proposta}</td>
+          <td style={{...td,fontSize:10}}>{s.data?new Date(String(s.data).length<=10?s.data+'T12:00:00':s.data).toLocaleDateString('pt-BR'):''}</td>
+          <td style={{...td,fontSize:10,color:C.muted}}>{s.status}</td>
+          <td style={{...td,fontSize:10}}>{destinoSem(s)}</td>
+          <td style={td}>{s.neo&&!s.semLinha?<ParceiroEdit proposta={s.proposta} valor="" nomes={nomesParc} onSalvo={()=>carregar()}/>
+            :<span style={{color:C.warn,fontSize:10}}>{s.semLinha?'sem parceiro · ainda não chegou na extração de digitações':'sem parceiro'}</span>}</td>
+        </tr>)}</tbody>
+      </table></div>}
     </div>}
   </div>
 }
@@ -3770,10 +4060,10 @@ function AgenteParceiros(){
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
   {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','portabilidade','pancartao','workbank','wbcomissao','govsp','prefsp','govparana','agente','conexoes']},
-  {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['parceiros','notificacoes','recebimentos','alertas']},
+  {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['avisosparc','parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'avisosparc',l:'Avisos aos parceiros',i:'📣'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -5097,19 +5387,8 @@ function EsteiraCompra(){
       {syncInfo?.portal_run_status&&<span style={{fontSize:11,fontWeight:600,color:String(syncInfo.portal_run_status.value).includes('✓')?C.accent2:C.muted}}>{syncInfo.portal_run_status.value}</span>}
       {(tokenMsg||portalMsg)&&<span style={{fontSize:11,color:(tokenMsg+portalMsg).includes('✓')?C.accent2:C.muted}}>{portalMsg||tokenMsg}</span>}
     </div>
-    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',display:'flex',flexDirection:'column',gap:8}}>
-      <div style={{fontSize:11,fontWeight:700}}>📱 Telefones de aviso por parceiro <span style={{fontWeight:400,color:C.muted}}>· cadastre 1 ou mais números (separe por vírgula) — o disparo avisa todos</span></div>
-      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <select value={selParc} onChange={e=>onSelParc(e.target.value)} style={{minWidth:240,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}}>
-          <option value="">— escolha o parceiro —</option>
-          {parcList.map(p=><option key={p.id} value={p.id}>{(p.nome||'').slice(0,40)}{p.telefone_notificacao?' ✓':''}</option>)}
-        </select>
-        <input value={parcTel} onChange={e=>setParcTel(e.target.value)} disabled={!selParc} placeholder="ex.: 15998583505 · ou ID de grupo (…@g.us)" style={{flex:1,minWidth:200,background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:11,outline:'none',opacity:selParc?1:.5}}/>
-        <label style={{fontSize:11,display:'flex',alignItems:'center',gap:5,color:C.muted}}><input type="checkbox" checked={parcRecebe} onChange={e=>setParcRecebe(e.target.checked)} disabled={!selParc}/> receber avisos</label>
-        <button onClick={salvarTelParc} disabled={!selParc} style={{padding:'7px 16px',borderRadius:8,border:'none',background:selParc?C.accent:C.border,color:'#fff',fontWeight:600,fontSize:11,cursor:selParc?'pointer':'default'}}>Salvar</button>
-      </div>
-      {parcMsg&&<span style={{fontSize:11,color:parcMsg.includes('✓')?C.accent2:parcMsg.includes('Erro')?C.danger:C.muted}}>{parcMsg}</span>}
-      <span style={{fontSize:10,color:C.muted}}>💡 pode cadastrar quantos parceiros quiser — cada um com seus telefones (DDI 55 automático). Pra enviar num <b>grupo</b>, cole o ID do grupo (termina em <code>@g.us</code>) — o número de envio precisa estar no grupo.</span>
+    <div style={{background:C.card,border:'1px solid '+C.border,borderRadius:12,padding:'10px 14px',fontSize:11,color:C.muted}}>
+      📣 Os WhatsApps de aviso dos parceiros agora ficam todos juntos na aba <b>Avisos aos parceiros</b> (grupo Gestão de Parceiro) — lá dá para ver a lista inteira, quem tem proposta e não recebe, e as propostas sem parceiro.
     </div>
     {err&&<div style={{background:'#EF444418',color:C.danger,padding:'10px 14px',borderRadius:8,fontSize:12}}>{err}</div>}
     {loading&&<div style={{padding:30,textAlign:'center',color:C.muted}}>Carregando esteira...</div>}
@@ -5759,7 +6038,7 @@ export default function App(){
 
   const PARCEIRO_NAV=[{id:'meuportal',l:'Meu Portal',i:'👤'}]
   const levels={operador:1,gestor:2,admin:3,parceiro:0}
-  const nav=user.perfil==='parceiro'?PARCEIRO_NAV:NAV.filter(n=>{if(user.perfil==='admin')return true;return(user.telas||['dashboard','ops','producao']).includes(n.id)})
+  const nav=user.perfil==='parceiro'?PARCEIRO_NAV:NAV.filter(n=>{if(user.perfil==='admin')return true;const t=user.telas||['dashboard','ops','producao'];return t.includes(n.id)||(n.id==='avisosparc'&&t.includes('neocompra'))})
   return<div style={{display:'flex',minHeight:'100vh',fontFamily:'Outfit,sans-serif',color:C.text,background:C.bg}}>
     {/* SIDEBAR */}
     <div className="sidebar" style={{width:195,background:C.card,borderRight:'1px solid '+C.border,display:'flex',flexDirection:'column',flexShrink:0}}>
@@ -5809,6 +6088,7 @@ export default function App(){
       {view==='govparana'&&<GovParana/>}
       {view==='agente'&&<AgenteParceiros/>}
       {view==='conexoes'&&<Conexoes/>}
+      {view==='avisosparc'&&<AvisosParceiros/>}
       {view==='workbank'&&<WorkBankExport/>}
       {view==='wbcomissao'&&<WorkBankComissao/>}
       {view==='usuarios'&&<Usuarios user={user}/>}
