@@ -4923,6 +4923,124 @@ function WorkBankComissao(){
   </div>
 }
 
+// ── QualiBanking → WorkBank (09/10/2026) ─────────────────────────────────────
+// O Carlos mandou os três arquivos do processo manual: o relatório do portal da QualiBanking (CSV com ;), a planilha
+// ajustada à mão no Excel e o "Arquivo Padrao WORKBANK (28).xlsx". As regras abaixo reproduzem o arquivo dele direto do
+// relatório do banco, sem a etapa do Excel. A fonte é o relatório porque a API direta da Quali só traz portabilidade;
+// o relatório traz tudo (novo, cartão, refinanciamento, consignado privado).
+//   tipo: "Refinanciamento da Portabilidade" → PORTAB/REFIN · "Portabilidade + Refinanciamento" → PORTABILIDADE ·
+//         Novo / Cartão / Refinanciamento como vêm
+//   produto: PORTABILIDADE → "INSS - Portabilidade"; o resto → Nome da Tabela
+//   situação = Status · DAT_EMPRESTIMO = Data da Proposta (sem recuar) · DAT_CREDITO = Data de Averbação (Carlos)
+//   NIC_CTR_USUARIO = Login · CPF número sem pontuação · nascimento 01/01/1990 · VAL_BRUTO = Valor Base
+//   taxa = Taxa × 100 arredondada como o Excel (0,01605 → 1,61)
+const QU_TIPO={'refinanciamento da portabilidade':'PORTAB/REFIN','portab/refin':'PORTAB/REFIN','portabilidade + refinanciamento':'PORTABILIDADE',
+  'portabilidade':'PORTABILIDADE','novo':'Novo','cartão':'Cartão','cartao':'Cartão','refinanciamento':'Refinanciamento'}
+const QU_OBRIG=['Número do Contrato','Tipo de Operação','Nome da Tabela','Status','Data da Proposta','CPF','Nome','Prazo','Valor Base','Valor da Parcela','Valor Líquido ao Cliente','Taxa','Login']
+// CSV do portal: UTF-8 com BOM e ";". Se alguém salvar de novo no Excel pode virar ANSI e/ou "," — aceita os dois.
+function quLerCsv(buf){
+  let t;try{t=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch{t=new TextDecoder('windows-1252').decode(buf)}
+  t=t.replace(/^﻿/,'')
+  const l1=t.slice(0,t.indexOf('\n')>0?t.indexOf('\n'):t.length),sep=(l1.split(';').length>=l1.split(',').length)?';':','
+  const linhas=[];let campo='',linha=[],q=false
+  for(let i=0;i<t.length;i++){const c=t[i]
+    if(q){if(c==='"'){if(t[i+1]==='"'){campo+='"';i++}else q=false}else campo+=c;continue}
+    if(c==='"'){q=true;continue}
+    if(c===sep){linha.push(campo);campo='';continue}
+    if(c==='\r')continue
+    if(c==='\n'){linha.push(campo);linhas.push(linha);linha=[];campo='';continue}
+    campo+=c}
+  if(campo||linha.length){linha.push(campo);linhas.push(linha)}
+  const cab=(linhas[0]||[]).map(h=>String(h).trim())
+  const rows=linhas.slice(1).filter(l=>l.some(v=>String(v).trim())).map(l=>{const o={};cab.forEach((h,i)=>{if(h&&!(h in o))o[h]=l[i]??''});return o})
+  return{cab,rows}
+}
+// trava de promotora: CredFranco/SCF nunca saem; a palavra "promotora" sozinha é barrada em tudo, menos no login do
+// digitador (NIC_CTR_USUARIO) — 6 logins da Quali têm "promotora" no e-mail e o padrão do Carlos traz o login como é
+const quProibido=(v,h)=>typeof v==='string'&&(h==='NIC_CTR_USUARIO'?/cred\s*franco|\bscf\b/i:/cred\s*franco|\bscf\b|promotora/i).test(v)
+const quNum=v=>{let s=String(v??'').trim();if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n}
+function quLinha(r,hoje){
+  const o={};WB_HDR.forEach(h=>o[h]=null)
+  const op=String(r['Tipo de Operação']||'').trim(),tipo=QU_TIPO[op.toLowerCase()]||op||null
+  const ctr=String(r['Número do Contrato']||'').trim()
+  o.NUM_BANCO=22;o.NOM_BANCO='QUALIBANKING'          // código da QualiBanking no WorkBank (Carlos, 05/10/2026)
+  o.NUM_PROPOSTA=ctr;o.NUM_CONTRATO=ctr                // o WorkBank guarda a Quali pelo contrato QUA…
+  o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
+  o.DSC_PRODUTO=tipo==='PORTABILIDADE'?'INSS - Portabilidade':(wbcLimpo(r['Nome da Tabela'])||null)
+  o.DAT_CTR_INCLUSAO=hoje
+  o.DSC_SITUACAO_EMPRESTIMO=String(r['Status']||'').trim()||null
+  o.DAT_EMPRESTIMO=wbcData(r['Data da Proposta'])
+  o.NIC_CTR_USUARIO=String(r['Login']||'').trim()||null
+  const cpf=String(r['CPF']||'').replace(/\D/g,'');o.COD_CPF_CLIENTE=cpf?Number(cpf):null
+  o.NOM_CLIENTE=String(r['Nome']||'').trim()||null
+  o.DAT_NASCIMENTO=new Date('1990-01-01T12:00:00')
+  o.QTD_PARCELA=quNum(r['Prazo'])
+  o.VAL_PRESTACAO=quNum(r['Valor da Parcela']);o.VAL_BRUTO=quNum(r['Valor Base']);o.VAL_LIQUIDO=quNum(r['Valor Líquido ao Cliente'])
+  o.DAT_CREDITO=wbcData(r['Data de Averbação'])
+  const tx=quNum(r['Taxa']);o.PCL_TAXA_EMPRESTIMO=tx==null?null:Math.round(Number((tx*10000).toPrecision(12)))/100
+  o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
+  return o
+}
+function WorkBankQuali(){
+  const[rows,setRows]=useState(null),[nome,setNome]=useState(''),[msg,setMsg]=useState('')
+  const fileRef=useRef(null)
+  const ler=f=>{
+    if(!f)return
+    setMsg('Lendo '+f.name+'…')
+    const rd=new FileReader()
+    rd.onload=ev=>{
+      try{
+        const{cab,rows:rs}=quLerCsv(new Uint8Array(ev.target.result))
+        const falta=QU_OBRIG.filter(h=>!cab.includes(h))
+        if(falta.length){setRows(null);setMsg('❌ '+f.name+' não parece o relatório da QualiBanking — faltam as colunas: '+falta.join(', '));return}
+        setRows(rs.filter(r=>String(r['Número do Contrato']||'').trim()));setNome(f.name);setMsg('')
+      }catch(e){setRows(null);setMsg('❌ Não consegui ler o arquivo: '+(e.message||e))}
+    }
+    rd.readAsArrayBuffer(f)
+  }
+  const R=useMemo(()=>{
+    if(!rows)return null
+    const hoje=new Date();hoje.setHours(12,0,0,0)
+    const linhas=rows.map(r=>quLinha(r,hoje))
+    const porTipo={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1})
+    const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
+    return{linhas,porTipo,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
+      averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length}
+  },[rows])
+  const gerar=()=>{
+    if(!R||!R.linhas.length)return
+    const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
+    if(aoa.some(l=>l.some((v,j)=>quProibido(v,WB_HDR[j])))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
+    const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...aoa],{cellDates:true})
+    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
+    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - QUALIBANKING.xlsx',{cellDates:true})
+    setMsg('✓ '+R.linhas.length+' propostas da QualiBanking no arquivo — pode gerar quantas vezes precisar')
+  }
+  const dt=d=>d?d.toLocaleDateString('pt-BR'):'—'
+  return<div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+C.info,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:8}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <div>
+        <div style={{fontSize:13,fontWeight:800}}>🏦 QualiBanking — relatório do banco → arquivo do Work</div>
+        <div style={{fontSize:11,color:C.muted}}>Exporte o relatório de propostas no portal da QualiBanking (.csv) e solte aqui. Sai o arquivo do Work pronto, sem passar pelo Excel.</div>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
+        <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.info,background:C.info+'15',color:C.info,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
+        <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
+      </div>
+    </div>
+    {R&&<div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11}}>
+      <span style={{color:C.muted}}>📎 <b style={{color:C.text}}>{nome}</b></span>
+      <span>· <b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
+      <span>· digitadas de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
+      <span>· {Object.entries(R.porTipo).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
+      <span>· {R.averbadas} com data de averbação</span>
+      {R.semCpf>0&&<span style={{color:C.warn,fontWeight:700}}>· ⚠️ {R.semCpf} sem CPF</span>}
+    </div>}
+    {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
+  </div>
+}
+
 function WorkBankExport(){
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
@@ -5113,6 +5231,7 @@ function WorkBankExport(){
       </div>
       <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
     </div>
+    <WorkBankQuali/>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'NeoCrédito + Crefisa':fonte}/>
       <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)} color={C.accent}/>
