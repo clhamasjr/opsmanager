@@ -4934,6 +4934,12 @@ function WorkBankComissao(){
 //   situação = Status · DAT_EMPRESTIMO = Data da Proposta (sem recuar) · DAT_CREDITO = Data de Averbação (Carlos)
 //   NIC_CTR_USUARIO = Login · CPF número sem pontuação · nascimento 01/01/1990 · VAL_BRUTO = Valor Base
 //   taxa = Taxa × 100 arredondada como o Excel (0,01605 → 1,61)
+// 14/10/2026: a Finanto sai do MESMO portal, mesmo relatório e mesmas regras — "é literalmente a mesma planilha só muda
+// que vem com o nome de FINANTO" (Carlos). O banco é reconhecido pelo contrato: QUA… = QualiBanking, FIN… = Finanto.
+// Códigos no WorkBank em konsig_config.wb_codigo_banco (o mesmo JSON das telas de produção e comissão): QUALI = 22
+// (Carlos, 05/10); FINANTO = 3698 (Carlos, 14/10). Sem código a tela não gera e mostra o campo para preencher.
+const QU_BANCOS={QUA:{chave:'QUALI',nom:'QUALIBANKING',padrao:22},FIN:{chave:'FINANTO',nom:'FINANTO',padrao:3698}}
+const quBanco=r=>QU_BANCOS[String(r['Número do Contrato']||'').trim().slice(0,3).toUpperCase()]||QU_BANCOS.QUA
 const QU_TIPO={'refinanciamento da portabilidade':'PORTAB/REFIN','portab/refin':'PORTAB/REFIN','portabilidade + refinanciamento':'PORTABILIDADE',
   'portabilidade':'PORTABILIDADE','novo':'Novo','cartão':'Cartão','cartao':'Cartão','refinanciamento':'Refinanciamento'}
 const QU_OBRIG=['Número do Contrato','Tipo de Operação','Nome da Tabela','Status','Data da Proposta','CPF','Nome','Prazo','Valor Base','Valor da Parcela','Valor Líquido ao Cliente','Taxa','Login']
@@ -4959,11 +4965,12 @@ function quLerCsv(buf){
 // digitador (NIC_CTR_USUARIO) — 6 logins da Quali têm "promotora" no e-mail e o padrão do Carlos traz o login como é
 const quProibido=(v,h)=>typeof v==='string'&&(h==='NIC_CTR_USUARIO'?/cred\s*franco|\bscf\b/i:/cred\s*franco|\bscf\b|promotora/i).test(v)
 const quNum=v=>{let s=String(v??'').trim();if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n}
-function quLinha(r,hoje){
+function quLinha(r,hoje,codigos){
   const o={};WB_HDR.forEach(h=>o[h]=null)
   const op=String(r['Tipo de Operação']||'').trim(),tipo=QU_TIPO[op.toLowerCase()]||op||null
   const ctr=String(r['Número do Contrato']||'').trim()
-  o.NUM_BANCO=22;o.NOM_BANCO='QUALIBANKING'          // código da QualiBanking no WorkBank (Carlos, 05/10/2026)
+  const b=quBanco(r),cod=Number((codigos||{})[b.chave]??b.padrao)
+  o.NUM_BANCO=cod>0?cod:null;o.NOM_BANCO=b.nom        // QUALI 22 (05/10/2026), FINANTO 3698 (14/10/2026)
   o.NUM_PROPOSTA=ctr;o.NUM_CONTRATO=ctr                // o WorkBank guarda a Quali pelo contrato QUA…
   o.DSC_TIPO_PROPOSTA_EMPRESTIMO=tipo
   o.DSC_PRODUTO=tipo==='PORTABILIDADE'?'INSS - Portabilidade':(wbcLimpo(r['Nome da Tabela'])||null)
@@ -4983,7 +4990,23 @@ function quLinha(r,hoje){
 }
 function WorkBankQuali(){
   const[rows,setRows]=useState(null),[nome,setNome]=useState(''),[msg,setMsg]=useState('')
+  const[codigos,setCodigos]=useState({}),[codFin,setCodFin]=useState(''),[salvando,setSalvando]=useState(false)
   const fileRef=useRef(null)
+  // códigos de banco do WorkBank: o mesmo JSON que as telas de produção e comissão usam
+  const lerCodigos=async()=>{const{data}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
+    let c={};try{c=JSON.parse(data?.value||'{}')}catch{};setCodigos(c);return c}
+  useEffect(()=>{lerCodigos()},[])
+  const salvarCodFin=async()=>{
+    const n=Number(String(codFin).replace(/\D/g,''))
+    if(!(n>0)){setMsg('❌ Digite o código da Finanto no WorkBank (só números)');return}
+    setSalvando(true)
+    const atual=await lerCodigos(),novo={...atual,FINANTO:n}
+    const now=new Date().toISOString()
+    const{error}=await supabase.from('konsig_config').upsert([{key:'wb_codigo_banco',value:JSON.stringify(novo),updated_at:now}],{onConflict:'key'})
+    setSalvando(false)
+    if(error){setMsg('❌ '+error.message);return}
+    setCodigos(novo);setCodFin('');setMsg('✓ Código da Finanto salvo: '+n+' — já pode gerar o arquivo')
+  }
   const ler=f=>{
     if(!f)return
     setMsg('Lendo '+f.name+'…')
@@ -4992,7 +5015,7 @@ function WorkBankQuali(){
       try{
         const{cab,rows:rs}=quLerCsv(new Uint8Array(ev.target.result))
         const falta=QU_OBRIG.filter(h=>!cab.includes(h))
-        if(falta.length){setRows(null);setMsg('❌ '+f.name+' não parece o relatório da QualiBanking — faltam as colunas: '+falta.join(', '));return}
+        if(falta.length){setRows(null);setMsg('❌ '+f.name+' não parece o relatório da QualiBanking/Finanto — faltam as colunas: '+falta.join(', '));return}
         setRows(rs.filter(r=>String(r['Número do Contrato']||'').trim()));setNome(f.name);setMsg('')
       }catch(e){setRows(null);setMsg('❌ Não consegui ler o arquivo: '+(e.message||e))}
     }
@@ -5001,42 +5024,53 @@ function WorkBankQuali(){
   const R=useMemo(()=>{
     if(!rows)return null
     const hoje=new Date();hoje.setHours(12,0,0,0)
-    const linhas=rows.map(r=>quLinha(r,hoje))
-    const porTipo={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1})
+    const linhas=rows.map(r=>quLinha(r,hoje,codigos))
+    const porTipo={},porBanco={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1;porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1})
     const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
-    return{linhas,porTipo,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
-      averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length}
-  },[rows])
+    return{linhas,porTipo,porBanco,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
+      averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length,
+      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length}
+  },[rows,codigos])
+  const temFinanto=!!(R&&R.porBanco.FINANTO)
   const gerar=()=>{
     if(!R||!R.linhas.length)return
+    if(R.semCodigo){setMsg('❌ Falta o código da Finanto no WorkBank — preencha o campo abaixo e clique em Salvar');return}
     const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
     if(aoa.some(l=>l.some((v,j)=>quProibido(v,WB_HDR[j])))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
     const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...aoa],{cellDates:true})
     const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
-    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - QUALIBANKING.xlsx',{cellDates:true})
-    setMsg('✓ '+R.linhas.length+' propostas da QualiBanking no arquivo — pode gerar quantas vezes precisar')
+    const bancos=Object.keys(R.porBanco).sort((a,b)=>a==='QUALIBANKING'?-1:b==='QUALIBANKING'?1:a.localeCompare(b))
+    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - '+bancos.join(' e ')+'.xlsx',{cellDates:true})
+    setMsg('✓ '+R.linhas.length+' propostas no arquivo ('+Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')+') — pode gerar quantas vezes precisar')
   }
   const dt=d=>d?d.toLocaleDateString('pt-BR'):'—'
+  const cf=Number(codigos.FINANTO)>0?Number(codigos.FINANTO):null
   return<div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+C.info,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:8}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
       <div>
-        <div style={{fontSize:13,fontWeight:800}}>🏦 QualiBanking — relatório do banco → arquivo do Work</div>
-        <div style={{fontSize:11,color:C.muted}}>Exporte o relatório de propostas no portal da QualiBanking (.csv) e solte aqui. Sai o arquivo do Work pronto, sem passar pelo Excel.</div>
+        <div style={{fontSize:13,fontWeight:800}}>🏦 QualiBanking e Finanto — relatório do banco → arquivo do Work</div>
+        <div style={{fontSize:11,color:C.muted}}>Exporte o relatório de propostas no portal (.csv) e escolha aqui. O banco sai sozinho pelo contrato (QUA… = QualiBanking, FIN… = Finanto). Sai o arquivo do Work pronto, sem passar pelo Excel.</div>
       </div>
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.info,background:C.info+'15',color:C.info,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
-        <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
+        <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length&&!R.semCodigo?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
       </div>
     </div>
     {R&&<div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11}}>
       <span style={{color:C.muted}}>📎 <b style={{color:C.text}}>{nome}</b></span>
       <span>· <b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
+      <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· digitadas de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
       <span>· {Object.entries(R.porTipo).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· {R.averbadas} com data de averbação</span>
       {R.semCpf>0&&<span style={{color:C.warn,fontWeight:700}}>· ⚠️ {R.semCpf} sem CPF</span>}
     </div>}
+    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',fontSize:11,color:C.muted}}>
+      <span>Códigos no WorkBank: QualiBanking <b style={{color:C.text}}>{Number(codigos.QUALI)>0?Number(codigos.QUALI):22}</b> · Finanto {cf?<b style={{color:C.text}}>{cf}</b>:<b style={{color:temFinanto?C.danger:C.warn}}>sem código</b>}</span>
+      <input value={codFin} onChange={e=>setCodFin(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')salvarCodFin()}} placeholder={cf?'trocar o código da Finanto':'código da Finanto no WorkBank'} style={{background:C.surface,border:'1px solid '+(temFinanto&&!cf?C.danger:C.border),borderRadius:7,color:C.text,padding:'5px 9px',fontSize:11,width:200,outline:'none'}}/>
+      <button onClick={salvarCodFin} disabled={salvando||!codFin.trim()} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.accent+'14',color:C.accent,fontWeight:700,fontSize:11,cursor:'pointer'}}>{salvando?'salvando…':'Salvar'}</button>
+    </div>
     {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
   </div>
 }
