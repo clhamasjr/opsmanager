@@ -4964,6 +4964,8 @@ function quLerCsv(buf){
 // trava de promotora: CredFranco/SCF nunca saem; a palavra "promotora" sozinha é barrada em tudo, menos no login do
 // digitador (NIC_CTR_USUARIO) — 6 logins da Quali têm "promotora" no e-mail e o padrão do Carlos traz o login como é
 const quProibido=(v,h)=>typeof v==='string'&&(h==='NIC_CTR_USUARIO'?/cred\s*franco|\bscf\b/i:/cred\s*franco|\bscf\b|promotora/i).test(v)
+// início do período "últimos 2 meses": mesmo dia, 2 meses antes, à 0h (31/10 → 31/08; 30/04 → 28 ou 29/02)
+const quCorte2Meses=h=>{const y=h.getFullYear(),m=h.getMonth()-2,ult=new Date(y,m+1,0).getDate();return new Date(y,m,Math.min(h.getDate(),ult),0,0,0,0)}
 const quNum=v=>{let s=String(v??'').trim();if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n}
 function quLinha(r,hoje,codigos){
   const o={};WB_HDR.forEach(h=>o[h]=null)
@@ -4991,6 +4993,9 @@ function quLinha(r,hoje,codigos){
 function WorkBankQuali(){
   const[rows,setRows]=useState(null),[nome,setNome]=useState(''),[msg,setMsg]=useState('')
   const[codigos,setCodigos]=useState({}),[codFin,setCodFin]=useState(''),[salvando,setSalvando]=useState(false)
+  // 15/10/2026, Carlos: sobe a planilha geral e o sistema filtra "somente os últimos 2 meses de propostas" — pela data da
+  // proposta (digitação), do mesmo dia de 2 meses atrás até hoje. "Tudo" fica como opção.
+  const[periodo,setPeriodo]=useState('2m')
   const fileRef=useRef(null)
   // códigos de banco do WorkBank: o mesmo JSON que as telas de produção e comissão usam
   const lerCodigos=async()=>{const{data}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
@@ -5024,13 +5029,16 @@ function WorkBankQuali(){
   const R=useMemo(()=>{
     if(!rows)return null
     const hoje=new Date();hoje.setHours(12,0,0,0)
-    const linhas=rows.map(r=>quLinha(r,hoje,codigos))
+    const todas=rows.map(r=>quLinha(r,hoje,codigos))
+    const corte=quCorte2Meses(hoje)
+    const linhas=periodo==='2m'?todas.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):todas
+    const foraPeriodo=todas.length-linhas.length
     const porTipo={},porBanco={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1;porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1})
     const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
     return{linhas,porTipo,porBanco,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
       averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length,
-      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length}
-  },[rows,codigos])
+      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length,corte,foraPeriodo,total2:todas.length}
+  },[rows,codigos,periodo])
   const temFinanto=!!(R&&R.porBanco.FINANTO)
   const gerar=()=>{
     if(!R||!R.linhas.length)return
@@ -5052,6 +5060,10 @@ function WorkBankQuali(){
         <div style={{fontSize:11,color:C.muted}}>Exporte o relatório de propostas no portal (.csv) e escolha aqui. O banco sai sozinho pelo contrato (QUA… = QualiBanking, FIN… = Finanto). Sai o arquivo do Work pronto, sem passar pelo Excel.</div>
       </div>
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <select value={periodo} onChange={e=>setPeriodo(e.target.value)} title="pela data da proposta (digitação)" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 9px',fontSize:12,fontWeight:700,outline:'none'}}>
+          <option value="2m">📅 Últimos 2 meses</option>
+          <option value="tudo">Tudo do relatório</option>
+        </select>
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.info,background:C.info+'15',color:C.info,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
         <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length&&!R.semCodigo?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
@@ -5062,6 +5074,7 @@ function WorkBankQuali(){
       <span>· <b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
       <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· digitadas de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
+      {periodo==='2m'&&R.foraPeriodo>0&&<span style={{color:C.muted}}>· {R.foraPeriodo} de {R.total2} ficaram de fora (digitadas antes de {dt(R.corte)})</span>}
       <span>· {Object.entries(R.porTipo).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· {R.averbadas} com data de averbação</span>
       {R.semCpf>0&&<span style={{color:C.warn,fontWeight:700}}>· ⚠️ {R.semCpf} sem CPF</span>}
