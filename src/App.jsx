@@ -3780,6 +3780,12 @@ function GovParana(){
 // Governo SP roda no portaldoconsignado.com.br (portal.mjs). A Prefeitura é OUTRO
 // sistema, ainda não integrado — a tela existe e diz o que falta em vez de fingir.
 // O que importa aqui: quem está com margem ABERTA (desaverbou) já pode receber proposta.
+// Lê a tabela inteira em páginas de 1000 (o PostgREST corta em 1000 sem avisar, mesmo com .limit(2000)).
+// mk() devolve a consulta nova a cada página; ela precisa ter .order() para a paginação não pular/repetir linha.
+const lerTudo=async mk=>{let all=[],from=0
+  while(true){const{data,error}=await mk().range(from,from+999);if(error)throw error
+    if(!data||!data.length)break;all=all.concat(data);if(data.length<1000)break;from+=1000}
+  return all}
 function PortalSP({conv,titulo,icone,semPortal}){
   const[rows,setRows]=useState([])
   const[est,setEst]=useState(new Map())
@@ -3791,8 +3797,8 @@ function PortalSP({conv,titulo,icone,semPortal}){
   const load=async()=>{
     // margens já consultadas + o convênio/nome que só a esteira tem
     const[{data:pm},{data:ke},{data:c}]=await Promise.all([
-      supabase.from('portal_margem').select('*').order('checked_at',{ascending:false}).limit(2000),
-      supabase.from('konsig_esteira').select('cpf,nome,convenio_nome,status,proposta,valorparcela').limit(2000),
+      lerTudo(()=>supabase.from('portal_margem').select('*').order('checked_at',{ascending:false}).order('cpf')).then(data=>({data})),
+      lerTudo(()=>supabase.from('konsig_esteira').select('cpf,nome,convenio_nome,status,proposta,valorparcela').order('proposta')).then(data=>({data})),
       supabase.from('konsig_config').select('key,value,updated_at').like('key','portal%')
     ])
     const m=new Map();(ke||[]).forEach(e=>{if(e.cpf&&!m.has(String(e.cpf)))m.set(String(e.cpf),e)})
@@ -5114,7 +5120,11 @@ function WorkBankExport(){
   // filtros que o usuário edita
   const[de,setDe]=useState(''),[ate,setAte]=useState(''),[sit,setSit]=useState('todas'),[parc,setParc]=useState(''),[busca,setBusca]=useState('')
   // filtros efetivamente aplicados (só mudam ao clicar em Pesquisar)
-  const[fl,setFl]=useState({de:'',ate:'',sit:'todas',parc:'',busca:''})
+  // 15/10/2026: a Neusa (20260723260105) foi digitada em 23/07 e paga em 08/10 — como o arquivo saía só com as
+  // DIGITADAS no período, ela nunca mais foi para o Work e ficou "AGUARD LIQUIDACAO" sem CRC (9 assim). Agora entra
+  // também quem MUDOU DE STATUS no período (marcado por padrão).
+  const[incMov,setIncMov]=useState(true)
+  const[fl,setFl]=useState({de:'',ate:'',sit:'todas',parc:'',busca:'',incMov:true})
   const[msg,setMsg]=useState('')
   const paginar=async(tabela,cols,filtro)=>{let all=[],from=0
     while(true){let qy=supabase.from(tabela).select(cols).range(from,from+999)
@@ -5132,9 +5142,9 @@ function WorkBankExport(){
       const querCf=fonte==='CREDFRANCO'||fonte==='TODOS'
       const[neo,cref,cf]=await Promise.all([
         querNeo?Promise.all([
-          paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira'),
-          paginar('digitacoes','proposta,agente,usuario',qy=>qy.eq('banco','NEOCREDITO')),
-          paginar('workbank_dados','proposta,nascimento,prazo,tabela_nome,dat_credito')
+          paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira',qy=>qy.order('proposta')),
+          paginar('digitacoes','proposta,agente,usuario',qy=>qy.eq('banco','NEOCREDITO').order('id')),
+          paginar('workbank_dados','proposta,nascimento,prazo,tabela_nome,dat_credito',qy=>qy.order('proposta'))
         ]):Promise.resolve(null),
         querCref?paginar('crefisa_esteira','*'):Promise.resolve(null),
         // CredFranco: a esteira já vem sem Facta e sem QualiBanking (entram direto); parceiro = digitacoes pelo contrato
@@ -5160,7 +5170,8 @@ function WorkBankExport(){
           parceiro:(dm.get(String(r.proposta).replace(/\D/g,''))||{}).agente||'',
           email_digitador:resolveEmail((dm.get(String(r.proposta).replace(/\D/g,''))||{}).usuario,r.usuario_nome,mEmail),
           digitador:r.usuario_nome||'',
-          data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?diaBR(r.datahoras):null
+          data_nosso_credito:(String(r.situacao||'').toUpperCase()==='INT')?diaBR(r.datahoras):null,
+          mov:diaBR(r.datahoras)
         })))
       }
       if(cref){
@@ -5173,7 +5184,7 @@ function WorkBankExport(){
           operacao:r.tipo_contrato||'',convenio:r.convenio||'',
           parceiro:r.parceiro||'',prazo:r.prazo,tabela:r.tabela,login:r.login_sub_usuario||'',
           sit_pagto:r.sit_pagamento||'',sit_banco_cru:r.sit_banco||'',
-          data_nosso_credito:r.data_pagamento||null
+          data_nosso_credito:r.data_pagamento||null,mov:String(r.data_pagamento||'').slice(0,10)
         })))
       }
       if(cf){
@@ -5189,7 +5200,7 @@ function WorkBankExport(){
           vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
           operacao:r.tipo||'',convenio:r.convenio||'',parceiro:ag.get(String(r.cod_banco||'').trim())||'',
           banco:r.banco||'',produto:r.produto||'',digitador:r.digitador||'',averbacao:r.data_averbacao||'',prazo:r.parcelas,
-          data_nosso_credito:r.data_averbacao||null
+          data_nosso_credito:r.data_averbacao||null,mov:String(r.data_averbacao||'').slice(0,10)
         })))
       }
       setWbd(mapa);setRows(out)
@@ -5197,14 +5208,15 @@ function WorkBankExport(){
     setLoading(false)
   }
   useEffect(()=>{carregar()},[fonte])
-  const pesquisar=()=>setFl({de,ate,sit,parc,busca})
-  const limpar=()=>{setDe('');setAte('');setSit('todas');setParc('');setBusca('');setFl({de:'',ate:'',sit:'todas',parc:'',busca:''})}
+  const pesquisar=()=>setFl({de,ate,sit,parc,busca,incMov})
+  const limpar=()=>{setDe('');setAte('');setSit('todas');setParc('');setBusca('');setIncMov(true);setFl({de:'',ate:'',sit:'todas',parc:'',busca:'',incMov:true})}
   if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando esteiras...</div>
   if(err)return<div style={{padding:20,color:C.danger}}>{err}</div>
   const q=(fl.busca||'').trim().toLowerCase(),qd=q.replace(/\D/g,'')
+  const noPer=d=>!!d&&(!fl.de||d>=fl.de)&&(!fl.ate||d<=fl.ate)
+  const temPer=!!(fl.de||fl.ate)
   const g=(rows||[]).filter(r=>{
-    if(fl.de&&r.data<fl.de)return false
-    if(fl.ate&&r.data>fl.ate)return false
+    if(temPer&&!noPer(r.data)&&!(fl.incMov&&noPer(r.mov)))return false
     if(fl.sit==='aberto'&&!(r.situacao==='PEN'||r.situacao==='AND'))return false
     if(['PEN','AND','INT','REP'].includes(fl.sit)&&r.situacao!==fl.sit)return false
     if(fl.parc&&r.parceiro!==fl.parc)return false
@@ -5214,6 +5226,7 @@ function WorkBankExport(){
     return true
   }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
   const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
+  const porMov=temPer&&fl.incMov?g.filter(r=>!noPer(r.data)).length:0   // entraram só por mudança de status
   const completas=g.filter(r=>(r._fonte==='CREFISA'||r._fonte==='CREDFRANCO')?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
   const porFonte={};g.forEach(r=>porFonte[r._fonte]=(porFonte[r._fonte]||0)+1)
   const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
@@ -5281,7 +5294,7 @@ function WorkBankExport(){
     <WorkBankQuali/>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'NeoCrédito + Crefisa':fonte}/>
-      <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)} color={C.accent}/>
+      <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)+(porMov?(' · '+porMov+' por mudança de status'):'')} color={C.accent}/>
       <Stat label="Prontas pra exportar" value={completas} sub="com todos os dados" color={C.accent2}/>
       <Stat label="Por banco" value={Object.entries(porFonte).map(([k,n])=>n).join(' / ')||'0'} sub={Object.keys(porFonte).join(' / ')||'—'} color={C.muted}/>
     </div>
@@ -5295,6 +5308,8 @@ function WorkBankExport(){
         <input type="date" value={de} onChange={e=>setDe(e.target.value)} style={inp}/>
         <span style={{fontSize:11,color:C.muted}}>até</span>
         <input type="date" value={ate} onChange={e=>setAte(e.target.value)} style={inp}/>
+        <label title="ex.: digitada em julho e paga nesta semana — entra no arquivo para o Work atualizar o status e o CRC" style={{fontSize:11,color:C.muted,display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
+          <input type="checkbox" checked={incMov} onChange={e=>setIncMov(e.target.checked)}/> + as que mudaram de status no período</label>
         <select value={parc} onChange={e=>setParc(e.target.value)} style={{...inp,maxWidth:220}}>
           <option value="">Parceiro: todos</option>
           {Object.entries(parcs).sort((a,b)=>b[1]-a[1]).map(([k,n])=><option key={k} value={k}>{k.slice(0,30)} ({n})</option>)}
@@ -5341,7 +5356,7 @@ function EsteiraCompra(){
   const[busca,setBusca]=useState(''),[gFiltro,setGFiltro]=useState('aberto'),[gStatus,setGStatus]=useState(''),[gParc,setGParc]=useState(''),[expandido,setExpandido]=useState(null)
   async function wbExport(lista){
     const HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
-    const{data:wbd}=await supabase.from('workbank_dados').select('*')
+    const wbd=await lerTudo(()=>supabase.from('workbank_dados').select('*').order('proposta'))   // eram 969 de 1000 possíveis
     const W=new Map((wbd||[]).map(x=>[String(x.proposta),x]))
     const cpfF=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
     const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
