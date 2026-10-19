@@ -5457,6 +5457,7 @@ function EsteiraAki(){
 
 function EsteiraCompra(){
   const pnomes=useParceirosNomes()
+  const[bancoEst,setBancoEst]=useState('neo')
   const[rows,setRows]=useState(null),[loading,setLoading]=useState(true)
   const[fase,setFase]=useState(null),[per,setPer]=useState('tudo')
   const[cms,setCms]=useState([]),[err,setErr]=useState('')
@@ -5654,9 +5655,14 @@ function EsteiraCompra(){
     const lbl={erro:'erro',sem_matricula:'s/ matríc',sem_dado:'s/ dado',aviso:'aviso'}[m.status]||m.status
     return<span style={{color:C.muted,fontSize:9}} title={tip}>{lbl}</span>
   }
+  // 19/10/2026 (Carlos: "esteira do AKI deixa na esteira de compra junto também"): seletor de banco no topo. A AKI usa a
+  // mesma tela EsteiraAki (que também tem menu próprio); a NEO continua sendo o padrão ao abrir.
+  const seletorBanco=<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{[{id:'neo',l:'🛒 NeoCrédito'},{id:'aki',l:'🟠 AKI CAPITAL'}].map(b=><button key={b.id} onClick={()=>setBancoEst(b.id)} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(bancoEst===b.id?C.accent:C.border),background:bancoEst===b.id?C.abg:C.surface,color:bancoEst===b.id?C.accent:C.muted,fontWeight:700,fontSize:12,cursor:'pointer'}}>{b.l}</button>)}</div>
+  if(bancoEst==='aki')return<div style={{display:'flex',flexDirection:'column',gap:14}}>{seletorBanco}<EsteiraAki/></div>
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    {seletorBanco}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
-      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito <span style={{fontSize:10,fontWeight:600,color:C.accent2,background:C.accent2+'18',padding:'2px 8px',borderRadius:6,verticalAlign:'middle'}}>● AO VIVO</span></h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Puxada direto do Konsig (api.konsig.com.br) pelo robô do escritório{syncInfo?.konsig_last_sync?' · última atualização: '+new Date(syncInfo.konsig_last_sync.value).toLocaleString('pt-BR'):''}{syncInfo?.konsig_last_status?' · '+syncInfo.konsig_last_status.value:''}</div></div>
+      <div><h2 style={{fontWeight:800,fontSize:20,margin:0}}>🛒 Esteira Compra — NeoCrédito<span style={{fontSize:10,fontWeight:600,color:C.accent2,background:C.accent2+'18',padding:'2px 8px',borderRadius:6,verticalAlign:'middle'}}>● AO VIVO</span></h2><div style={{fontSize:11,color:C.muted,marginTop:2}}>Puxada direto do Konsig (api.konsig.com.br) pelo robô do escritório{syncInfo?.konsig_last_sync?' · última atualização: '+new Date(syncInfo.konsig_last_sync.value).toLocaleString('pt-BR'):''}{syncInfo?.konsig_last_status?' · '+syncInfo.konsig_last_status.value:''}</div></div>
       <div style={{display:'flex',gap:6,alignItems:'center'}}>
         <button onClick={loadRows} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,fontSize:11,cursor:'pointer'}}>🔄 Recarregar</button>
         <div style={{display:'flex',gap:4}}>{[{id:'mes',l:'Mês'},{id:'90d',l:'90 dias'},{id:'ano',l:String(NOW.getFullYear())},{id:'tudo',l:'Tudo'}].map(p=><button key={p.id} onClick={()=>setPer(p.id)} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(per===p.id?C.accent:C.border),background:per===p.id?C.abg:'transparent',color:per===p.id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:per===p.id?600:400}}>{p.l}</button>)}</div>
