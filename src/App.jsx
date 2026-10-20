@@ -2632,7 +2632,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','akiesteira','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes','avisosparc']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','akiesteira','c6esteira','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes','avisosparc']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3099,7 +3099,7 @@ function AvisosParceiros(){
       const desde=new Date(Date.now()-AV_DIAS*86400000),semDesde=new Date(Date.now()-AV_SEM_DIAS*86400000).toISOString()
       const[p,c,neo,port,cf]=await Promise.all([
         paginar('parceiros','id,nome,telefone_notificacao,receber_notificacoes,ativo',q=>q.order('nome')),
-        supabase.from('konsig_config').select('key,value').in('key',['aviso_mov_ativo','quali_aviso_ativo','quali_aviso_modo','quali_aviso_liberados','quali_parceiro_so_acao','quali_parceiro_por_digitador','credfranco_ativo','credfranco_aviso_modo','credfranco_aviso_liberados','aki_ativo','aki_aviso_modo']),
+        supabase.from('konsig_config').select('key,value').in('key',['aviso_mov_ativo','quali_aviso_ativo','quali_aviso_modo','quali_aviso_liberados','quali_parceiro_so_acao','quali_parceiro_por_digitador','credfranco_ativo','credfranco_aviso_modo','credfranco_aviso_liberados','aki_ativo','aki_aviso_modo','c6_ativo','c6_aviso_modo']),
         paginar('konsig_esteira','proposta,nome,datahorac,situacao,status',q=>q.gte('datahorac',desde.toISOString())),
         // a Quali precisa do histórico inteiro: o parceiro pode vir do digitador que só trabalhou para um parceiro
         paginar('portabilidades','contract_number,borrower_name,borrower_identity,proposal_date,status_name,acesso:raw_data->>accessId'),
@@ -3200,6 +3200,7 @@ function AvisosParceiros(){
     const extra=quali?(cfg.quali_parceiro_so_acao==='1'
         ?'\n\nNa hora vai só o que pede ação do parceiro (assinatura, documento, benefício, anuência, saldo em aprovação). Reprovada, cancelada, retida, concluída e fases vão no resumo das 18h. A cobrança de saldo do dia (9h) também passa a ir para eles.'
         :'\n\nVai toda mudança de status, o resumo das 18h e a cobrança de saldo do dia (9h).')
+      :chave==='c6_aviso_modo'?'\n\nVai: integrada, reprovada, cancelada e mudança de atividade do C6 — das 8h às 20h. A CredFranco PARA de avisar o C6 (fica só para conferir).'
       :chave==='aki_aviso_modo'?'\n\nVai: integrada (paga), reprovada, cancelada e mudança de atividade — das 8h às 20h.'
       :'\n\nVai: pago, pendência, reprovada, cancelada e estornada.'
     if(valendo&&!window.confirm('Ligar os avisos de '+banco+' para a lista?\n\nA partir do próximo ciclo do robô, os '+recebendo.length+' parceiros da lista passam a receber no WhatsApp os avisos das propostas DELES em '+banco+'.'+extra+'\n\nParceiro fora da lista: continua só a cópia para você.\nProposta sem parceiro: passa a ir para o grupo operacional (com cópia para você).'))return
@@ -3227,7 +3228,9 @@ function AvisosParceiros(){
     {id:'cf',nome:'C6 · PAN · Digio · Ágil · outros',chave:'credfranco_aviso_modo',ativo:cfg.credfranco_ativo==='1',valendo:cfg.credfranco_aviso_modo==='parceiros',lib:libCf,
       obs:'pago, pendência, reprovada, cancelada e estornada (Facta e Quali ficam de fora: têm robô próprio)'},
     {id:'aki',nome:'AKI CAPITAL',chave:'aki_aviso_modo',ativo:cfg.aki_ativo==='1',valendo:cfg.aki_aviso_modo==='parceiros',lib:[],
-      obs:'integrada, reprovada, cancelada e mudança de atividade · das 8h às 20h (robô do portal AKI)'}
+      obs:'integrada, reprovada, cancelada e mudança de atividade · das 8h às 20h (robô do portal AKI)'},
+    {id:'c6',nome:'C6 CONSIGNADO (robô do portal)',chave:'c6_aviso_modo',ativo:cfg.c6_ativo==='1',valendo:cfg.c6_aviso_modo==='parceiros',lib:[],
+      obs:'integrada, reprovada, cancelada e mudança de atividade · das 8h às 20h · ligado aqui, a CredFranco deixa de avisar o C6'}
   ]
   const destinoSem=s=>{if(s.neo)return'👥 grupo operacional'
     const modo=s.fonte==='QUALIBANKING'?cfg.quali_aviso_modo:cfg.credfranco_aviso_modo
@@ -4068,11 +4071,11 @@ function AgenteParceiros(){
 // Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
-  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','akiesteira','portabilidade','pancartao','workbank','wbcomissao','govsp','prefsp','govparana','agente','conexoes']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','akiesteira','c6esteira','portabilidade','pancartao','workbank','wbcomissao','govsp','prefsp','govparana','agente','conexoes']},
   {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['avisosparc','parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'avisosparc',l:'Avisos aos parceiros',i:'📣'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'akiesteira',l:'Esteira AKI',i:'🟠'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'avisosparc',l:'Avisos aos parceiros',i:'📣'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'akiesteira',l:'Esteira AKI',i:'🟠'},{id:'c6esteira',l:'Esteira C6',i:'🟣'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -5356,18 +5359,18 @@ function WorkBankExport(){
    konsig_config.aki_esteira. A senha é cadastrada NO PC (CADASTRAR-SENHA-AKI.bat), criptografada pelo Windows — nunca
    aqui: o OpsManager lê o Supabase com a chave pública. AKI CAPITAL ≠ CAPITAL CONSIG (pedido do Carlos). */
 const AKI_SIT={INT:'Integrada',CAN:'Cancelada',REP:'Reprovada'}
-function EsteiraAki(){
+function EsteiraPortal({P}){
   const[cfg,setCfg]=useState({}),[loading,setLoading]=useState(true),[erro,setErro]=useState(''),[msg,setMsg]=useState('')
   const[fSit,setFSit]=useState('aberto'),[busca,setBusca]=useState(''),[fParc,setFParc]=useState('')
   const carregar=async()=>{
     setLoading(true);setErro('')
-    const{data,error}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['aki_esteira','aki_status','aki_ativo','aki_aviso_modo','aki_backfill','aki_login_recusado'])
+    const{data,error}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['esteira','status','ativo','aviso_modo','backfill','login_recusado'].map(k=>P.id+'_'+k))
     if(error)setErro('Não consegui carregar: '+error.message)
-    const m={};(data||[]).forEach(x=>{m[x.key]=x.value;if(x.key==='aki_esteira')m._em=x.updated_at});setCfg(m);setLoading(false)
+    const m={};(data||[]).forEach(x=>{const k='aki_'+x.key.slice(P.id.length+1);m[k]=x.value;if(k==='aki_esteira')m._em=x.updated_at});setCfg(m);setLoading(false)
   }
-  useEffect(()=>{carregar()},[])
+  useEffect(()=>{carregar()},[P.id])
   const salvar=async(k,v,ok)=>{
-    const{error}=await supabase.from('konsig_config').upsert([{key:k,value:String(v),updated_at:new Date().toISOString()}],{onConflict:'key'})
+    const{error}=await supabase.from('konsig_config').upsert([{key:k.replace(/^aki_/,P.id+'_'),value:String(v),updated_at:new Date().toISOString()}],{onConflict:'key'})
     if(error)return setMsg('❌ '+error.message)
     setCfg(c=>({...c,[k]:String(v)}));setMsg(ok)
   }
@@ -5394,31 +5397,31 @@ function EsteiraAki(){
   return<div style={{display:'flex',flexDirection:'column',gap:12}}>
     <div style={card}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-        <div style={{fontSize:15,fontWeight:700}}>🟠 Esteira AKI CAPITAL</div>
+        <div style={{fontSize:15,fontWeight:700}}>{P.icone} Esteira {P.titulo}</div>
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
           <button style={btn(C.accent,false)} onClick={async()=>{await salvar('aki_run_now',Date.now(),'🔄 Pedi ao robô para ler o portal agora — em até 1 min. Clique em Recarregar depois.')}}>🔄 Ler o portal agora</button>
           <button style={btn(C.muted,false)} onClick={carregar}>↻ Recarregar</button>
         </div>
       </div>
       <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.5}}>
-        O robô entra sozinho no portal da AKI a cada 15 min e lê a esteira (em andamento, integradas, canceladas e reprovadas).
-        A <b>senha fica só no PC do escritório</b>, criptografada: para cadastrar ou trocar, rode <b>CADASTRAR-SENHA-AKI.bat</b> na pasta C:\konsig-sync.
+        O robô entra sozinho no portal {P.nome} a cada 15 min e lê a esteira (em andamento, integradas, canceladas e reprovadas).
+        A <b>senha fica só no PC do escritório</b>, criptografada: para cadastrar ou trocar, rode <b>{P.bat}</b> na pasta C:\konsig-sync.
       </div>
       <div style={{fontSize:11,marginTop:8,padding:'7px 10px',borderRadius:8,background:C.surface,border:'1px solid '+C.border}}>
         <b>Robô:</b> {loading?'carregando…':(cfg.aki_status||'ainda não rodou')}{cfg._em?<span style={{color:C.muted}}> · esteira gravada {new Date(cfg._em).toLocaleString('pt-BR').slice(0,17)}</span>:null}
       </div>
       {recusado&&<div style={{fontSize:11,marginTop:8,padding:'7px 10px',borderRadius:8,background:C.danger+'14',border:'1px solid '+C.danger,color:C.danger}}>
-        🔒 O portal <b>recusou o login</b> ({recusado.split('|')[1]||'senha'}). Para não bloquear o usuário, o robô parou de tentar. Cadastre a senha de novo no PC (CADASTRAR-SENHA-AKI.bat).
+        🔒 O portal <b>recusou o login</b> ({recusado.split('|')[1]||'senha'}). Para não bloquear o usuário, o robô parou de tentar. Cadastre a senha de novo no PC ({P.bat}).
       </div>}
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
         <div style={{flex:'1 1 240px',border:'1px solid '+C.border,borderLeft:'4px solid '+(ligado?C.accent2:C.danger),borderRadius:10,padding:'9px 11px'}}>
           <div style={{fontSize:12,fontWeight:700}}>Robô {ligado?'ligado':'desligado'}</div>
-          <button style={{...btn(ligado?C.danger:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(ligado?'Desligar o robô da AKI? A esteira para de atualizar.':'Ligar o robô da AKI? Ele entra no portal a cada 15 min com a senha cadastrada no PC.'))return;salvar('aki_ativo',ligado?'0':'1',ligado?'⏸ Robô da AKI desligado':'▶️ Robô da AKI ligado — lê o portal no próximo ciclo')}}>{ligado?'⏸ Desligar':'▶️ Ligar'}</button>
+          <button style={{...btn(ligado?C.danger:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(ligado?'Desligar o robô '+P.nome+'? A esteira para de atualizar.':'Ligar o robô '+P.nome+'? Ele entra no portal a cada 15 min com a senha cadastrada no PC.'))return;salvar('aki_ativo',ligado?'0':'1',ligado?'⏸ Robô '+P.nome+' desligado':'▶️ Robô '+P.nome+' ligado — lê o portal no próximo ciclo')}}>{ligado?'⏸ Desligar':'▶️ Ligar'}</button>
         </div>
         <div style={{flex:'1 1 240px',border:'1px solid '+C.border,borderLeft:'4px solid '+(valendo?C.accent2:C.warn),borderRadius:10,padding:'9px 11px'}}>
           <div style={{fontSize:12,fontWeight:700}}>Avisos no WhatsApp: {valendo?'valendo para os parceiros':'prévia (só você recebe)'}</div>
           <div style={{fontSize:10,color:C.muted,marginTop:2}}>integrada, reprovada, cancelada e mudança de atividade · parceiro pela digitação ou pelo login de quem digitou</div>
-          <button style={{...btn(valendo?C.warn:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(valendo?'Voltar os avisos da AKI para prévia? Só você recebe.':'Ligar os avisos da AKI para os parceiros?\n\nA partir do próximo ciclo, cada parceiro da lista de avisos recebe no WhatsApp as mudanças das propostas DELE na AKI CAPITAL (você continua com a cópia).'))return;salvar('aki_aviso_modo',valendo?'previa':'parceiros',valendo?'👀 Avisos da AKI voltaram para prévia':'✅ Avisos da AKI ligados para os parceiros')}}>{valendo?'👀 Voltar para prévia':'✅ Ligar para os parceiros'}</button>
+          <button style={{...btn(valendo?C.warn:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(valendo?'Voltar os avisos '+P.nome+' para prévia? Só você recebe.'+(P.extraPrevia||''):'Ligar os avisos '+P.nome+' para os parceiros?\n\nA partir do próximo ciclo, cada parceiro da lista de avisos recebe no WhatsApp as mudanças das propostas DELE no '+P.titulo+' (você continua com a cópia).'+(P.extraValer||'')))return;salvar('aki_aviso_modo',valendo?'previa':'parceiros',valendo?'👀 Avisos '+P.nome+' voltaram para prévia':'✅ Avisos '+P.nome+' ligados para os parceiros')}}>{valendo?'👀 Voltar para prévia':'✅ Ligar para os parceiros'}</button>
         </div>
       </div>
       {msg&&<div style={{fontSize:11,marginTop:8}}>{msg}</div>}
@@ -5438,13 +5441,14 @@ function EsteiraAki(){
       </div>
       {loading?<div style={{fontSize:11,color:C.muted}}>Carregando…</div>:!lista.length?<div style={{fontSize:11,color:C.muted}}>Nada ainda — o robô grava a esteira na primeira leitura do portal (depois de ligado e com a senha cadastrada no PC).</div>:
       <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
-        <thead><tr style={{borderBottom:'1px solid '+C.border}}>{['Proposta','Cliente','Parceiro','Situação','Atividade','Convênio','Produto','Valor','Parcela','Cadastro','Últ. mov.'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+        <thead><tr style={{borderBottom:'1px solid '+C.border}}>{['Proposta','Cliente','Parceiro','Situação','Atividade',...(P.formalizacao?['Formalização']:[]),'Convênio','Produto','Valor','Parcela','Cadastro','Últ. mov.'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
         <tbody>{vis.map(p=><tr key={p.prop} style={{borderBottom:'1px solid '+C.border}}>
           <td style={{...td,fontWeight:600}}>{p.prop}</td>
           <td style={td}>{p.nome||'—'}</td>
-          <td style={{...td,color:p.parceiro?C.text:C.danger}}>{p.parceiro||'sem parceiro'}</td>
+          <td style={{...td,color:p.parceiro?C.text:C.danger}}>{p.parceiro||(p.parceiro_prov?'Central (provisório)':'sem parceiro')}</td>
           <td style={td}><span style={{padding:'2px 7px',borderRadius:6,fontSize:10,fontWeight:700,color:corSit(p),background:corSit(p)+'1A'}}>{AKI_SIT[p.situacao]||p.situacao||'—'}</span></td>
           <td style={{...td,maxWidth:220}}>{p.atividade||'—'}</td>
+          {P.formalizacao&&<td style={{...td,maxWidth:180}}>{[p.formalizacao,p.status_form].filter(Boolean).join(' · ')||'—'}</td>}
           <td style={td}>{p.convenio}</td>
           <td style={td}>{[p.produto,p.tipo_op].filter(Boolean).join(' · ')}</td>
           <td style={{...td,textAlign:'right'}}>{fmt(p.valor)}</td>
@@ -5456,6 +5460,14 @@ function EsteiraAki(){
     </div>
   </div>
 }
+
+// telas de portal (mesmo componente): AKI CAPITAL (19/10) e C6 CONSIGNADO (20/10)
+const PORTAIS={
+  aki:{id:'aki',titulo:'AKI CAPITAL',nome:'da AKI',icone:'🟠',bat:'CADASTRAR-SENHA-AKI.bat',formalizacao:false},
+  c6:{id:'c6',titulo:'C6 CONSIGNADO',nome:'do C6',icone:'🟣',bat:'CADASTRAR-SENHA-C6.bat',formalizacao:true,
+    extraValer:'\n\nA CredFranco PARA de avisar o C6 (fica só para conferir).',extraPrevia:'\n\nA CredFranco volta a avisar o C6.'}}
+function EsteiraAki(){return<EsteiraPortal key="aki" P={PORTAIS.aki}/>}
+function EsteiraC6(){return<EsteiraPortal key="c6" P={PORTAIS.c6}/>}
 
 function EsteiraCompra(){
   const pnomes=useParceirosNomes()
@@ -5659,8 +5671,9 @@ function EsteiraCompra(){
   }
   // 19/10/2026 (Carlos: "esteira do AKI deixa na esteira de compra junto também"): seletor de banco no topo. A AKI usa a
   // mesma tela EsteiraAki (que também tem menu próprio); a NEO continua sendo o padrão ao abrir.
-  const seletorBanco=<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{[{id:'neo',l:'🛒 NeoCrédito'},{id:'aki',l:'🟠 AKI CAPITAL'}].map(b=><button key={b.id} onClick={()=>setBancoEst(b.id)} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(bancoEst===b.id?C.accent:C.border),background:bancoEst===b.id?C.abg:C.surface,color:bancoEst===b.id?C.accent:C.muted,fontWeight:700,fontSize:12,cursor:'pointer'}}>{b.l}</button>)}</div>
+  const seletorBanco=<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{[{id:'neo',l:'🛒 NeoCrédito'},{id:'aki',l:'🟠 AKI CAPITAL'},{id:'c6',l:'🟣 C6 CONSIGNADO'}].map(b=><button key={b.id} onClick={()=>setBancoEst(b.id)} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(bancoEst===b.id?C.accent:C.border),background:bancoEst===b.id?C.abg:C.surface,color:bancoEst===b.id?C.accent:C.muted,fontWeight:700,fontSize:12,cursor:'pointer'}}>{b.l}</button>)}</div>
   if(bancoEst==='aki')return<div style={{display:'flex',flexDirection:'column',gap:14}}>{seletorBanco}<EsteiraAki/></div>
+  if(bancoEst==='c6')return<div style={{display:'flex',flexDirection:'column',gap:14}}>{seletorBanco}<EsteiraC6/></div>
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     {seletorBanco}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
@@ -6381,6 +6394,7 @@ export default function App(){
       
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='akiesteira'&&<EsteiraAki/>}
+      {view==='c6esteira'&&<EsteiraC6/>}
       {view==='pancartao'&&<PanCartao/>}
       {view==='govsp'&&<PortalSP conv='GOVERNO SP' titulo='Governo SP' icone='🏛️'/>}
       {view==='prefsp'&&<PortalSP conv='PREF' titulo='Prefeitura SP' icone='🏙️' semPortal={true}/>}
