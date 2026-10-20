@@ -4752,8 +4752,10 @@ const WBC_HDR=['NUM_BANCO','NOM_BANCO','NUM_PROPOSTA','NUM_CONTRATO','NOM_CLIENT
 // Códigos do WorkBank tirados do arquivo REAL de produção que o Carlos mandou em 05/10/2026 ("Arquivo Padrao WORKBANK
 // (16).xlsx", 368 propostas das contas 18006 e 19094). O modelo de comissão de teste trazia C6 = 626; o real é 336.
 // Facta 149 veio do modelo de comissão. QualiBanking ainda sem código. Ajustes ficam em konsig_config.wb_codigo_banco.
-const WBC_NUM_PADRAO={'C6 BANK':336,'FACTA':149,'PAN':623,'DIGIO':335,'AGIL':2106,'MEU CREDBANK':321654,'AMIGOZ':1902}
-const WBC_NOM={'C6 BANK':'C6 BANK','FACTA':'FACTA FINANCEIRA','PAN':'PAN','DIGIO':'DIGIO','QUALI':'QUALIBANKING','AGIL':'AGIL','AMIGOZ':'AMIGOZ','MEU CREDBANK':'FINTECH DO CORBAN'}
+const WBC_NUM_PADRAO={'C6 BANK':336,'FACTA':149,'PAN':623,'DIGIO':335,'AGIL':2106,'MEU CREDBANK':321654,'FINTECH DO CORBAN':321654,'AMIGOZ':1902}
+const WBC_NOM={'C6 BANK':'C6 BANK','FACTA':'FACTA FINANCEIRA','PAN':'PAN','DIGIO':'DIGIO','QUALI':'QUALIBANKING','AGIL':'AGIL','AMIGOZ':'AMIGOZ','MEU CREDBANK':'FINTECH DO CORBAN','FINTECH DO CORBAN':'FINTECH DO CORBAN'}
+// 20/10/2026, Carlos: "MEU CREDBANK é FINTECH DO CORBAN, nunca coloque MEU CREDBANK" — o robô já grava FINTECH DO CORBAN;
+// a chave MEU CREDBANK fica só para linhas antigas da base
 const WBC_CONTAS={'18006':'LhamasCred (18006)','19094':'CLJ (19094)'}
 const wbcLimpo=t=>String(t??'').replace(/sistemas?[\s-]*cred\s*franco|cred\s*franco/ig,'LHAMASCRED').replace(/\bSCF\b/g,'').trim()
 const wbcEhFacta=r=>/FACTA/i.test(String(r.banco||''))
