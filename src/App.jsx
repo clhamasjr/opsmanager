@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { supabase } from './supabase.js'
 import * as XLSX from 'xlsx'
+import { quApiParaRelatorio, QU_API_COLS } from './wbQualiApi.js'
 
 /* ═══ THEME ═══ */
 const C={bg:'#F5F7FA',surface:'#FFFFFF',card:'#FFFFFF',border:'#E2E8F0',text:'#1E293B',muted:'#94A3B8',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#0EA5E9',abg:'#3B82F611'}
@@ -4674,7 +4675,7 @@ function cfParseComissaoNeo(wb){
 }
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
-const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'}]   // CredFranco: código por banco (cfLinha)
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'},{id:'QUALIAPI',l:'QualiBanking (API)'}]   // CredFranco: código por banco (cfLinha); QualiBanking API: quLinha
 /* ═══ Trocar o parceiro de uma proposta — grava em digitacoes.agente ═══
    Quem recebe os avisos no WhatsApp vem de digitacoes.agente, não do digitador do Konsig.
    Quando a extração do banco chega sem esse campo, a proposta fica órfã: não entra na batida
@@ -5010,6 +5011,14 @@ function WorkBankQuali(){
   // 15/10/2026, Carlos: sobe a planilha geral e o sistema filtra "somente os últimos 2 meses de propostas" — pela data da
   // proposta (digitação), do mesmo dia de 2 meses atrás até hoje. "Tudo" fica como opção.
   const[periodo,setPeriodo]=useState('2m')
+  // 21/10/2026: a portabilidade da Quali agora sai pela API (banco "QualiBanking (API)" / Todos os bancos). Por padrão o
+  // cartão manda só o que a API NÃO traz (Novo, Finanto e o que a sincronização perdeu): o mesmo contrato em dois arquivos
+  // deixaria o status no Work dependendo da ordem de importação. "Também o que vai pela API" volta ao jeito antigo.
+  const[soFalta,setSoFalta]=useState(true),[naApi,setNaApi]=useState(null)
+  useEffect(()=>{(async()=>{try{let all=[],from=0
+    while(true){const{data,error}=await supabase.from('portabilidades').select('contract_number').order('id').range(from,from+999);if(error)throw error
+      all=all.concat(data||[]);if(!data||data.length<1000)break;from+=1000}
+    setNaApi(new Set(all.map(x=>String(x.contract_number||'').trim().toUpperCase()).filter(Boolean)))}catch{setNaApi(new Set())}})()},[])
   const fileRef=useRef(null)
   // códigos de banco do WorkBank: o mesmo JSON que as telas de produção e comissão usam
   const lerCodigos=async()=>{const{data}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
@@ -5045,16 +5054,19 @@ function WorkBankQuali(){
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const todas=rows.map(r=>quLinha(r,hoje,codigos))
     const corte=quCorte2Meses(hoje)
-    const linhas=periodo==='2m'?todas.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):todas
-    const foraPeriodo=todas.length-linhas.length
+    const noPeriodo=periodo==='2m'?todas.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):todas
+    const foraPeriodo=todas.length-noPeriodo.length
+    const linhas=soFalta&&naApi?noPeriodo.filter(o=>!naApi.has(String(o.NUM_CONTRATO||'').trim().toUpperCase())):noPeriodo
+    const pelaApi=noPeriodo.length-linhas.length
     const porTipo={},porBanco={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1;porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1})
     const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
     return{linhas,porTipo,porBanco,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
       averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length,
-      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length,corte,foraPeriodo,total2:todas.length}
-  },[rows,codigos,periodo])
+      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length,corte,foraPeriodo,total2:todas.length,pelaApi}
+  },[rows,codigos,periodo,soFalta,naApi])
   const temFinanto=!!(R&&R.porBanco.FINANTO)
   const gerar=()=>{
+    if(soFalta&&!naApi){setMsg('Carregando a lista da API… tente de novo em alguns segundos');return}
     if(!R||!R.linhas.length)return
     if(R.semCodigo){setMsg('❌ Falta o código da Finanto no WorkBank — preencha o campo abaixo e clique em Salvar');return}
     const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
@@ -5078,6 +5090,10 @@ function WorkBankQuali(){
           <option value="2m">📅 Últimos 2 meses</option>
           <option value="tudo">Tudo do relatório</option>
         </select>
+        <select value={soFalta?'falta':'tudo'} onChange={e=>setSoFalta(e.target.value==='falta')} title="a portabilidade da Quali já sai pela API (banco QualiBanking API / Todos os bancos)" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 9px',fontSize:12,fontWeight:700,outline:'none'}}>
+          <option value="falta">🔌 Só o que a API não traz</option>
+          <option value="tudo">Também o que vai pela API</option>
+        </select>
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.info,background:C.info+'15',color:C.info,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
         <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length&&!R.semCodigo?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
@@ -5089,6 +5105,7 @@ function WorkBankQuali(){
       <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· digitadas de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
       {periodo==='2m'&&R.foraPeriodo>0&&<span style={{color:C.muted}}>· {R.foraPeriodo} de {R.total2} ficaram de fora (digitadas antes de {dt(R.corte)})</span>}
+      {soFalta&&R.pelaApi>0&&<span style={{color:C.muted}}>· {R.pelaApi} já vão pela API (banco QualiBanking API) e ficaram fora deste arquivo</span>}
       <span>· {Object.entries(R.porTipo).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· {R.averbadas} com data de averbação</span>
       {R.semCpf>0&&<span style={{color:C.warn,fontWeight:700}}>· ⚠️ {R.semCpf} sem CPF</span>}
@@ -5148,7 +5165,8 @@ function WorkBankExport(){
       const querNeo=fonte==='NEOCREDITO'||fonte==='TODOS'
       const querCref=fonte==='CREFISA'||fonte==='TODOS'
       const querCf=fonte==='CREDFRANCO'||fonte==='TODOS'
-      const[neo,cref,cf]=await Promise.all([
+      const querQa=fonte==='QUALIAPI'||fonte==='TODOS'
+      const[neo,cref,cf,qa]=await Promise.all([
         querNeo?Promise.all([
           paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira',qy=>qy.order('proposta')),
           paginar('digitacoes','proposta,agente,usuario',qy=>qy.eq('banco','NEOCREDITO').order('id')),
@@ -5160,6 +5178,13 @@ function WorkBankExport(){
           paginar('credfranco_esteira','cod_webcred,cod_banco,data_proposta,status,cpf,cliente,banco,convenio,produto,parcelas,vr_bruto,vr_liquido,vr_parcela,data_averbacao,digitador,tipo:raw->>ProductType'),
           paginar('digitacoes','proposta,agente',qy=>qy.in('banco',['C6 BANK','PAN','DIGIO','AGIL','AMIGOZ','FINTECH DO CORBAN','MEU CREDBANK'])),
           supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
+        ]):Promise.resolve(null),
+        // QualiBanking pela API (21/10/2026): tabela portabilidades (sync-qualibanking), sem subir o relatório — só
+        // portabilidade; o período é o da tela, como a CredFranco. Linha montada pelo mesmo quLinha do cartão do .csv.
+        querQa?Promise.all([
+          paginar('portabilidades','status_date,status_key,'+QU_API_COLS,qy=>qy.order('id')),
+          paginar('digitacoes','proposta,agente',qy=>qy.eq('banco','QUALIBANKING').order('id')),
+          supabase.from('konsig_config').select('key,value').in('key',['wb_codigo_banco','quali_parceiro_por_digitador'])
         ]):Promise.resolve(null)
       ])
       let out=[],mapa=new Map()
@@ -5211,6 +5236,25 @@ function WorkBankExport(){
           data_nosso_credito:r.data_averbacao||null,mov:String(r.data_averbacao||'').slice(0,10)
         })))
       }
+      if(qa){
+        const[port,digQ,cfgQ]=qa
+        if(cfgQ.error)throw cfgQ.error
+        const kv={};(cfgQ.data||[]).forEach(x=>kv[x.key]=x.value)
+        let salvo={},manual={};try{salvo=JSON.parse(kv.wb_codigo_banco||'{}')}catch{};try{manual=JSON.parse(kv.quali_parceiro_por_digitador||'{}')}catch{}
+        if(!cf)setCfCod({...WBC_NUM_PADRAO,...salvo})
+        // parceiro como no robô da Quali: digitação do contrato → digitador cadastrado à mão → login de um parceiro só
+        const porCtr=new Map();(digQ||[]).forEach(d=>{if(d.agente&&d.proposta)porCtr.set(String(d.proposta).trim().toUpperCase(),d.agente.trim())})
+        const manualL=new Map(Object.entries(manual).map(([k,v])=>[k.trim().toLowerCase(),String(v).trim()]))
+        const hist={};(port||[]).forEach(a=>{const ag=porCtr.get(String(a.contract_number||'').toUpperCase()),l=String(a.login||'').toLowerCase();if(ag&&l)(hist[l]=hist[l]||new Set()).add(ag)})
+        const agQ=a=>{const l=String(a.login||'').toLowerCase(),h=hist[l];return porCtr.get(String(a.contract_number||'').toUpperCase())||manualL.get(l)||(h&&h.size===1?[...h][0]:'')}
+        const FIM_OK=/^integrated$/,FIM_RUIM=/cancel|reject|expired|retained|invalid_operation_rules|error_accept|denied/i
+        out=out.concat((port||[]).filter(a=>a.contract_number).map(a=>{const rel=quApiParaRelatorio(a),st=String(a.status_key||'')
+          return{_fonte:'QUALIAPI',_rel:rel,proposta:String(a.contract_number),chave:'QA'+a.contract_number,cpf:rel['CPF'],cliente:rel['Nome'],
+            data:rel['Data da Proposta'],situacao:FIM_OK.test(st)?'INT':(FIM_RUIM.test(st)?'REP':'AND'),situacao_banco:rel['Status'],
+            vr_bruto:Number(rel['Valor Base'])||0,vr_parcela:Number(rel['Valor da Parcela'])||0,vr_liquido:Number(rel['Valor Líquido ao Cliente'])||0,
+            operacao:rel['Tipo de Operação'],parceiro:agQ(a),banco:'QUALIBANKING',produto:rel['Nome da Tabela'],prazo:Number(rel['Prazo'])||null,
+            mov:String(a.status_date||'').slice(0,10)}}))
+      }
       setWbd(mapa);setRows(out)
     }catch(e){setErr('Erro ao carregar: '+(e.message||e))}
     setLoading(false)
@@ -5235,7 +5279,7 @@ function WorkBankExport(){
   }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
   const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
   const porMov=temPer&&fl.incMov?g.filter(r=>!noPer(r.data)).length:0   // entraram só por mudança de status
-  const completas=g.filter(r=>(r._fonte==='CREFISA'||r._fonte==='CREDFRANCO')?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
+  const completas=g.filter(r=>(r._fonte==='CREFISA'||r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI')?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
   const porFonte={};g.forEach(r=>porFonte[r._fonte]=(porFonte[r._fonte]||0)+1)
   const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
   function gerar(){
@@ -5244,6 +5288,7 @@ function WorkBankExport(){
     const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const linhas=g.map(r=>{
+      if(r._fonte==='QUALIAPI'){const o=quLinha(r._rel,hoje,cfCod);return WB_HDR.map(h=>o[h])}   // mesmo quLinha do cartão do relatório
       if(r._fonte==='CREDFRANCO'){const o=cfLinha(r,hoje,cfCod);return WB_HDR.map(h=>o[h])}
       const cref=r._fonte==='CREFISA'
       const fnt=WB_FONTES.find(f=>f.id===r._fonte)
@@ -5271,7 +5316,7 @@ function WorkBankExport(){
       o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
       return WB_HDR.map(h=>o[h])
     })
-    if(linhas.some(l=>l.some(v=>typeof v==='string'&&/cred\s*franco|\bscf\b|promotora/i.test(v)))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
+    if(linhas.some(l=>l.some((v,i)=>quProibido(v,WB_HDR[i])))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
     const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...linhas],{cellDates:true})
     const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
     XLSX.writeFile(bk,'Arquivo Padrao WORKBANK.xlsx',{cellDates:true})
@@ -5301,7 +5346,7 @@ function WorkBankExport(){
     </div>
     <WorkBankQuali/>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'NeoCrédito + Crefisa':fonte}/>
+      <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'todos os bancos':((WB_FONTES.find(f=>f.id===fonte)||{}).l||fonte)}/>
       <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)+(porMov?(' · '+porMov+' por mudança de status'):'')} color={C.accent}/>
       <Stat label="Prontas pra exportar" value={completas} sub="com todos os dados" color={C.accent2}/>
       <Stat label="Por banco" value={Object.entries(porFonte).map(([k,n])=>n).join(' / ')||'0'} sub={Object.keys(porFonte).join(' / ')||'—'} color={C.muted}/>
@@ -5335,18 +5380,19 @@ function WorkBankExport(){
         <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
         {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
       </div>
+      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API traz só portabilidade e, em dia de muito movimento, a API perde alguns contratos. O "Novo", a Finanto e o que a API perdeu continuam pelo cartão do relatório lá em cima — ele já manda só o que a API não traz.</div>}
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
       {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};const cref=r._fonte==='CREFISA';return<tr key={i}>
-        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:(r._fonte==='CREDFRANCO'?C.accent2:C.info)}}>{cref?'CREFISA':(r._fonte==='CREDFRANCO'?(WBC_NOM[r.banco]||r.banco):'NEO')}</td>
+        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:(r._fonte==='CREDFRANCO'?C.accent2:(r._fonte==='QUALIAPI'?C.accent:C.info))}}>{cref?'CREFISA':(r._fonte==='CREDFRANCO'?(WBC_NOM[r.banco]||r.banco):(r._fonte==='QUALIAPI'?'QUALI · API':'NEO'))}</td>
         <td style={{...td,fontSize:10}}>{r.proposta}</td>
         <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
         <td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td>
         <td style={{...td,fontSize:10}}>{r.situacao_banco}</td>
         <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
         <td style={{...td,textAlign:'center'}}>{(w.prazo||r.prazo)?Number(w.prazo||r.prazo):<span style={{color:C.warn}}>…</span>}</td>
-        <td style={{...td,fontSize:10}}>{(cref?r.tabela:(r._fonte==='CREDFRANCO'?r.produto:w.tabela_nome))||<span style={{color:C.warn}}>aguardando robô</span>}</td>
-        <td style={{...td,fontSize:10,color:C.accent}}>{(cref||r._fonte==='CREDFRANCO')?(r.parceiro||'—').slice(0,18)
+        <td style={{...td,fontSize:10}}>{(cref?r.tabela:((r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI')?r.produto:w.tabela_nome))||<span style={{color:C.warn}}>aguardando robô</span>}</td>
+        <td style={{...td,fontSize:10,color:C.accent}}>{(cref||r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI')?(r.parceiro||'—').slice(0,18)
           :<ParceiroEdit proposta={r.proposta} valor={r.parceiro} nomes={pnomes}
              onSalvo={(prop,novo)=>setRows(rs=>(rs||[]).map(x=>String(x.proposta)===prop?{...x,parceiro:novo}:x))}/>}</td>
       </tr>})}
