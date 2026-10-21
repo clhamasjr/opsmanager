@@ -5011,14 +5011,6 @@ function WorkBankQuali(){
   // 15/10/2026, Carlos: sobe a planilha geral e o sistema filtra "somente os últimos 2 meses de propostas" — pela data da
   // proposta (digitação), do mesmo dia de 2 meses atrás até hoje. "Tudo" fica como opção.
   const[periodo,setPeriodo]=useState('2m')
-  // 21/10/2026: a portabilidade da Quali agora sai pela API (banco "QualiBanking (API)" / Todos os bancos). Por padrão o
-  // cartão manda só o que a API NÃO traz (Novo, Finanto e o que a sincronização perdeu): o mesmo contrato em dois arquivos
-  // deixaria o status no Work dependendo da ordem de importação. "Também o que vai pela API" volta ao jeito antigo.
-  const[soFalta,setSoFalta]=useState(true),[naApi,setNaApi]=useState(null)
-  useEffect(()=>{(async()=>{try{let all=[],from=0
-    while(true){const{data,error}=await supabase.from('portabilidades').select('contract_number').order('id').range(from,from+999);if(error)throw error
-      all=all.concat(data||[]);if(!data||data.length<1000)break;from+=1000}
-    setNaApi(new Set(all.map(x=>String(x.contract_number||'').trim().toUpperCase()).filter(Boolean)))}catch{setNaApi(new Set())}})()},[])
   const fileRef=useRef(null)
   // códigos de banco do WorkBank: o mesmo JSON que as telas de produção e comissão usam
   const lerCodigos=async()=>{const{data}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
@@ -5054,19 +5046,16 @@ function WorkBankQuali(){
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const todas=rows.map(r=>quLinha(r,hoje,codigos))
     const corte=quCorte2Meses(hoje)
-    const noPeriodo=periodo==='2m'?todas.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):todas
-    const foraPeriodo=todas.length-noPeriodo.length
-    const linhas=soFalta&&naApi?noPeriodo.filter(o=>!naApi.has(String(o.NUM_CONTRATO||'').trim().toUpperCase())):noPeriodo
-    const pelaApi=noPeriodo.length-linhas.length
+    const linhas=periodo==='2m'?todas.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):todas
+    const foraPeriodo=todas.length-linhas.length
     const porTipo={},porBanco={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1;porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1})
     const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
     return{linhas,porTipo,porBanco,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
       averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length,
-      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length,corte,foraPeriodo,total2:todas.length,pelaApi}
-  },[rows,codigos,periodo,soFalta,naApi])
+      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length,corte,foraPeriodo,total2:todas.length}
+  },[rows,codigos,periodo])
   const temFinanto=!!(R&&R.porBanco.FINANTO)
   const gerar=()=>{
-    if(soFalta&&!naApi){setMsg('Carregando a lista da API… tente de novo em alguns segundos');return}
     if(!R||!R.linhas.length)return
     if(R.semCodigo){setMsg('❌ Falta o código da Finanto no WorkBank — preencha o campo abaixo e clique em Salvar');return}
     const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
@@ -5090,10 +5079,6 @@ function WorkBankQuali(){
           <option value="2m">📅 Últimos 2 meses</option>
           <option value="tudo">Tudo do relatório</option>
         </select>
-        <select value={soFalta?'falta':'tudo'} onChange={e=>setSoFalta(e.target.value==='falta')} title="a portabilidade da Quali já sai pela API (banco QualiBanking API / Todos os bancos)" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 9px',fontSize:12,fontWeight:700,outline:'none'}}>
-          <option value="falta">🔌 Só o que a API não traz</option>
-          <option value="tudo">Também o que vai pela API</option>
-        </select>
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.info,background:C.info+'15',color:C.info,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
         <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length&&!R.semCodigo?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
@@ -5105,7 +5090,6 @@ function WorkBankQuali(){
       <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· digitadas de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
       {periodo==='2m'&&R.foraPeriodo>0&&<span style={{color:C.muted}}>· {R.foraPeriodo} de {R.total2} ficaram de fora (digitadas antes de {dt(R.corte)})</span>}
-      {soFalta&&R.pelaApi>0&&<span style={{color:C.muted}}>· {R.pelaApi} já vão pela API (banco QualiBanking API) e ficaram fora deste arquivo</span>}
       <span>· {Object.entries(R.porTipo).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· {R.averbadas} com data de averbação</span>
       {R.semCpf>0&&<span style={{color:C.warn,fontWeight:700}}>· ⚠️ {R.semCpf} sem CPF</span>}
@@ -5380,7 +5364,7 @@ function WorkBankExport(){
         <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
         {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
       </div>
-      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API traz só portabilidade e, em dia de muito movimento, a API perde alguns contratos. O "Novo", a Finanto e o que a API perdeu continuam pelo cartão do relatório lá em cima — ele já manda só o que a API não traz.</div>}
+      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API traz só portabilidade e, em dia de muito movimento, a API perde alguns contratos. O "Novo", a Finanto e o que a API perdeu continuam pelo cartão do relatório lá em cima. Se usar o relatório para a Quali, não mande a Quali também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
       {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};const cref=r._fonte==='CREFISA';return<tr key={i}>
