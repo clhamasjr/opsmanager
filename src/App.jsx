@@ -5389,6 +5389,31 @@ function WorkBankExport(){
    konsig_config.aki_esteira. A senha é cadastrada NO PC (CADASTRAR-SENHA-AKI.bat), criptografada pelo Windows — nunca
    aqui: o OpsManager lê o Supabase com a chave pública. AKI CAPITAL ≠ CAPITAL CONSIG (pedido do Carlos). */
 const AKI_SIT={INT:'Integrada',CAN:'Cancelada',REP:'Reprovada'}
+/* WorkBank da AKI (22/10/2026), conferido pelo Carlos no rascunho:
+   - banco 357 (konsig_config.wb_codigo_banco "AKI CAPITAL"); tipo como a equipe lança no Work: portabilidade = RECOMPRA,
+     tabela de saque complementar (_CPL_) = SAQUE COMPL., empréstimo = NOVO, senão CARTÃO; produto = tabela do portal;
+   - valor do contrato = "Valor Liberado" da grade (Carlos, com print) em VAL_BRUTO e VAL_LIQUIDO;
+   - só vai proposta com o prazo que o robô leu na grade de Em andamento (a de Canceladas e Integradas não tem Prazo):
+     as antigas, fechadas antes do robô (19/10), ficam de fora — "as antigas não precisa nem mexer, porque já estão todas
+     pagas". Sem valor ou parcela também não vai: o Work guarda o que entra na 1ª importação. */
+const AKI_WB_SIT={INT:'PAGO',CAN:'CANCELADA',REP:'REPROVADA'}
+const akiSemAc=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()
+const akiWbTipo=p=>/PORTAB/.test(akiSemAc(p.tipo_op))?'RECOMPRA':(/(^|_)CPL(_|$)/.test(akiSemAc(p.tabela))?'SAQUE COMPL.':(/EMPREST/.test(akiSemAc(p.produto))?'NOVO':'CARTÃO'))
+const akiWbPronta=p=>Number(p.prazo)>0&&Number(p.valor)>0&&Number(p.parcela)>0
+// o robô começou a ler a AKI em 19/10/2026: o que fechou antes disso é "antiga" (já está no Work, já paga)
+const AKI_ROBO_DESDE='2026-10-19'
+const akiWbData=iso=>/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))?new Date(iso+'T12:00:00'):null
+function akiWbLinha(p,hoje,cod){
+  const o={};WB_HDR.forEach(h=>o[h]=null)
+  o.NUM_BANCO=cod;o.NOM_BANCO='AKI CAPITAL'
+  o.NUM_PROPOSTA=wbcNum(p.prop);o.NUM_CONTRATO=o.NUM_PROPOSTA
+  o.DSC_TIPO_PROPOSTA_EMPRESTIMO=akiWbTipo(p);o.DSC_PRODUTO=p.tabela||null
+  o.DAT_CTR_INCLUSAO=hoje;o.DSC_SITUACAO_EMPRESTIMO=AKI_WB_SIT[p.situacao]||'EM ANALISE';o.DAT_EMPRESTIMO=akiWbData(p.cad)
+  o.NIC_CTR_USUARIO=p.usuario||null;o.COD_CPF_CLIENTE=wbCpf(p.cpf);o.NOM_CLIENTE=p.nome||null;o.DAT_NASCIMENTO=new Date('1990-01-01T12:00:00')
+  o.QTD_PARCELA=Number(p.prazo);o.VAL_PRESTACAO=Number(p.parcela);o.VAL_BRUTO=Number(p.valor);o.VAL_LIQUIDO=Number(p.valor)
+  o.DAT_CREDITO=p.situacao==='INT'?akiWbData(p.fim):null;o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
+  return o
+}
 function EsteiraPortal({P}){
   const[cfg,setCfg]=useState({}),[loading,setLoading]=useState(true),[erro,setErro]=useState(''),[msg,setMsg]=useState('')
   const[fSit,setFSit]=useState('aberto'),[busca,setBusca]=useState(''),[fParc,setFParc]=useState('')
@@ -5424,6 +5449,26 @@ function EsteiraPortal({P}){
   const btn=(cor,cheio)=>({padding:'5px 11px',borderRadius:7,border:'1px solid '+cor,background:cheio?cor:cor+'14',color:cheio?'#fff':cor,fontWeight:600,fontSize:11,cursor:'pointer',whiteSpace:'nowrap'})
   const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}
   const corSit=p=>p.situacao==='INT'?C.accent2:p.situacao==='REP'?C.danger:p.situacao==='CAN'?C.muted:C.warn
+  const exportarWB=async()=>{
+    const vai=lista.filter(akiWbPronta),semPrazo=lista.filter(p=>!(Number(p.prazo)>0))
+    const antigas=semPrazo.filter(p=>String(p.fim||p.ult||p.cad||'')<AKI_ROBO_DESDE).length
+    const recentesSemPrazo=semPrazo.filter(p=>String(p.fim||p.ult||p.cad||'')>=AKI_ROBO_DESDE).map(p=>p.prop)
+    const incompletas=lista.filter(p=>Number(p.prazo)>0&&!akiWbPronta(p)).map(p=>p.prop)
+    if(!vai.length)return setMsg('Nenhuma proposta com prazo ainda — o prazo vem da grade de Em andamento do portal.'+(recentesSemPrazo.length?' Recentes sem prazo (lançar à mão no Work): '+recentesSemPrazo.join(', '):''))
+    let cod=357
+    try{const{data}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle();const n=Number(JSON.parse(data?.value||'{}')['AKI CAPITAL']);if(n>0)cod=n}catch{}
+    const hoje=new Date();hoje.setHours(12,0,0,0)
+    const aoa=vai.map(p=>{const o=akiWbLinha(p,hoje,cod);return WB_HDR.map(h=>o[h])})
+    if(aoa.some(l=>l.some((v,j)=>quProibido(v,WB_HDR[j]))))return setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.')
+    const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...aoa],{cellDates:true})
+    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
+    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - AKI CAPITAL.xlsx',{cellDates:true})
+    const porSit={};vai.forEach(p=>{const k=AKI_WB_SIT[p.situacao]||'EM ANALISE';porSit[k]=(porSit[k]||0)+1})
+    setMsg('✓ '+vai.length+' propostas no arquivo do WorkBank ('+Object.entries(porSit).map(([k,n])=>k+' '+n).join(' · ')+')'+
+      (antigas?' · '+antigas+' antigas sem prazo ficaram de fora (fechadas antes do robô)':'')+
+      (recentesSemPrazo.length?' · ⚠️ recentes sem prazo (o robô não as viu em andamento), lançar à mão no Work: '+recentesSemPrazo.join(', '):'')+
+      (incompletas.length?' · sem valor ou parcela, fora: '+incompletas.join(', '):''))
+  }
   return<div style={{display:'flex',flexDirection:'column',gap:12}}>
     <div style={card}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
@@ -5431,6 +5476,7 @@ function EsteiraPortal({P}){
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
           <button style={btn(C.accent,false)} onClick={async()=>{await salvar('aki_run_now',Date.now(),'🔄 Pedi ao robô para ler o portal agora — em até 1 min. Clique em Recarregar depois.')}}>🔄 Ler o portal agora</button>
           <button style={btn(C.muted,false)} onClick={carregar}>↻ Recarregar</button>
+          {P.wb&&<button style={btn(C.accent2,true)} disabled={loading||!lista.length} onClick={exportarWB} title="arquivo de 61 colunas do WorkBank, banco 357 — só as propostas com prazo (as recentes)">📤 Exportar para o WorkBank</button>}
         </div>
       </div>
       <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.5}}>
@@ -5493,7 +5539,7 @@ function EsteiraPortal({P}){
 
 // telas de portal (mesmo componente): AKI CAPITAL (19/10) e C6 CONSIGNADO (20/10)
 const PORTAIS={
-  aki:{id:'aki',titulo:'AKI CAPITAL',nome:'da AKI',icone:'🟠',bat:'CADASTRAR-SENHA-AKI.bat',formalizacao:false},
+  aki:{id:'aki',titulo:'AKI CAPITAL',nome:'da AKI',icone:'🟠',bat:'CADASTRAR-SENHA-AKI.bat',formalizacao:false,wb:true},
   c6:{id:'c6',titulo:'C6 CONSIGNADO',nome:'do C6',icone:'🟣',bat:'CADASTRAR-SENHA-C6.bat',formalizacao:true,
     extraValer:'\n\nA CredFranco PARA de avisar o C6 (fica só para conferir).',extraPrevia:'\n\nA CredFranco volta a avisar o C6.'}}
 function EsteiraAki(){return<EsteiraPortal key="aki" P={PORTAIS.aki}/>}
