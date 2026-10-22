@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { supabase } from './supabase.js'
 import * as XLSX from 'xlsx'
 import { quApiParaRelatorio, QU_API_COLS } from './wbQualiApi.js'
+import { PROMO_OBRIG, PROMO_SEMENTE, PROMO_FORA, promoLerCsv, promoNomeUsuario, promoTemLixo, promoCorrigirNome, promoLinha, promoFora, promoChaveNome, promoBancoAceito, promoNotacaoCientifica } from './wbPromo.js'
 
 /* ═══ THEME ═══ */
 const C={bg:'#F5F7FA',surface:'#FFFFFF',card:'#FFFFFF',border:'#E2E8F0',text:'#1E293B',muted:'#94A3B8',accent:'#3B82F6',accent2:'#10B981',warn:'#F59E0B',danger:'#EF4444',info:'#0EA5E9',abg:'#3B82F611'}
@@ -5041,6 +5042,171 @@ function quLinha(r,hoje,codigos){
   o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
   return o
 }
+// Relatório da promotora (CREFISACP, HAPPY, ICRED) → arquivo do Work, como a Quali/Finanto — 22/10/2026. Regras em
+// src/wbPromo.js. Usuário: nome salvo para a grafia estragada (promo_wb_usuarios) → nome limpo como vem → "pela lógica".
+function WorkBankPromo(){
+  const[rows,setRows]=useState(null),[nome,setNome]=useState(''),[msg,setMsg]=useState('')
+  const[codigos,setCodigos]=useState({}),[salvos,setSalvos]=useState(PROMO_SEMENTE),[logica,setLogica]=useState({})
+  const[ajustando,setAjustando]=useState(false),[edit,setEdit]=useState({}),[codNovo,setCodNovo]=useState({}),[salvando,setSalvando]=useState(false)
+  const[vistos,setVistos]=useState(null)   // usuários que já foram ao Work por aqui (promo_wb_vistos); null = ainda lendo
+  const[cfgOk,setCfgOk]=useState(false),[outros,setOutros]=useState({})
+  const fileRef=useRef(null)
+  const lerCfg=async()=>{
+    const{data,error}=await supabase.from('konsig_config').select('key,value').in('key',['wb_codigo_banco','promo_wb_usuarios','promo_wb_vistos'])
+    if(error)throw error
+    const kv={};(data||[]).forEach(x=>kv[x.key]=x.value)
+    let c={},u={};try{c=JSON.parse(kv.wb_codigo_banco||'{}')}catch{};try{u=JSON.parse(kv.promo_wb_usuarios||'{}')}catch{}
+    let v=[];try{v=JSON.parse(kv.promo_wb_vistos||'[]')}catch{};if(!Array.isArray(v))v=[]
+    const s={...PROMO_SEMENTE,...u};setCodigos(c);setSalvos(s);setVistos(new Set(v.map(promoChaveNome)));setCfgOk(true);return{c,u,s,v}
+  }
+  useEffect(()=>{lerCfg().catch(e=>setMsg('❌ Não consegui ler os códigos e nomes salvos: '+(e.message||e)))},[])
+  const ler=f=>{
+    if(!f)return
+    setMsg('Lendo '+f.name+'…')
+    const rd=new FileReader()
+    rd.onload=ev=>{
+      try{
+        const{cab,rows:rs}=promoLerCsv(new Uint8Array(ev.target.result))
+        const falta=PROMO_OBRIG.filter(h=>!cab.includes(h))
+        if(falta.length){setRows(null);setMsg('❌ '+f.name+' não parece o relatório da promotora — faltam as colunas: '+falta.join(', '));return}
+        const comCod=rs.filter(r=>String(r['COD. BANCO']||'').trim())
+        if(comCod.some(r=>promoNotacaoCientifica(r['COD. BANCO']))){setRows(null);setMsg('❌ Esse .csv foi aberto e salvo no Excel: o número da proposta virou "5,0796E+11" e não dá para recuperar. Baixe de novo no portal e escolha o arquivo sem abrir no Excel.');return}
+        const fora={};comCod.filter(r=>!promoBancoAceito(r['BANCO'])).forEach(r=>{const b=String(r['BANCO']||'?').trim().toUpperCase().replace(/MEU\s*CRED\s*BANK/g,'FINTECH DO CORBAN');fora[b]=(fora[b]||0)+1})
+        setRows(comCod.filter(r=>promoBancoAceito(r['BANCO'])));setOutros(fora);setNome(f.name);setEdit({});setMsg('')
+        if(!cfgOk)lerCfg().catch(e=>setMsg('❌ Não consegui ler os nomes e códigos salvos: '+(e.message||e)+' — recarregue a página'))   // a 1ª leitura falhou: tenta de novo
+      }catch(e){setRows(null);setMsg('❌ Não consegui ler o arquivo: '+(e.message||e))}
+    }
+    rd.readAsArrayBuffer(f)
+  }
+  // usuários distintos do relatório (nome já sem o "(SUB-USUÁRIO PARCEIRO) 1287.xxx")
+  const nomes=useMemo(()=>{if(!rows)return[];const m=new Map();rows.forEach(r=>{const n=promoNomeUsuario(r['COD DIGITADOR NO BANCO']);m.set(n,(m.get(n)||0)+1)});return[...m.entries()].sort((a,b)=>a[0].localeCompare(b[0]))},[rows])
+  // os estragados sem nome salvo passam pela lógica (letra que mais aparece nos nomes de clientes da base)
+  useEffect(()=>{
+    const faltam=nomes.map(([n])=>n).filter(n=>promoTemLixo(n)&&salvos[n]==null&&logica[n]==null)
+    setAjustando(faltam.length>0)
+    if(!faltam.length)return
+    let vivo=true
+    ;(async()=>{
+      const cache=new Map(),out={}
+      const buscar=async p=>{const{data,error}=await supabase.from('digitacoes').select('cliente').ilike('cliente','%'+p+'%').limit(1000);if(error)throw error;return(data||[]).map(x=>x.cliente)}
+      for(const n of faltam)out[n]=await promoCorrigirNome(n,buscar,cache)
+      if(vivo){setLogica(l=>({...l,...out}));setAjustando(false)}
+    })()
+    return()=>{vivo=false}
+  },[nomes,salvos])
+  const usuario=n=>{const e=edit[n];if(e!=null&&e.trim())return e.replace(/\s+/g,' ').trim();if(salvos[n]!=null)return salvos[n];return promoTemLixo(n)?(logica[n]??null):n}
+  const estragados=nomes.filter(([n])=>promoTemLixo(n))
+  const R=useMemo(()=>{
+    if(!rows)return null
+    const hoje=new Date();hoje.setHours(12,0,0,0)
+    const todas=rows.map(r=>promoLinha(r,WB_HDR,hoje,codigos,usuario(promoNomeUsuario(r['COD DIGITADOR NO BANCO']))))
+    // CREFISACP: os 2 usuários de digitação interna ficam fora — o Carlos sobe esses contratos direto do banco (PROMO_FORA)
+    const linhas=todas.filter(o=>!promoFora(o)),fora=todas.length-linhas.length
+    const porBanco={},porSit={};linhas.forEach(o=>{porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1;const s=o.DSC_SITUACAO_EMPRESTIMO||'?';porSit[s]=(porSit[s]||0)+1})
+    const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
+    return{linhas,porBanco,porSit,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
+      semCodigo:[...new Set(linhas.filter(o=>!o.NUM_BANCO).map(o=>o.NOM_BANCO))],semUsuario:linhas.filter(o=>!o.NIC_CTR_USUARIO).length,
+      fora,comTaxa:linhas.filter(o=>o.PCL_TAXA_EMPRESTIMO!=null).length,usuarios:new Set(linhas.map(o=>o.NIC_CTR_USUARIO).filter(Boolean)).size,
+      novos:vistos?[...new Set(linhas.map(o=>o.NIC_CTR_USUARIO).filter(Boolean))].filter(n=>!vistos.has(promoChaveNome(n))).sort():[]}
+  },[rows,codigos,salvos,logica,edit,vistos])
+  // depois de gerar, os usuários do arquivo passam a ser "já vistos" (lê, junta e grava — não apaga o que outra aba gravou)
+  const marcarVistos=async nomesArq=>{
+    try{const{v}=await lerCfg(),todos=[...new Set([...v,...nomesArq])]
+      const{error}=await supabase.from('konsig_config').upsert([{key:'promo_wb_vistos',value:JSON.stringify(todos),updated_at:new Date().toISOString()}],{onConflict:'key'})
+      if(!error)setVistos(new Set(todos.map(promoChaveNome)))}catch{}
+  }
+  const salvarNomes=async()=>{
+    setSalvando(true)
+    try{
+      const{u}=await lerCfg(),novo={...u}
+      // grava o que foi editado e o palpite da lógica só onde ainda não havia nome salvo (não troca uma correção por palpite)
+      estragados.forEach(([n])=>{const e=String(edit[n]||'').replace(/\s+/g,' ').trim();if(e)novo[n]=e;else if(u[n]==null){const v=usuario(n);if(v)novo[n]=v}})
+      const{error}=await supabase.from('konsig_config').upsert([{key:'promo_wb_usuarios',value:JSON.stringify(novo),updated_at:new Date().toISOString()}],{onConflict:'key'})
+      if(error)throw error
+      setSalvos({...PROMO_SEMENTE,...novo});setEdit({});setMsg('✓ Nomes salvos — da próxima vez saem assim sozinhos')
+    }catch(e){setMsg('❌ '+(e.message||e))}
+    setSalvando(false)
+  }
+  const salvarCodigo=async nom=>{
+    const n=Number(String(codNovo[nom]||'').replace(/\D/g,''))
+    if(!(n>0)){setMsg('❌ Digite o código do '+nom+' no WorkBank (só números)');return}
+    setSalvando(true)
+    try{
+      const{c}=await lerCfg(),novo={...c,[nom]:n}
+      const{error}=await supabase.from('konsig_config').upsert([{key:'wb_codigo_banco',value:JSON.stringify(novo),updated_at:new Date().toISOString()}],{onConflict:'key'})
+      if(error)throw error
+      setCodigos(novo);setCodNovo(x=>({...x,[nom]:''}));setMsg('✓ Código do '+nom+' salvo: '+n)
+    }catch(e){setMsg('❌ '+(e.message||e))}
+    setSalvando(false)
+  }
+  const gerar=()=>{
+    if(!R||!R.linhas.length)return
+    if(!cfgOk){setMsg('❌ Não consegui ler os nomes e códigos salvos — recarregue a página antes de gerar');return}
+    if(ajustando){setMsg('Aguarde: ainda ajustando os nomes de usuário…');return}
+    if(R.linhas.some(o=>promoNotacaoCientifica(o.NUM_PROPOSTA))){setMsg('❌ Número de proposta estragado pelo Excel (5,0796E+11) — baixe o .csv de novo no portal');return}
+    if(R.semCodigo.length){setMsg('❌ Falta o código no WorkBank de: '+R.semCodigo.join(', ')+' — preencha abaixo e clique em Salvar');return}
+    if(R.semUsuario){setMsg('❌ '+R.semUsuario+' propostas sem usuário — confira os nomes abaixo');return}
+    const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
+    if(aoa.some(l=>l.some((v,j)=>quProibido(v,WB_HDR[j])||(typeof v==='string'&&/meu\s*cred/i.test(v))))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
+    const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...aoa],{cellDates:true})
+    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
+    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - '+Object.keys(R.porBanco).sort().join(' e ')+'.xlsx',{cellDates:true})
+    setMsg('✓ '+R.linhas.length+' propostas no arquivo ('+Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')+') — pode gerar quantas vezes precisar'+
+      (R.novos.length?' · usuários novos: '+R.novos.join(', ')+' — confira o cadastro no seu sistema':''))
+    marcarVistos(R.linhas.map(o=>o.NIC_CTR_USUARIO).filter(Boolean))
+  }
+  const dt=d=>d?d.toLocaleDateString('pt-BR'):'—'
+  const podeGerar=R&&R.linhas.length&&!ajustando&&!R.semCodigo.length&&cfgOk
+  const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'5px 9px',fontSize:11,outline:'none'}
+  return<div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+C.warn,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:8}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <div>
+        <div style={{fontSize:13,fontWeight:800}}>🏦 CREFISACP, HAPPY e ICRED — relatório da promotora → arquivo do Work</div>
+        <div style={{fontSize:11,color:C.muted}}>Baixe o relatório de produção (.csv) no portal da promotora e escolha aqui, do jeito que veio. O usuário sai com o nome certo (sem o "SUB-USUÁRIO PARCEIRO" e com as letras estragadas arrumadas) e o arquivo do Work sai pronto.</div>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
+        <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.warn,background:C.warn+'15',color:C.warn,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
+        <button onClick={gerar} disabled={!podeGerar} style={{padding:'8px 18px',borderRadius:8,border:'none',background:podeGerar?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:podeGerar?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
+      </div>
+    </div>
+    {R&&<div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11}}>
+      <span style={{color:C.muted}}>📎 <b style={{color:C.text}}>{nome}</b></span>
+      <span>· <b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
+      <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
+      <span>· de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
+      <span>· {Object.entries(R.porSit).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
+      <span>· {R.usuarios} usuários</span>
+      <span>· taxa em {R.comTaxa} (a que está no nome da tabela)</span>
+      {Object.keys(outros).length>0&&<span style={{color:C.muted}}>· {Object.values(outros).reduce((s,n)=>s+n,0)} de outros bancos ficaram de fora ({Object.entries(outros).map(([k,n])=>k+' '+n).join(', ')} — esses saem pela tela da CredFranco)</span>}
+      {R.fora>0&&<span style={{color:C.muted}}>· {R.fora} da CREFISACP ficaram de fora ({PROMO_FORA.CREFISACP.join(' e ')} — sobem direto do banco)</span>}
+      {ajustando&&<span style={{color:C.warn,fontWeight:700}}>· ajustando os nomes estragados…</span>}
+    </div>}
+    {R&&!cfgOk&&!ajustando&&<div style={{fontSize:11,fontWeight:700,color:C.danger}}>❌ Os nomes e códigos salvos não carregaram — o arquivo não pode sair assim. Recarregue a página.</div>}
+    {R&&R.novos.length>0&&<div style={{fontSize:11,padding:'7px 10px',borderRadius:8,background:C.info+'12',border:'1px solid '+C.info+'55'}}>
+      🆕 <b>{R.novos.length} usuário{R.novos.length>1?'s':''} novo{R.novos.length>1?'s':''}</b> (primeira vez por aqui) — vai{R.novos.length>1?'ão':''} ao Work exatamente assim; cadastre igual no seu sistema, senão a proposta fica sem usuário: <b>{R.novos.join(' · ')}</b>
+    </div>}
+    {R&&R.semCodigo.map(nom=><div key={nom} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',fontSize:11}}>
+      <span style={{color:C.danger,fontWeight:700}}>{nom} sem código no WorkBank:</span>
+      <input value={codNovo[nom]||''} onChange={e=>setCodNovo(x=>({...x,[nom]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')salvarCodigo(nom)}} placeholder={'código do '+nom} style={{...inp,width:150}}/>
+      <button onClick={()=>salvarCodigo(nom)} disabled={salvando} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.accent+'14',color:C.accent,fontWeight:700,fontSize:11,cursor:'pointer'}}>Salvar</button>
+    </div>)}
+    {R&&estragados.length>0&&<div style={{border:'1px solid '+C.border,borderRadius:10,padding:'8px 10px',display:'flex',flexDirection:'column',gap:5}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+        <div style={{fontSize:11,fontWeight:700}}>👤 Usuários que vieram com letra estragada ({estragados.length}) — confira se está igual ao cadastro no seu sistema</div>
+        <button onClick={salvarNomes} disabled={salvando||ajustando} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.accent+'14',color:C.accent,fontWeight:700,fontSize:11,cursor:'pointer'}}>{salvando?'salvando…':'💾 Salvar estes nomes'}</button>
+      </div>
+      {estragados.map(([n,q])=>{const salvo=salvos[n]!=null&&edit[n]==null
+        return<div key={n} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',fontSize:11}}>
+          <span style={{color:C.muted,minWidth:230}}>{n} <span style={{opacity:.7}}>({q})</span></span>
+          <span>→</span>
+          <input value={edit[n]??usuario(n)??''} onChange={e=>setEdit(x=>({...x,[n]:e.target.value}))} placeholder="ajustando…" style={{...inp,minWidth:260,flex:'1 1 260px'}}/>
+          <span style={{color:salvo?C.accent2:C.warn,fontWeight:700,fontSize:10}}>{salvo?'✓ salvo':(edit[n]!=null?'✏️ editado — salve':'pela lógica — confira')}</span>
+        </div>})}
+    </div>}
+    {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
+  </div>
+}
 function WorkBankQuali(){
   const[rows,setRows]=useState(null),[nome,setNome]=useState(''),[msg,setMsg]=useState('')
   const[codigos,setCodigos]=useState({}),[codFin,setCodFin]=useState(''),[salvando,setSalvando]=useState(false)
@@ -5286,8 +5452,12 @@ function WorkBankExport(){
   useEffect(()=>{carregar()},[fonte])
   const pesquisar=()=>setFl({de,ate,sit,parc,busca,incMov})
   const limpar=()=>{setDe('');setAte('');setSit('todas');setParc('');setBusca('');setIncMov(true);setFl({de:'',ate:'',sit:'todas',parc:'',busca:'',incMov:true})}
-  if(loading)return<div style={{padding:40,textAlign:'center',color:C.muted}}>Carregando esteiras...</div>
-  if(err)return<div style={{padding:20,color:C.danger}}>{err}</div>
+  // carregando/erro: os cartões da Quali e da promotora ficam montados na mesma posição (não perdem o arquivo escolhido)
+  if(loading||err)return<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={loading?{padding:40,textAlign:'center',color:C.muted}:{padding:20,color:C.danger}}>{loading?'Carregando esteiras...':err}</div>
+    <WorkBankQuali/>
+    <WorkBankPromo/>
+  </div>
   const q=(fl.busca||'').trim().toLowerCase(),qd=q.replace(/\D/g,'')
   const noPer=d=>!!d&&(!fl.de||d>=fl.de)&&(!fl.ate||d<=fl.ate)
   const temPer=!!(fl.de||fl.ate)
@@ -5371,6 +5541,7 @@ function WorkBankExport(){
       <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
     </div>
     <WorkBankQuali/>
+    <WorkBankPromo/>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'todos os bancos':((WB_FONTES.find(f=>f.id===fonte)||{}).l||fonte)}/>
       <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)+(porMov?(' · '+porMov+' por mudança de status'):'')} color={C.accent}/>
