@@ -4773,6 +4773,41 @@ const wbcBrl=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigi
 const CF_TIPO={'Novo':'Novo','Refin':'REFINANCIAMENTO','Portabilidade':'Portabilidade','Refin / Portabilidade':'PORTAB/REFIN','Cartão':'Cartão','Cartão Beneficio':'Cartão','Cartão Benefício':'Cartão'}
 const cfSit=s=>/pago cliente|averbad/i.test(s||'')?'Averbada':(/em an[aá]lise/i.test(s||'')?'Em Análise':(s||''))
 const wbCpf=c=>{const x=String(c||'').replace(/\D/g,'').padStart(11,'0');return x.slice(0,3)+'.'+x.slice(3,6)+'.'+x.slice(6,9)+'-'+x.slice(9)}
+/* Taxa a.m. (PCL_TAXA_EMPRESTIMO, em %: 1,85 → 1.85) — 22/10/2026. A API da CredFranco não tem taxa (nem /proposal/details):
+   vem do NOME da tabela, regras do Carlos:
+   - taxa única ("TAXA 1,55%", "TX 1,60%") → ela;
+   - faixa ("TX 1,850 A 1,680", "TX 1,42% A 1,85%") → no C6 a MAIOR ("quando possuir 2 taxa pode inserir sempre a maior no C6"),
+     nos outros (Digio) a MENOR;
+   - C6 sem taxa no nome → a correta do contrato: a do PDF que o robô do C6 lê (konsig_config.c6_detalhes); sem PDF, a dos
+     outros contratos da MESMA tabela quando todos dão a mesma (REFIN 1 = 1,85, REFIN 2 = 1,80, REFIN 3 = 1,75); C6 INSS sem
+     nada disso = 1,85 ("nas do C6 INSS se não tiver taxa você pode inserir 1,85" — no NOVO do INSS o PDF é sempre 1,85);
+   - o resto sai vazio (ex.: Digio "TEMPORARIA REFIN DE PORT" — "Deixar vazio"; CLT do C6 sem PDF, que varia por contrato). */
+const cfTxNum=x=>Number(String(x).replace(',','.'))
+const cfTaxaNome=p=>{const t=String(p||'')
+  const fx=t.match(/\b(?:TAXA|TX)\.?\s*(\d{1,2},\d{1,3})\s*%?\s*A\s*(\d{1,2},\d{1,3})/i);if(fx)return{faixa:[cfTxNum(fx[1]),cfTxNum(fx[2])]}
+  const m=t.match(/\b(?:TAXA|TX)\.?\s*(\d{1,2},\d{1,3})/i);return m?{unica:cfTxNum(m[1])}:{}}
+const cfEhC6=r=>/^C6/i.test(String(r.banco||''))
+const cfTabKey=p=>String(p||'').trim().toUpperCase()
+// taxa do PDF por proposta (c6_detalhes) e, por tabela, a taxa quando todos os PDFs dela batem
+function cfTaxasC6(est,det){
+  const pdf=new Map(),porTab=new Map()
+  Object.values(det||{}).forEach(d=>{const t=Number(d&&d.taxa);if(d&&d.prop&&t>0)pdf.set(String(d.prop).trim(),t)})
+  // CLT e TEMPORARIA ficam fora: a taxa varia por contrato na mesma tabela (1 PDF não diz a taxa dos outros clientes)
+  ;(est||[]).forEach(r=>{if(!cfEhC6(r)||/CLT|TEMPORARIA/i.test(String(r.convenio||'')+' '+String(r.produto||'')))return;const t=pdf.get(String(r.cod_banco||'').trim());if(t==null)return;const k=cfTabKey(r.produto);if(!porTab.has(k))porTab.set(k,new Set());porTab.get(k).add(t)})
+  const tab=new Map();porTab.forEach((v,k)=>{if(v.size===1)tab.set(k,[...v][0])})
+  return{pdf,tab}
+}
+function cfTaxaCheia(r,tx){
+  const n=cfTaxaNome(r.produto),c6=cfEhC6(r)
+  if(n.unica)return n.unica
+  if(n.faixa)return c6?Math.max(...n.faixa):Math.min(...n.faixa)
+  if(!c6)return null
+  const p=tx&&tx.pdf.get(String(r.cod_banco||'').trim());if(p!=null)return p
+  const t=tx&&tx.tab.get(cfTabKey(r.produto));if(t!=null)return t
+  return /\bINSS\b/i.test(String(r.convenio||'')+' '+String(r.produto||''))?1.85:null
+}
+// 22/10/2026, Carlos: "deixar por padrão 3 digitos no maximo, exemplo 1,699 deixa 1,69" — corta (não arredonda) em 2 casas
+const cfTaxa=(r,tx)=>{const v=cfTaxaCheia(r,tx);return v==null?null:Math.trunc(Math.round(v*1e6)/1e4)/100}
 function cfLinha(r,hoje,codigos){
   const o={};WB_HDR.forEach(h=>o[h]=null)
   o.NUM_BANCO=codigos[r.banco]??null;o.NOM_BANCO=WBC_NOM[r.banco]||wbcLimpo(r.banco)
@@ -4788,6 +4823,7 @@ function cfLinha(r,hoje,codigos){
   o.QTD_PARCELA=Number(r.prazo)||null
   o.VAL_PRESTACAO=Number(r.vr_parcela)||null;o.VAL_BRUTO=Number(r.vr_bruto)||null;o.VAL_LIQUIDO=Number(r.vr_liquido)||null
   o.DAT_CREDITO=wbcData(r.averbacao)
+  o.PCL_TAXA_EMPRESTIMO=r.taxa??null
   o.DSC_TIPO_FORMULARIO_EMPRESTIMO='DIGITAL'
   return o
 }
@@ -5161,7 +5197,8 @@ function WorkBankExport(){
         querCf?Promise.all([
           paginar('credfranco_esteira','cod_webcred,cod_banco,data_proposta,status,cpf,cliente,banco,convenio,produto,parcelas,vr_bruto,vr_liquido,vr_parcela,data_averbacao,digitador,tipo:raw->>ProductType'),
           paginar('digitacoes','proposta,agente',qy=>qy.in('banco',['C6 BANK','PAN','DIGIO','AGIL','AMIGOZ','FINTECH DO CORBAN','MEU CREDBANK'])),
-          supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
+          supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle(),
+          supabase.from('konsig_config').select('value').eq('key','c6_detalhes').maybeSingle()   // taxa do contrato C6 (PDF)
         ]):Promise.resolve(null),
         // QualiBanking pela API (21/10/2026): tabela portabilidades (sync-qualibanking), sem subir o relatório — só
         // portabilidade; o período é o da tela, como a CredFranco. Linha montada pelo mesmo quLinha do cartão do .csv.
@@ -5205,7 +5242,9 @@ function WorkBankExport(){
         })))
       }
       if(cf){
-        const[est,dig,cfg]=cf
+        const[est,dig,cfg,det6]=cf
+        let d6={};try{d6=JSON.parse(det6?.data?.value||'{}')}catch{}
+        const tx6=cfTaxasC6(est,d6)
         const ag=new Map();(dig||[]).forEach(x=>{if(x.proposta&&x.agente)ag.set(String(x.proposta).trim(),x.agente.trim())})
         let salvo={};try{salvo=JSON.parse(cfg?.data?.value||'{}')}catch{}
         setCfCod({...WBC_NUM_PADRAO,...salvo})
@@ -5217,6 +5256,7 @@ function WorkBankExport(){
           vr_bruto:Number(r.vr_bruto)||0,vr_parcela:Number(r.vr_parcela)||0,vr_liquido:Number(r.vr_liquido)||0,
           operacao:r.tipo||'',convenio:r.convenio||'',parceiro:ag.get(String(r.cod_banco||'').trim())||'',
           banco:r.banco||'',produto:r.produto||'',digitador:r.digitador||'',averbacao:r.data_averbacao||'',prazo:r.parcelas,
+          taxa:cfTaxa(r,tx6),
           data_nosso_credito:r.data_averbacao||null,mov:String(r.data_averbacao||'').slice(0,10)
         })))
       }
@@ -5305,7 +5345,9 @@ function WorkBankExport(){
     const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
     XLSX.writeFile(bk,'Arquivo Padrao WORKBANK.xlsx',{cellDates:true})
     const inc=g.length-completas
-    setMsg('✓ '+g.length+' propostas no arquivo'+(inc?(' · ⚠️ '+inc+' sem dados completos'):'')+' — pode gerar quantas vezes precisar, nada fica bloqueado')
+    const cfN=g.filter(r=>r._fonte==='CREDFRANCO'),cfSemTx=cfN.filter(r=>r.taxa==null).length
+    setMsg('✓ '+g.length+' propostas no arquivo'+(inc?(' · ⚠️ '+inc+' sem dados completos'):'')+
+      (cfN.length?' · taxa em '+(cfN.length-cfSemTx)+' de '+cfN.length+' da CredFranco (sem taxa = tabela sem taxa no nome)':'')+' — pode gerar quantas vezes precisar, nada fica bloqueado')
   }
   const chip=(id,l)=><button key={id} onClick={()=>setSit(id)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+(sit===id?C.accent:C.border),background:sit===id?C.abg:'transparent',color:sit===id?C.accent:C.muted,fontSize:11,cursor:'pointer',fontWeight:sit===id?700:400}}>{l}</button>
   const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}
