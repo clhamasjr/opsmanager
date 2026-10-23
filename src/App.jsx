@@ -5050,6 +5050,9 @@ function WorkBankPromo(){
   const[ajustando,setAjustando]=useState(false),[edit,setEdit]=useState({}),[codNovo,setCodNovo]=useState({}),[salvando,setSalvando]=useState(false)
   const[vistos,setVistos]=useState(null)   // usuários que já foram ao Work por aqui (promo_wb_vistos); null = ainda lendo
   const[cfgOk,setCfgOk]=useState(false),[outros,setOutros]=useState({})
+  // 23/10/2026, Carlos: "sempre puxar os últimos 2 meses ... se ficar puxando o arquivo completo sempre pode dar problema" —
+  // como no cartão da Quali: pela data da proposta (DATA), do mesmo dia de 2 meses atrás até hoje; "Tudo" fica como opção
+  const[periodo,setPeriodo]=useState('2m')
   const fileRef=useRef(null)
   const lerCfg=async()=>{
     const{data,error}=await supabase.from('konsig_config').select('key,value').in('key',['wb_codigo_banco','promo_wb_usuarios','promo_wb_vistos'])
@@ -5101,14 +5104,17 @@ function WorkBankPromo(){
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const todas=rows.map(r=>promoLinha(r,WB_HDR,hoje,codigos,usuario(promoNomeUsuario(r['COD DIGITADOR NO BANCO']))))
     // CREFISACP: os 2 usuários de digitação interna ficam fora — o Carlos sobe esses contratos direto do banco (PROMO_FORA)
-    const linhas=todas.filter(o=>!promoFora(o)),fora=todas.length-linhas.length
+    const semInternos=todas.filter(o=>!promoFora(o)),fora=todas.length-semInternos.length
+    const corte=quCorte2Meses(hoje)
+    const linhas=periodo==='2m'?semInternos.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):semInternos
+    const foraPeriodo=semInternos.length-linhas.length
     const porBanco={},porSit={};linhas.forEach(o=>{porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1;const s=o.DSC_SITUACAO_EMPRESTIMO||'?';porSit[s]=(porSit[s]||0)+1})
     const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
     return{linhas,porBanco,porSit,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
       semCodigo:[...new Set(linhas.filter(o=>!o.NUM_BANCO).map(o=>o.NOM_BANCO))],semUsuario:linhas.filter(o=>!o.NIC_CTR_USUARIO).length,
-      fora,comTaxa:linhas.filter(o=>o.PCL_TAXA_EMPRESTIMO!=null).length,usuarios:new Set(linhas.map(o=>o.NIC_CTR_USUARIO).filter(Boolean)).size,
+      fora,corte,foraPeriodo,comTaxa:linhas.filter(o=>o.PCL_TAXA_EMPRESTIMO!=null).length,usuarios:new Set(linhas.map(o=>o.NIC_CTR_USUARIO).filter(Boolean)).size,
       novos:vistos?[...new Set(linhas.map(o=>o.NIC_CTR_USUARIO).filter(Boolean))].filter(n=>!vistos.has(promoChaveNome(n))).sort():[]}
-  },[rows,codigos,salvos,logica,edit,vistos])
+  },[rows,codigos,salvos,logica,edit,vistos,periodo])
   // depois de gerar, os usuários do arquivo passam a ser "já vistos" (lê, junta e grava — não apaga o que outra aba gravou)
   const marcarVistos=async nomesArq=>{
     try{const{v}=await lerCfg(),todos=[...new Set([...v,...nomesArq])]
@@ -5165,6 +5171,10 @@ function WorkBankPromo(){
         <div style={{fontSize:11,color:C.muted}}>Baixe o relatório de produção (.csv) no portal da promotora e escolha aqui, do jeito que veio. O usuário sai com o nome certo (sem o "SUB-USUÁRIO PARCEIRO" e com as letras estragadas arrumadas) e o arquivo do Work sai pronto.</div>
       </div>
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <select value={periodo} onChange={e=>setPeriodo(e.target.value)} title="pela data da proposta" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 9px',fontSize:12,fontWeight:700,outline:'none'}}>
+          <option value="2m">📅 Últimos 2 meses</option>
+          <option value="tudo">Tudo do relatório</option>
+        </select>
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.warn,background:C.warn+'15',color:C.warn,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
         <button onClick={gerar} disabled={!podeGerar} style={{padding:'8px 18px',borderRadius:8,border:'none',background:podeGerar?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:podeGerar?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
@@ -5175,6 +5185,7 @@ function WorkBankPromo(){
       <span>· <b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
       <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
+      {periodo==='2m'&&R.foraPeriodo>0&&<span style={{color:C.muted}}>· {R.foraPeriodo} ficaram de fora (propostas antes de {dt(R.corte)})</span>}
       <span>· {Object.entries(R.porSit).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
       <span>· {R.usuarios} usuários</span>
       <span>· taxa em {R.comTaxa} (a que está no nome da tabela)</span>
