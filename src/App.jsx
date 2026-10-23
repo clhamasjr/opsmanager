@@ -2634,7 +2634,7 @@ function Alertas({curOps,prevOps,curProd,prevProd}){
 
 /* ═══ USUARIOS ═══ */
 function Usuarios({user}){
-  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','akiesteira','c6esteira','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes','avisosparc']
+  const ALL_TELAS=['dashboard','ops','producao','analise','estrategico','ranking','portabilidade','recebimentos','alertas','parceiros','neocompra','akiesteira','c6esteira','finantoesteira','workbank','wbcomissao','pancartao','govsp','prefsp','govparana','agente','conexoes','avisosparc']
   const[users,setUsers]=useState([]),[loading,setLoading]=useState(true),[showNew,setShowNew]=useState(false)
   const[nome,setNome]=useState(''),[email,setEmail]=useState(''),[senha,setSenha]=useState(''),[perfil,setPerfil]=useState('operador'),[msg,setMsg]=useState('')
   const[editTelas,setEditTelas]=useState(null),[editUser,setEditUser]=useState(null)
@@ -3099,13 +3099,15 @@ function AvisosParceiros(){
     const v0=versao.current
     try{
       const desde=new Date(Date.now()-AV_DIAS*86400000),semDesde=new Date(Date.now()-AV_SEM_DIAS*86400000).toISOString()
-      const[p,c,neo,port,cf]=await Promise.all([
+      const[p,c,neo,port,cf,fin]=await Promise.all([
         paginar('parceiros','id,nome,telefone_notificacao,receber_notificacoes,ativo',q=>q.order('nome')),
-        supabase.from('konsig_config').select('key,value').in('key',['aviso_mov_ativo','quali_aviso_ativo','quali_aviso_modo','quali_aviso_liberados','quali_parceiro_so_acao','quali_parceiro_por_digitador','credfranco_ativo','credfranco_aviso_modo','credfranco_aviso_liberados','aki_ativo','aki_aviso_modo','c6_ativo','c6_aviso_modo']),
+        supabase.from('konsig_config').select('key,value').in('key',['aviso_mov_ativo','quali_aviso_ativo','quali_aviso_modo','quali_aviso_liberados','quali_parceiro_so_acao','quali_parceiro_por_digitador','credfranco_ativo','credfranco_aviso_modo','credfranco_aviso_liberados','finanto_ativo','finanto_aviso_ativo','finanto_aviso_modo','finanto_aviso_liberados','finanto_parceiro_so_acao','aki_ativo','aki_aviso_modo','c6_ativo','c6_aviso_modo']),
         paginar('konsig_esteira','proposta,nome,datahorac,situacao,status',q=>q.gte('datahorac',desde.toISOString())),
         // a Quali precisa do histórico inteiro: o parceiro pode vir do digitador que só trabalhou para um parceiro
         paginar('portabilidades','contract_number,borrower_name,borrower_identity,proposal_date,status_name,acesso:raw_data->>accessId'),
-        paginar('credfranco_esteira','cod_banco,cod_webcred,cliente,banco,data_proposta,status',q=>q.gte('data_proposta',desde.toISOString().slice(0,10)))
+        paginar('credfranco_esteira','cod_banco,cod_webcred,cliente,banco,data_proposta,status',q=>q.gte('data_proposta',desde.toISOString().slice(0,10))),
+        // Finanto: o robô do PC grava a esteira inteira, já com o parceiro de cada contrato (mesmas regras da Quali)
+        supabase.from('konsig_config').select('value').eq('key','finanto_esteira').maybeSingle()
       ])
       if(c.error)throw c.error
       const m={};(c.data||[]).forEach(x=>m[x.key]=x.value);setCfg(m)
@@ -3126,7 +3128,7 @@ function AvisosParceiros(){
       const auto=new Map(Object.entries(hist).filter(([,s])=>s.size===1).map(([a,s])=>[a,[...s][0]]))
       const agQ=r=>{const a=String(r.acesso||'').toLowerCase();return porContrato.get(String(r.contract_number||'').toUpperCase())||manualL.get(a)||auto.get(a)||''}
       // propostas dos últimos 30 dias por parceiro e por fonte
-      const u=new Map(),conta=(ag,f,k)=>{if(!u.has(ag))u.set(ag,{neo:new Set(),quali:new Set(),cf:new Set()});u.get(ag)[f].add(k)}
+      const u=new Map(),conta=(ag,f,k)=>{if(!u.has(ag))u.set(ag,{neo:new Set(),quali:new Set(),cf:new Set(),fin:new Set()});u.get(ag)[f].add(k)}
       const semP=[]
       neo.forEach(r=>{const ch=String(r.proposta).replace(/\D/g,''),ag=agNeo.get(ch)||''
         if(ag)conta(ag,'neo',r.proposta)
@@ -3136,6 +3138,11 @@ function AvisosParceiros(){
       port.filter(r=>String(r.proposal_date||'')>=desde.toISOString().slice(0,10)).forEach(r=>{const ag=agQ(r),cli=String(r.borrower_identity||r.borrower_name||'')
         if(ag)conta(ag,'quali',cli)
         else if(String(r.proposal_date||'')>=semDesde.slice(0,10)&&!vistosQ.has(cli)){vistosQ.add(cli);semP.push({fonte:'QUALIBANKING',proposta:r.contract_number,cliente:r.borrower_name,data:r.proposal_date,status:r.status_name||''})}})
+      let finEst={};try{finEst=JSON.parse(fin?.data?.value||'{}')}catch{}
+      const vistosF=new Set()
+      Object.values(finEst).filter(r=>r&&String(r.proposal_date||'')>=desde.toISOString().slice(0,10)).forEach(r=>{const ag=String(r.parceiro||'').trim(),cli=String(r.borrower_identity||r.borrower_name||'')
+        if(ag)conta(ag,'fin',cli)
+        else if(String(r.proposal_date||'')>=semDesde.slice(0,10)&&!vistosF.has(cli)){vistosF.add(cli);semP.push({fonte:'FINANTO',proposta:r.contract_number,cliente:r.borrower_name,data:r.proposal_date,status:r.status_name||''})}})
       cfOp.forEach(r=>{const ag=agCf.get(String(r.cod_banco||'').trim())||''
         if(ag)conta(ag,'cf',r.cod_banco||r.cod_webcred)
         else if(String(r.data_proposta||'')>=semDesde.slice(0,10))semP.push({fonte:String(r.banco||'').toUpperCase(),proposta:String(r.cod_banco||r.cod_webcred),cliente:r.cliente,data:r.data_proposta,status:r.status||''})})
@@ -3148,12 +3155,12 @@ function AvisosParceiros(){
   const porNome=useMemo(()=>{const mp=new Map();parcs.forEach(p=>mp.set((p.nome||'').trim(),p));return mp},[parcs])
   const lista=parcs.filter(avNaLista)
   const recebendo=lista.filter(p=>p.receber_notificacoes!==false)
-  const qtd=nome=>{const x=uso&&uso.get((nome||'').trim());return x?{neo:x.neo.size,quali:x.quali.size,cf:x.cf.size}:{neo:0,quali:0,cf:0}}
+  const qtd=nome=>{const x=uso&&uso.get((nome||'').trim());return x?{neo:x.neo.size,quali:x.quali.size,cf:x.cf.size,fin:x.fin.size}:{neo:0,quali:0,cf:0,fin:0}}
   // quem tem proposta nos últimos 30 dias e NÃO recebe aviso nenhum
   const fora=useMemo(()=>{if(!uso)return[]
     return[...uso.keys()].map(nome=>({nome,p:porNome.get(nome)}))
       .filter(x=>!x.p||!avNaLista(x.p)||x.p.receber_notificacoes===false)
-      .map(x=>({...x,...qtd(x.nome)})).sort((a,b)=>(b.neo+b.quali+b.cf)-(a.neo+a.quali+a.cf))},[uso,porNome])
+      .map(x=>({...x,...qtd(x.nome)})).sort((a,b)=>(b.neo+b.quali+b.cf+b.fin)-(a.neo+a.quali+a.cf+a.fin))},[uso,porNome])
 
   const salvar=async(p,telTxt,recebe)=>{
     const{tel,ruins}=avNorm(telTxt)
@@ -3198,8 +3205,9 @@ function AvisosParceiros(){
   const preparar=nome=>{setBusca(nome);setNovoTel('');setMsg('Coloque o WhatsApp de '+nome+' e clique em Adicionar');setTimeout(()=>{telRef.current&&telRef.current.focus();telRef.current&&telRef.current.scrollIntoView({behavior:'smooth',block:'center'})},50)}
   // os textos dizem exatamente o que os robôs fazem (conferido na revisão de 07/10/2026)
   const setModo=async(chave,banco,valendo,lib)=>{
-    const quali=chave==='quali_aviso_modo'
-    const extra=quali?(cfg.quali_parceiro_so_acao==='1'
+    const quali=chave==='quali_aviso_modo'||chave==='finanto_aviso_modo'   // a Finanto segue as mesmas regras da Quali
+    const soAcaoQF=chave==='finanto_aviso_modo'?cfg.finanto_parceiro_so_acao!=='0':cfg.quali_parceiro_so_acao==='1'
+    const extra=quali?(soAcaoQF
         ?'\n\nNa hora vai só o que pede ação do parceiro (assinatura, documento, benefício, anuência, saldo em aprovação). Reprovada, cancelada, retida, concluída e fases vão no resumo das 18h. A cobrança de saldo do dia (9h) também passa a ir para eles.'
         :'\n\nVai toda mudança de status, o resumo das 18h e a cobrança de saldo do dia (9h).')
       :chave==='c6_aviso_modo'?'\n\nVai: integrada, reprovada, cancelada e mudança de atividade do C6 — das 8h às 20h. A CredFranco PARA de avisar o C6 (fica só para conferir).'
@@ -3223,10 +3231,13 @@ function AvisosParceiros(){
   const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:11,outline:'none'}
   const libQ=(()=>{try{return JSON.parse(cfg.quali_aviso_liberados||'[]')}catch{return[]}})()
   const libCf=(()=>{try{return JSON.parse(cfg.credfranco_aviso_liberados||'[]')}catch{return[]}})()
+  const libF=(()=>{try{return JSON.parse(cfg.finanto_aviso_liberados||'[]')}catch{return[]}})()
   const fontes=[
     {id:'neo',nome:'NEOCRÉDITO (Konsig)',ativo:cfg.aviso_mov_ativo==='1',valendo:true,obs:'pagamento, pendência, nota promissória, assinatura, reprovação e mudanças de fase'},
     {id:'quali',nome:'QualiBanking',chave:'quali_aviso_modo',ativo:cfg.quali_aviso_ativo==='1',valendo:cfg.quali_aviso_modo==='parceiros',lib:libQ,
       obs:cfg.quali_parceiro_so_acao==='1'?'na hora só o que pede ação do parceiro; o resto vai no resumo das 18h · cobrança de saldo do dia às 9h':'todas as mudanças de status'},
+    {id:'fin',nome:'Finanto (API)',chave:'finanto_aviso_modo',ativo:cfg.finanto_ativo==='1'&&cfg.finanto_aviso_ativo==='1',semAviso:cfg.finanto_ativo==='1'&&cfg.finanto_aviso_ativo!=='1',valendo:cfg.finanto_aviso_modo==='parceiros',lib:libF,
+      obs:(cfg.finanto_parceiro_so_acao!=='0'?'na hora só o que pede ação do parceiro; o resto vai no resumo das 18h':'todas as mudanças de status')+' · cobrança de saldo do dia às 9h · robô do escritório (API da Finanto)'},
     {id:'cf',nome:'C6 · PAN · Digio · Ágil · outros',chave:'credfranco_aviso_modo',ativo:cfg.credfranco_ativo==='1',valendo:cfg.credfranco_aviso_modo==='parceiros',lib:libCf,
       obs:'pago, pendência, reprovada, cancelada e estornada (Facta e Quali ficam de fora: têm robô próprio)'},
     {id:'aki',nome:'AKI CAPITAL',chave:'aki_aviso_modo',ativo:cfg.aki_ativo==='1',valendo:cfg.aki_aviso_modo==='parceiros',lib:[],
@@ -3235,7 +3246,7 @@ function AvisosParceiros(){
       obs:'integrada, reprovada, cancelada e mudança de atividade · das 8h às 20h · ligado aqui, a CredFranco deixa de avisar o C6'}
   ]
   const destinoSem=s=>{if(s.neo)return'👥 grupo operacional'
-    const modo=s.fonte==='QUALIBANKING'?cfg.quali_aviso_modo:cfg.credfranco_aviso_modo
+    const modo=s.fonte==='QUALIBANKING'?cfg.quali_aviso_modo:(s.fonte==='FINANTO'?cfg.finanto_aviso_modo:cfg.credfranco_aviso_modo)
     return modo==='parceiros'?'👥 grupo operacional':'👀 só você (prévia)'}
   const nomesParc=useMemo(()=>parcs.map(p=>(p.nome||'').trim()).filter(Boolean),[parcs])
   const busq=filtro.trim().toLowerCase()
@@ -3253,7 +3264,7 @@ function AvisosParceiros(){
         {fontes.map(f=><div key={f.id} style={{flex:'1 1 250px',border:'1px solid '+C.border,borderLeft:'4px solid '+(!f.ativo?C.danger:f.valendo?C.accent2:C.warn),borderRadius:10,padding:'9px 11px'}}>
           <div style={{fontSize:12,fontWeight:700}}>{f.nome}</div>
           <div style={{fontSize:11,fontWeight:600,marginTop:3,color:!f.ativo?C.danger:f.valendo?C.accent2:C.warn}}>
-            {!f.ativo?'⛔ robô desligado':f.valendo?'✅ ligado — a lista recebe':'👀 prévia — só você recebe'}</div>
+            {!f.ativo?(f.semAviso?'⛔ avisos desligados (ligue na tela Esteira Finanto)':'⛔ robô desligado'):f.valendo?'✅ ligado — a lista recebe':'👀 prévia — só você recebe'}</div>
           {f.ativo&&f.lib&&f.lib.length>0&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>liberado(s) individualmente (recebe mesmo em prévia): {f.lib.join(', ')}</div>}
           <div style={{fontSize:10,color:C.muted,marginTop:3}}>{f.obs}</div>
           {f.chave&&f.ativo&&<div style={{marginTop:7}}>{f.valendo
@@ -3291,6 +3302,7 @@ function AvisosParceiros(){
           <th style={{...th,textAlign:'center'}} title={'propostas dos últimos '+AV_DIAS+' dias'}>NEO</th>
           <th style={{...th,textAlign:'center'}} title={'clientes dos últimos '+AV_DIAS+' dias'}>Quali</th>
           <th style={{...th,textAlign:'center'}} title={'propostas dos últimos '+AV_DIAS+' dias'}>C6·PAN·outros</th>
+          <th style={{...th,textAlign:'center'}} title={'clientes dos últimos '+AV_DIAS+' dias'}>Finanto</th>
           <th style={th}>Situação</th><th style={th}></th>
         </tr></thead>
         <tbody>{listaVis.map(p=>{const q=qtd(p.nome),ed=edit[p.id]!==undefined,pausado=p.receber_notificacoes===false,ocupado=busy===p.id||loading
@@ -3302,7 +3314,7 @@ function AvisosParceiros(){
                 <button disabled={ocupado} onClick={()=>salvar(p,edit[p.id],!pausado)} style={btn(C.accent,true)}>Salvar</button>
                 <button onClick={()=>setEdit(x=>{const n={...x};delete n[p.id];return n})} style={{border:'none',background:'none',cursor:'pointer',color:C.muted}}>✕</button></span>
               :<span onClick={()=>setEdit(x=>({...x,[p.id]:p.telefone_notificacao||''}))} title="clique para trocar o WhatsApp" style={{cursor:'pointer',borderBottom:'1px dashed '+C.border}}>{avMostra(p.telefone_notificacao)} <span style={{opacity:.45}}>✏️</span>{avRepetido(p.telefone_notificacao)&&<span style={{marginLeft:6,color:C.danger,fontSize:10,fontWeight:700}}>⚠️ número repetido — recebe em dobro, clique e salve</span>}{avForaPadrao(p.telefone_notificacao)&&<span style={{marginLeft:6,color:C.danger,fontSize:10,fontWeight:700}}>⚠️ número fora do padrão — pode não entregar, clique e confira</span>}</span>}</td>
-            {['neo','quali','cf'].map(k=><td key={k} style={{...td,textAlign:'center',color:q[k]?C.text:C.muted}}>{q[k]||'—'}</td>)}
+            {['neo','quali','cf','fin'].map(k=><td key={k} style={{...td,textAlign:'center',color:q[k]?C.text:C.muted}}>{q[k]||'—'}</td>)}
             <td style={td}>{pausado?<Badge text="⏸ pausado" color={C.warn}/>:<Badge text="recebendo" color={C.accent2}/>}</td>
             <td style={{...td,whiteSpace:'nowrap',textAlign:'right'}}>
               <button disabled={ocupado} onClick={()=>pausar(p,pausado)} style={{...btn(pausado?C.accent2:C.warn),marginRight:5}}>{pausado?'▶ Reativar':'⏸ Pausar'}</button>
@@ -3310,17 +3322,17 @@ function AvisosParceiros(){
           </tr>})}</tbody>
       </table></div>
       {!loading&&!listaVis.length&&<div style={{textAlign:'center',color:C.muted,fontSize:11,padding:14}}>{lista.length?'Ninguém com esse nome na lista.':'Ninguém na lista ainda — use o campo acima.'}</div>}
-      <div style={{fontSize:10,color:C.muted,marginTop:8}}>NEO, Quali e C6·PAN·outros = propostas (na Quali, clientes) dos últimos {AV_DIAS} dias de cada parceiro.</div>
+      <div style={{fontSize:10,color:C.muted,marginTop:8}}>NEO, Quali, C6·PAN·outros e Finanto = propostas (na Quali e na Finanto, clientes) dos últimos {AV_DIAS} dias de cada parceiro.</div>
     </div>
 
     {!loading&&uso&&<div style={{...card,borderLeft:'4px solid '+(fora.length?C.warn:C.accent2)}}>
       <div style={{fontSize:12,fontWeight:700}}>⚠️ Têm proposta nos últimos {AV_DIAS} dias e NÃO recebem aviso — {fora.length}</div>
       <div style={{fontSize:10,color:C.muted,margin:'3px 0 8px'}}>Os avisos destes parceiros hoje chegam só para você. Coloque na lista para eles receberem direto.</div>
       {fora.length>0&&<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
-        <thead><tr style={{background:C.bg}}><th style={th}>Parceiro</th><th style={{...th,textAlign:'center'}}>NEO</th><th style={{...th,textAlign:'center'}}>Quali</th><th style={{...th,textAlign:'center'}}>C6·PAN·outros</th><th style={th}></th></tr></thead>
+        <thead><tr style={{background:C.bg}}><th style={th}>Parceiro</th><th style={{...th,textAlign:'center'}}>NEO</th><th style={{...th,textAlign:'center'}}>Quali</th><th style={{...th,textAlign:'center'}}>C6·PAN·outros</th><th style={{...th,textAlign:'center'}}>Finanto</th><th style={th}></th></tr></thead>
         <tbody>{fora.map(x=><tr key={x.nome} style={{borderBottom:'1px solid '+C.border}}>
           <td style={{...td,fontWeight:600}}>{x.nome}</td>
-          {['neo','quali','cf'].map(k=><td key={k} style={{...td,textAlign:'center',color:x[k]?C.text:C.muted}}>{x[k]||'—'}</td>)}
+          {['neo','quali','cf','fin'].map(k=><td key={k} style={{...td,textAlign:'center',color:x[k]?C.text:C.muted}}>{x[k]||'—'}</td>)}
           <td style={{...td,textAlign:'right',whiteSpace:'nowrap'}}>{!x.p
             ?<span style={{fontSize:10,color:C.danger}} title="o robô procura o parceiro pelo nome exato do cadastro">não está no cadastro de Parceiros com este nome</span>
             :x.p.receber_notificacoes===false&&avNaLista(x.p)
@@ -3361,7 +3373,7 @@ function Conexoes(){
   const[busy,setBusy]=useState('')
   const v=(k,x)=>setVal(p=>({...p,[k]:x}))
   const load=async()=>{
-    const{data}=await supabase.from('konsig_config').select('key,value,updated_at')
+    const{data}=await supabase.from('konsig_config').select('key,value,updated_at').not('key','in','(finanto_esteira,c6_detalhes,aki_esteira,c6_esteira)')   // sem as esteiras grandes dos robôs
     const m={};(data||[]).forEach(c=>m[c.key]=c);setCfg(m)
   }
   useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t)},[])
@@ -4073,11 +4085,11 @@ function AgenteParceiros(){
 // Menu em grupos: separa o que é acompanhar resultado, tocar esteira e cuidar de parceiro.
 const NAV_GRUPOS=[
   {id:'visao',l:'Visão Geral',i:'📊',itens:['dashboard','ops','producao','analise','estrategico','ranking']},
-  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','akiesteira','c6esteira','portabilidade','pancartao','workbank','wbcomissao','govsp','prefsp','govparana','agente','conexoes']},
+  {id:'esteira',l:'Gestão de Esteira',i:'🚚',itens:['neocompra','akiesteira','c6esteira','finantoesteira','portabilidade','pancartao','workbank','wbcomissao','govsp','prefsp','govparana','agente','conexoes']},
   {id:'parceiro',l:'Gestão de Parceiro',i:'🤝',itens:['avisosparc','parceiros','notificacoes','recebimentos','alertas']},
   {id:'sistema',l:'Sistema',i:'⚙️',itens:['usuarios']}
 ]
-const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'avisosparc',l:'Avisos aos parceiros',i:'📣'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'akiesteira',l:'Esteira AKI',i:'🟠'},{id:'c6esteira',l:'Esteira C6',i:'🟣'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
+const NAV=[{id:'dashboard',l:'Dashboard',i:'📊'},{id:'ops',l:'Operações',i:'💼'},{id:'producao',l:'Produção',i:'🏦'},{id:'analise',l:'Análise',i:'📋'},{id:'estrategico',l:'Estratégico',i:'🤝'},{id:'ranking',l:'Ranking',i:'🏆'},{id:'portabilidade',l:'Portabilidade',i:'🔄'},{id:'notificacoes',l:'Notificações',i:'📱'},{id:'recebimentos',l:'Recebimentos',i:'💰'},{id:'alertas',l:'Alertas',i:'📈'},{id:'avisosparc',l:'Avisos aos parceiros',i:'📣'},{id:'parceiros',l:'Parceiros',i:'🤝'},{id:'neocompra',l:'Esteira Compra',i:'🛒'},{id:'akiesteira',l:'Esteira AKI',i:'🟠'},{id:'c6esteira',l:'Esteira C6',i:'🟣'},{id:'finantoesteira',l:'Esteira Finanto',i:'🟢'},{id:'workbank',l:'WorkBank',i:'📤'},{id:'wbcomissao',l:'WorkBank comissão',i:'💰'},{id:'govsp',l:'Governo SP',i:'🏛️'},{id:'prefsp',l:'Prefeitura SP',i:'🏙️'},{id:'govparana',l:'Governo Paraná',i:'🌲'},{id:'agente',l:'Agente Parceiros',i:'🤖'},{id:'conexoes',l:'Conexões',i:'🔌'},{id:'pancartao',l:'Cartão Pan',i:'💳'},{id:'usuarios',l:'Usuários',i:'👤'}]
 
 /* ═══ CONFERÊNCIA CREFISA (Baixa Renda / Bolsa Família) ═══ */
 const cfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')
@@ -4676,7 +4688,7 @@ function cfParseComissaoNeo(wb){
 }
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
-const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'},{id:'QUALIAPI',l:'QualiBanking (API)'}]   // CredFranco: código por banco (cfLinha); QualiBanking API: quLinha
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP'},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'},{id:'QUALIAPI',l:'QualiBanking (API)'},{id:'FINANTOAPI',l:'Finanto (API)'}]   // CredFranco: código por banco (cfLinha); QualiBanking e Finanto API: quLinha
 /* ═══ Trocar o parceiro de uma proposta — grava em digitacoes.agente ═══
    Quem recebe os avisos no WhatsApp vem de digitacoes.agente, não do digitador do Konsig.
    Quando a extração do banco chega sem esse campo, a proposta fica órfã: não entra na batida
@@ -5363,7 +5375,11 @@ function WorkBankExport(){
       const querCref=fonte==='CREFISA'||fonte==='TODOS'
       const querCf=fonte==='CREDFRANCO'||fonte==='TODOS'
       const querQa=fonte==='QUALIAPI'||fonte==='TODOS'
-      const[neo,cref,cf,qa]=await Promise.all([
+      // Finanto pela API (23/10/2026): o robô do PC (finanto.mjs) grava TODOS os contratos em konsig_config.finanto_esteira, no
+      // mesmo formato da tabela portabilidades — passa pelo mesmo quApiParaRelatorio/quLinha da Quali (FIN… = FINANTO 3698).
+      // Diferente da Quali, vem tudo: Novo, Refinanciamento e as portabilidades, e o parceiro já vem resolvido pelo robô.
+      const querFa=fonte==='FINANTOAPI'||fonte==='TODOS'
+      const[neo,cref,cf,qa,fa]=await Promise.all([
         querNeo?Promise.all([
           paginar('konsig_esteira','proposta,cpf,nome,situacao,status,valorbruto,valorparcela,valorliquido,datahorac,datahoras,tipooperacao_nome,convenio_nome,usuario_nome,esteira',qy=>qy.order('proposta')),
           paginar('digitacoes','proposta,agente,usuario',qy=>qy.eq('banco','NEOCREDITO').order('id')),
@@ -5383,9 +5399,11 @@ function WorkBankExport(){
           paginar('portabilidades','status_date,status_key,'+QU_API_COLS,qy=>qy.order('id')),
           paginar('digitacoes','proposta,agente',qy=>qy.eq('banco','QUALIBANKING').order('id')),
           supabase.from('konsig_config').select('key,value').in('key',['wb_codigo_banco','quali_parceiro_por_digitador'])
-        ]):Promise.resolve(null)
+        ]):Promise.resolve(null),
+        querFa?supabase.from('konsig_config').select('key,value').in('key',['finanto_esteira','wb_codigo_banco']):Promise.resolve(null)
       ])
       let out=[],mapa=new Map()
+      const FIM_OK=/^integrated$/,FIM_RUIM=/cancel|reject|reprov|expired|retained|invalid_operation_rules|error_accept|denied/i   // status da JoinBank (Quali e Finanto)
       if(neo){
         const[est,digR,w]=neo
         const dm=new Map();(digR||[]).forEach(x=>{if(x.proposta)dm.set(String(x.proposta).replace(/\D/g,''),{agente:(x.agente||'').trim(),usuario:(x.usuario||'').trim()})})
@@ -5448,12 +5466,23 @@ function WorkBankExport(){
         const manualL=new Map(Object.entries(manual).map(([k,v])=>[k.trim().toLowerCase(),String(v).trim()]))
         const hist={};(port||[]).forEach(a=>{const ag=porCtr.get(String(a.contract_number||'').toUpperCase()),l=String(a.login||'').toLowerCase();if(ag&&l)(hist[l]=hist[l]||new Set()).add(ag)})
         const agQ=a=>{const l=String(a.login||'').toLowerCase(),h=hist[l];return porCtr.get(String(a.contract_number||'').toUpperCase())||manualL.get(l)||(h&&h.size===1?[...h][0]:'')}
-        const FIM_OK=/^integrated$/,FIM_RUIM=/cancel|reject|expired|retained|invalid_operation_rules|error_accept|denied/i
         out=out.concat((port||[]).filter(a=>a.contract_number).map(a=>{const rel=quApiParaRelatorio(a),st=String(a.status_key||'')
           return{_fonte:'QUALIAPI',_rel:rel,proposta:String(a.contract_number),chave:'QA'+a.contract_number,cpf:rel['CPF'],cliente:rel['Nome'],
             data:rel['Data da Proposta'],situacao:FIM_OK.test(st)?'INT':(FIM_RUIM.test(st)?'REP':'AND'),situacao_banco:rel['Status'],
             vr_bruto:Number(rel['Valor Base'])||0,vr_parcela:Number(rel['Valor da Parcela'])||0,vr_liquido:Number(rel['Valor Líquido ao Cliente'])||0,
             operacao:rel['Tipo de Operação'],parceiro:agQ(a),banco:'QUALIBANKING',produto:rel['Nome da Tabela'],prazo:Number(rel['Prazo'])||null,
+            mov:String(a.status_date||'').slice(0,10)}}))
+      }
+      if(fa){
+        if(fa.error)throw fa.error
+        const kv={};(fa.data||[]).forEach(x=>kv[x.key]=x.value)
+        let salvo={},est={};try{salvo=JSON.parse(kv.wb_codigo_banco||'{}')}catch{};try{est=JSON.parse(kv.finanto_esteira||'{}')}catch{}
+        if(!cf&&!qa)setCfCod({...WBC_NUM_PADRAO,...salvo})
+        out=out.concat(Object.values(est).filter(a=>a&&a.contract_number).map(a=>{const rel=quApiParaRelatorio(a),st=String(a.status_key||'')
+          return{_fonte:'FINANTOAPI',_rel:rel,proposta:String(a.contract_number),chave:'FA'+a.contract_number,cpf:rel['CPF'],cliente:rel['Nome'],
+            data:rel['Data da Proposta'],situacao:FIM_OK.test(st)?'INT':(FIM_RUIM.test(st)?'REP':'AND'),situacao_banco:rel['Status'],
+            vr_bruto:Number(rel['Valor Base'])||0,vr_parcela:Number(rel['Valor da Parcela'])||0,vr_liquido:Number(rel['Valor Líquido ao Cliente'])||0,
+            operacao:rel['Tipo de Operação'],parceiro:a.parceiro||'',banco:'FINANTO',produto:rel['Nome da Tabela'],prazo:Number(rel['Prazo'])||null,
             mov:String(a.status_date||'').slice(0,10)}}))
       }
       setWbd(mapa);setRows(out)
@@ -5484,7 +5513,7 @@ function WorkBankExport(){
   }).sort((a,b)=>String(b.data).localeCompare(String(a.data)))
   const gv=g.reduce((t,r)=>t+r.vr_bruto,0)
   const porMov=temPer&&fl.incMov?g.filter(r=>!noPer(r.data)).length:0   // entraram só por mudança de status
-  const completas=g.filter(r=>(r._fonte==='CREFISA'||r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI')?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
+  const completas=g.filter(r=>(r._fonte==='CREFISA'||r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI'||r._fonte==='FINANTOAPI')?(r.proposta&&r.prazo):(wbd.get(r.proposta)?.tabela_nome)).length
   const porFonte={};g.forEach(r=>porFonte[r._fonte]=(porFonte[r._fonte]||0)+1)
   const parcs={};(rows||[]).forEach(r=>{if(r.parceiro)parcs[r.parceiro]=(parcs[r.parceiro]||0)+1})
   function gerar(){
@@ -5493,7 +5522,7 @@ function WorkBankExport(){
     const D=v=>{if(!v)return null;const d=new Date(String(v).length<=10?v+'T12:00:00':v);return isNaN(d)?null:d}
     const hoje=new Date();hoje.setHours(12,0,0,0)
     const linhas=g.map(r=>{
-      if(r._fonte==='QUALIAPI'){const o=quLinha(r._rel,hoje,cfCod);return WB_HDR.map(h=>o[h])}   // mesmo quLinha do cartão do relatório
+      if(r._fonte==='QUALIAPI'||r._fonte==='FINANTOAPI'){const o=quLinha(r._rel,hoje,cfCod);return WB_HDR.map(h=>o[h])}   // mesmo quLinha do cartão do relatório
       if(r._fonte==='CREDFRANCO'){const o=cfLinha(r,hoje,cfCod);return WB_HDR.map(h=>o[h])}
       const cref=r._fonte==='CREFISA'
       const fnt=WB_FONTES.find(f=>f.id===r._fonte)
@@ -5588,19 +5617,20 @@ function WorkBankExport(){
         <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
         {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
       </div>
-      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API traz só portabilidade e, em dia de muito movimento, a API perde alguns contratos. O "Novo", a Finanto e o que a API perdeu continuam pelo cartão do relatório lá em cima. Se usar o relatório para a Quali, não mande a Quali também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
+      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API traz só portabilidade e, em dia de muito movimento, a API perde alguns contratos. O "Novo" e o que a API perdeu continuam pelo cartão do relatório lá em cima. Se usar o relatório para a Quali, não mande a Quali também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
+      {(fonte==='FINANTOAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A Finanto pela API traz TODOS os contratos (Novo, Refinanciamento e portabilidades), lidos pelo robô do escritório a cada 30 min. Não precisa mais subir o relatório da Finanto no cartão lá em cima — se subir, não mande a Finanto também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
       {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};const cref=r._fonte==='CREFISA';return<tr key={i}>
-        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:(r._fonte==='CREDFRANCO'?C.accent2:(r._fonte==='QUALIAPI'?C.accent:C.info))}}>{cref?'CREFISA':(r._fonte==='CREDFRANCO'?(WBC_NOM[r.banco]||r.banco):(r._fonte==='QUALIAPI'?'QUALI · API':'NEO'))}</td>
+        <td style={{...td,fontSize:9,fontWeight:700,color:cref?C.warn:(r._fonte==='CREDFRANCO'?C.accent2:(r._fonte==='QUALIAPI'||r._fonte==='FINANTOAPI'?C.accent:C.info))}}>{cref?'CREFISA':(r._fonte==='CREDFRANCO'?(WBC_NOM[r.banco]||r.banco):(r._fonte==='QUALIAPI'?'QUALI · API':(r._fonte==='FINANTOAPI'?'FINANTO · API':'NEO')))}</td>
         <td style={{...td,fontSize:10}}>{r.proposta}</td>
         <td style={{...td,fontWeight:600}}>{(r.cliente||'—').slice(0,24)}</td>
         <td style={{...td,fontSize:10}}>{fmtDate(r.data)}</td>
         <td style={{...td,fontSize:10}}>{r.situacao_banco}</td>
         <td style={{...td,fontWeight:600}}>{cfMoney(r.vr_bruto)}</td>
         <td style={{...td,textAlign:'center'}}>{(w.prazo||r.prazo)?Number(w.prazo||r.prazo):<span style={{color:C.warn}}>…</span>}</td>
-        <td style={{...td,fontSize:10}}>{(cref?r.tabela:((r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI')?r.produto:w.tabela_nome))||<span style={{color:C.warn}}>aguardando robô</span>}</td>
-        <td style={{...td,fontSize:10,color:C.accent}}>{(cref||r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI')?(r.parceiro||'—').slice(0,18)
+        <td style={{...td,fontSize:10}}>{(cref?r.tabela:((r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI'||r._fonte==='FINANTOAPI')?r.produto:w.tabela_nome))||<span style={{color:C.warn}}>aguardando robô</span>}</td>
+        <td style={{...td,fontSize:10,color:C.accent}}>{(cref||r._fonte==='CREDFRANCO'||r._fonte==='QUALIAPI'||r._fonte==='FINANTOAPI')?(r.parceiro||'—').slice(0,18)
           :<ParceiroEdit proposta={r.proposta} valor={r.parceiro} nomes={pnomes}
              onSalvo={(prop,novo)=>setRows(rs=>(rs||[]).map(x=>String(x.proposta)===prop?{...x,parceiro:novo}:x))}/>}</td>
       </tr>})}
@@ -5643,7 +5673,7 @@ function EsteiraPortal({P}){
   const[fSit,setFSit]=useState('aberto'),[busca,setBusca]=useState(''),[fParc,setFParc]=useState('')
   const carregar=async()=>{
     setLoading(true);setErro('')
-    const{data,error}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['esteira','status','ativo','aviso_modo','backfill','login_recusado'].map(k=>P.id+'_'+k))
+    const{data,error}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['esteira','status','ativo','aviso_modo','aviso_ativo','backfill','login_recusado'].map(k=>P.id+'_'+k))
     if(error)setErro('Não consegui carregar: '+error.message)
     const m={};(data||[]).forEach(x=>{const k='aki_'+x.key.slice(P.id.length+1);m[k]=x.value;if(k==='aki_esteira')m._em=x.updated_at});setCfg(m);setLoading(false)
   }
@@ -5654,6 +5684,7 @@ function EsteiraPortal({P}){
     setCfg(c=>({...c,[k]:String(v)}));setMsg(ok)
   }
   const lista=useMemo(()=>{let l=[];try{l=Object.values(JSON.parse(cfg.aki_esteira||'{}'))}catch{}
+    if(P.linha)l=l.filter(Boolean).map(P.linha)   // Finanto: a esteira vem no formato da API (portabilidades) — vira o formato da tela
     const dt=p=>String(p.fim||p.ult||p.cad||'')
     return l.sort((a,b)=>dt(b).localeCompare(dt(a))||String(b.prop).localeCompare(String(a.prop)))},[cfg.aki_esteira])
   const aberto=p=>!AKI_SIT[p.situacao]
@@ -5666,6 +5697,7 @@ function EsteiraPortal({P}){
   const fmt=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
   const dBR=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(2,4):'—'
   const ligado=cfg.aki_ativo==='1',valendo=cfg.aki_aviso_modo==='parceiros'
+  const avisosOff=!!P.avisoAtivo&&cfg.aki_aviso_ativo!=='1'   // Finanto: avisos têm chave própria (finanto_aviso_ativo)
   const recusado=(cfg.aki_login_recusado||'').trim()
   const card={background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}
   const th={padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:9,fontWeight:600,whiteSpace:'nowrap'}
@@ -5698,30 +5730,31 @@ function EsteiraPortal({P}){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
         <div style={{fontSize:15,fontWeight:700}}>{P.icone} Esteira {P.titulo}</div>
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-          <button style={btn(C.accent,false)} onClick={async()=>{await salvar('aki_run_now',Date.now(),'🔄 Pedi ao robô para ler o portal agora — em até 1 min. Clique em Recarregar depois.')}}>🔄 Ler o portal agora</button>
+          <button style={btn(C.accent,false)} onClick={async()=>{if(!ligado)return setMsg('⏸ O robô '+P.nome+' está desligado — ligue primeiro (cartão abaixo).');await salvar('aki_run_now',Date.now(),P.runMsg||'🔄 Pedi ao robô para ler o portal agora — em até 1 min. Clique em Recarregar depois.')}}>🔄 Ler o portal agora</button>
           <button style={btn(C.muted,false)} onClick={carregar}>↻ Recarregar</button>
           {P.wb&&<button style={btn(C.accent2,true)} disabled={loading||!lista.length} onClick={exportarWB} title="arquivo de 61 colunas do WorkBank, banco 357 — só as propostas com prazo (as recentes)">📤 Exportar para o WorkBank</button>}
         </div>
       </div>
       <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.5}}>
-        O robô entra sozinho no portal {P.nome} a cada 15 min e lê a esteira (em andamento, integradas, canceladas e reprovadas).
-        A <b>senha fica só no PC do escritório</b>, criptografada: para cadastrar ou trocar, rode <b>{P.bat}</b> na pasta C:\konsig-sync.
+        {P.desc||<>O robô entra sozinho no portal {P.nome} a cada 15 min e lê a esteira (em andamento, integradas, canceladas e reprovadas).
+        A <b>senha fica só no PC do escritório</b>, criptografada: para cadastrar ou trocar, rode <b>{P.bat}</b> na pasta C:\konsig-sync.</>}
       </div>
       <div style={{fontSize:11,marginTop:8,padding:'7px 10px',borderRadius:8,background:C.surface,border:'1px solid '+C.border}}>
         <b>Robô:</b> {loading?'carregando…':(cfg.aki_status||'ainda não rodou')}{cfg._em?<span style={{color:C.muted}}> · esteira gravada {new Date(cfg._em).toLocaleString('pt-BR').slice(0,17)}</span>:null}
       </div>
       {recusado&&<div style={{fontSize:11,marginTop:8,padding:'7px 10px',borderRadius:8,background:C.danger+'14',border:'1px solid '+C.danger,color:C.danger}}>
-        🔒 O portal <b>recusou o login</b> ({recusado.split('|')[1]||'senha'}). Para não bloquear o usuário, o robô parou de tentar. Cadastre a senha de novo no PC ({P.bat}).
+        {P.recusadoMsg||<>🔒 O portal <b>recusou o login</b> ({recusado.split('|')[1]||'senha'}). Para não bloquear o usuário, o robô parou de tentar. Cadastre a senha de novo no PC ({P.bat}).</>}
       </div>}
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
         <div style={{flex:'1 1 240px',border:'1px solid '+C.border,borderLeft:'4px solid '+(ligado?C.accent2:C.danger),borderRadius:10,padding:'9px 11px'}}>
           <div style={{fontSize:12,fontWeight:700}}>Robô {ligado?'ligado':'desligado'}</div>
-          <button style={{...btn(ligado?C.danger:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(ligado?'Desligar o robô '+P.nome+'? A esteira para de atualizar.':'Ligar o robô '+P.nome+'? Ele entra no portal a cada 15 min com a senha cadastrada no PC.'))return;salvar('aki_ativo',ligado?'0':'1',ligado?'⏸ Robô '+P.nome+' desligado':'▶️ Robô '+P.nome+' ligado — lê o portal no próximo ciclo')}}>{ligado?'⏸ Desligar':'▶️ Ligar'}</button>
+          <button style={{...btn(ligado?C.danger:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(ligado?'Desligar o robô '+P.nome+'? A esteira para de atualizar.':(P.ligarMsg||('Ligar o robô '+P.nome+'? Ele entra no portal a cada 15 min com a senha cadastrada no PC.'))))return;salvar('aki_ativo',ligado?'0':'1',ligado?'⏸ Robô '+P.nome+' desligado':'▶️ Robô '+P.nome+' ligado — lê o portal no próximo ciclo')}}>{ligado?'⏸ Desligar':'▶️ Ligar'}</button>
         </div>
         <div style={{flex:'1 1 240px',border:'1px solid '+C.border,borderLeft:'4px solid '+(valendo?C.accent2:C.warn),borderRadius:10,padding:'9px 11px'}}>
-          <div style={{fontSize:12,fontWeight:700}}>Avisos no WhatsApp: {valendo?'valendo para os parceiros':'prévia (só você recebe)'}</div>
-          <div style={{fontSize:10,color:C.muted,marginTop:2}}>integrada, reprovada, cancelada e mudança de atividade · parceiro pela digitação ou pelo login de quem digitou</div>
-          <button style={{...btn(valendo?C.warn:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(valendo?'Voltar os avisos '+P.nome+' para prévia? Só você recebe.'+(P.extraPrevia||''):'Ligar os avisos '+P.nome+' para os parceiros?\n\nA partir do próximo ciclo, cada parceiro da lista de avisos recebe no WhatsApp as mudanças das propostas DELE no '+P.titulo+' (você continua com a cópia).'+(P.extraValer||'')))return;salvar('aki_aviso_modo',valendo?'previa':'parceiros',valendo?'👀 Avisos '+P.nome+' voltaram para prévia':'✅ Avisos '+P.nome+' ligados para os parceiros')}}>{valendo?'👀 Voltar para prévia':'✅ Ligar para os parceiros'}</button>
+          <div style={{fontSize:12,fontWeight:700}}>Avisos no WhatsApp: {avisosOff?'desligados (nada sai, nem prévia)':valendo?'valendo para os parceiros':'prévia (só você recebe)'}</div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{P.avisoObs||'integrada, reprovada, cancelada e mudança de atividade · parceiro pela digitação ou pelo login de quem digitou'}</div>
+          {avisosOff?<button style={{...btn(C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm('Ligar os avisos '+P.nome+' em PRÉVIA?\n\nSó você recebe, com "iria para: …". Para valer para os parceiros, use depois o botão "Ligar para os parceiros".'))return;salvar('aki_aviso_modo','previa','');salvar('aki_aviso_ativo','1','👀 Avisos '+P.nome+' ligados em prévia — só você recebe')}}>👀 Ligar avisos (prévia)</button>:
+          <button style={{...btn(valendo?C.warn:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(valendo?'Voltar os avisos '+P.nome+' para prévia? Só você recebe.'+(P.extraPrevia||''):'Ligar os avisos '+P.nome+' para os parceiros?\n\nA partir do próximo ciclo, cada parceiro da lista de avisos recebe no WhatsApp as mudanças das propostas DELE no '+P.titulo+' (você continua com a cópia).'+(P.extraValer||'')))return;salvar('aki_aviso_modo',valendo?'previa':'parceiros',valendo?'👀 Avisos '+P.nome+' voltaram para prévia':'✅ Avisos '+P.nome+' ligados para os parceiros')}}>{valendo?'👀 Voltar para prévia':'✅ Ligar para os parceiros'}</button>}
         </div>
       </div>
       {msg&&<div style={{fontSize:11,marginTop:8}}>{msg}</div>}
@@ -5739,7 +5772,7 @@ function EsteiraPortal({P}){
         <input style={{...inp,flex:'1 1 220px'}} placeholder="Buscar proposta, cliente, CPF, parceiro, convênio…" value={busca} onChange={e=>setBusca(e.target.value)}/>
         <select style={inp} value={fParc} onChange={e=>setFParc(e.target.value)}><option value="">Todos os parceiros</option>{parcs.map(p=><option key={p} value={p}>{p}</option>)}</select>
       </div>
-      {loading?<div style={{fontSize:11,color:C.muted}}>Carregando…</div>:!lista.length?<div style={{fontSize:11,color:C.muted}}>Nada ainda — o robô grava a esteira na primeira leitura do portal (depois de ligado e com a senha cadastrada no PC).</div>:
+      {loading?<div style={{fontSize:11,color:C.muted}}>Carregando…</div>:!lista.length?<div style={{fontSize:11,color:C.muted}}>{P.vazioMsg||'Nada ainda — o robô grava a esteira na primeira leitura do portal (depois de ligado e com a senha cadastrada no PC).'}</div>:
       <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
         <thead><tr style={{borderBottom:'1px solid '+C.border}}>{['Proposta','Cliente','Parceiro','Situação','Atividade',...(P.formalizacao?['Formalização']:[]),'Convênio','Produto','Valor','Parcela','Cadastro','Últ. mov.'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
         <tbody>{vis.map(p=><tr key={p.prop} style={{borderBottom:'1px solid '+C.border}}>
@@ -5768,6 +5801,22 @@ const PORTAIS={
     extraValer:'\n\nA CredFranco PARA de avisar o C6 (fica só para conferir).',extraPrevia:'\n\nA CredFranco volta a avisar o C6.'}}
 function EsteiraAki(){return<EsteiraPortal key="aki" P={PORTAIS.aki}/>}
 function EsteiraC6(){return<EsteiraPortal key="c6" P={PORTAIS.c6}/>}
+// Esteira Finanto (23/10/2026): robô finanto.mjs pela API da Finanto. Situação: INT/CAN/REP pelo status da JoinBank; o
+// resto fica "em andamento" com o nome do status. Os avisos seguem as regras da Quali (ligar em 📣 Avisos aos parceiros).
+const FIN_SIT=k=>k==='integrated'?'INT':/^(canceled|proposal_expired|retained)$/.test(k)?'CAN':/reprov|rejected|invalid_operation_rules/.test(k)?'REP':null
+PORTAIS.finanto={id:'finanto',titulo:'FINANTO',nome:'da Finanto',icone:'🟢',bat:'CADASTRAR-CHAVE-FINANTO.bat',formalizacao:false,
+  desc:<>O robô do escritório lê a Finanto pela <b>API oficial</b> a cada 30 min — todos os contratos (Novo, Refinanciamento e portabilidades). A <b>chave da API fica só no PC do escritório</b>, criptografada: para cadastrar ou trocar, rode <b>CADASTRAR-CHAVE-FINANTO.bat</b> na pasta C:\konsig-sync.</>,
+  avisoObs:'mesmas regras da Quali: na hora só o que pede ação do parceiro · resumo das 18h · cobrança de saldo do dia às 9h',
+  runMsg:'🔄 Pedi ao robô para ler a Finanto agora — a leitura leva uns 6 min (a API limita os pedidos). Clique em Recarregar depois.',
+  avisoAtivo:true,
+  recusadoMsg:<>🔒 A Finanto <b>recusou a chave da API</b>. O robô tenta de novo a cada 30 min — confira a chave com a Finanto e cadastre de novo no PC (<b>CADASTRAR-CHAVE-FINANTO.bat</b>).</>,
+  ligarMsg:'Ligar o robô da Finanto? Ele lê a API da Finanto a cada 30 min com a chave cadastrada no PC (cada leitura leva uns 6 min).',
+  vazioMsg:'Nada ainda — o robô grava a esteira na primeira leitura da API (depois de ligado e com a chave cadastrada no PC).',
+  extraValer:'\n\nRegras da Quali: na hora vai só o que pede ação (assinatura, documento, benefício, anuência, saldo em aprovação); o resto vai no resumo das 18h. A cobrança de saldo do dia (9h) também passa a ir para eles.',
+  linha:r=>({prop:r.contract_number,nome:r.borrower_name,cpf:r.borrower_identity,situacao:FIN_SIT(String(r.status_key||''))||r.status_name||'',atividade:r.status_name||'',
+    convenio:r.product_type||'',produto:r.operation_type||'',tipo_op:'',valor:r.loan_value,parcela:r.installment_value,prazo:r.term,
+    cad:r.proposal_date,ult:String(r.status_date||'').slice(0,10)||null,fim:r.status_key==='integrated'?(r.endorsement_date||r.credit_date||null):null,parceiro:r.parceiro||''})}
+function EsteiraFinanto(){return<EsteiraPortal key="finanto" P={PORTAIS.finanto}/>}
 
 function EsteiraCompra(){
   const pnomes=useParceirosNomes()
@@ -5855,7 +5904,7 @@ function EsteiraCompra(){
       crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?diaBR(r.datahoras):null
     }})
     setRows(mapped);setLoading(false)
-    const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at')
+    const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at').not('key','in','(finanto_esteira,c6_detalhes,aki_esteira,c6_esteira)')   // sem as esteiras grandes dos robôs
     if(cfg){const m={};cfg.forEach(c=>m[c.key]=c);setSyncInfo(m)}
     const{data:pl}=await supabase.from('parceiros').select('id,nome,telefone_notificacao,receber_notificacoes').order('nome')
     if(pl)setParcList(pl)
@@ -5971,9 +6020,10 @@ function EsteiraCompra(){
   }
   // 19/10/2026 (Carlos: "esteira do AKI deixa na esteira de compra junto também"): seletor de banco no topo. A AKI usa a
   // mesma tela EsteiraAki (que também tem menu próprio); a NEO continua sendo o padrão ao abrir.
-  const seletorBanco=<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{[{id:'neo',l:'🛒 NeoCrédito'},{id:'aki',l:'🟠 AKI CAPITAL'},{id:'c6',l:'🟣 C6 CONSIGNADO'}].map(b=><button key={b.id} onClick={()=>setBancoEst(b.id)} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(bancoEst===b.id?C.accent:C.border),background:bancoEst===b.id?C.abg:C.surface,color:bancoEst===b.id?C.accent:C.muted,fontWeight:700,fontSize:12,cursor:'pointer'}}>{b.l}</button>)}</div>
+  const seletorBanco=<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{[{id:'neo',l:'🛒 NeoCrédito'},{id:'aki',l:'🟠 AKI CAPITAL'},{id:'c6',l:'🟣 C6 CONSIGNADO'},{id:'finanto',l:'🟢 FINANTO'}].map(b=><button key={b.id} onClick={()=>setBancoEst(b.id)} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(bancoEst===b.id?C.accent:C.border),background:bancoEst===b.id?C.abg:C.surface,color:bancoEst===b.id?C.accent:C.muted,fontWeight:700,fontSize:12,cursor:'pointer'}}>{b.l}</button>)}</div>
   if(bancoEst==='aki')return<div style={{display:'flex',flexDirection:'column',gap:14}}>{seletorBanco}<EsteiraAki/></div>
   if(bancoEst==='c6')return<div style={{display:'flex',flexDirection:'column',gap:14}}>{seletorBanco}<EsteiraC6/></div>
+  if(bancoEst==='finanto')return<div style={{display:'flex',flexDirection:'column',gap:14}}>{seletorBanco}<EsteiraFinanto/></div>
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
     {seletorBanco}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
@@ -6695,6 +6745,7 @@ export default function App(){
       {view==='neocompra'&&<EsteiraCompra/>}
       {view==='akiesteira'&&<EsteiraAki/>}
       {view==='c6esteira'&&<EsteiraC6/>}
+      {view==='finantoesteira'&&<EsteiraFinanto/>}
       {view==='pancartao'&&<PanCartao/>}
       {view==='govsp'&&<PortalSP conv='GOVERNO SP' titulo='Governo SP' icone='🏛️'/>}
       {view==='prefsp'&&<PortalSP conv='PREF' titulo='Prefeitura SP' icone='🏙️' semPortal={true}/>}
