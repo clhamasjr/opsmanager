@@ -3373,7 +3373,7 @@ function Conexoes(){
   const[busy,setBusy]=useState('')
   const v=(k,x)=>setVal(p=>({...p,[k]:x}))
   const load=async()=>{
-    const{data}=await supabase.from('konsig_config').select('key,value,updated_at').not('key','in','(finanto_esteira,c6_detalhes,aki_esteira,c6_esteira)')   // sem as esteiras grandes dos robôs
+    const{data}=await supabase.from('konsig_config').select('key,value,updated_at').not('key','in','(finanto_esteira,quali_esteira,c6_detalhes,aki_esteira,c6_esteira)')   // sem as esteiras grandes dos robôs
     const m={};(data||[]).forEach(c=>m[c.key]=c);setCfg(m)
   }
   useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t)},[])
@@ -5005,7 +5005,8 @@ function WorkBankComissao(){
 const QU_BANCOS={QUA:{chave:'QUALI',nom:'QUALIBANKING',padrao:22},FIN:{chave:'FINANTO',nom:'FINANTO',padrao:3698}}
 const quBanco=r=>QU_BANCOS[String(r['Número do Contrato']||'').trim().slice(0,3).toUpperCase()]||QU_BANCOS.QUA
 const QU_TIPO={'refinanciamento da portabilidade':'PORTAB/REFIN','portab/refin':'PORTAB/REFIN','portabilidade + refinanciamento':'PORTABILIDADE',
-  'portabilidade':'PORTABILIDADE','novo':'Novo','cartão':'Cartão','cartao':'Cartão','refinanciamento':'Refinanciamento'}
+  'portabilidade':'PORTABILIDADE','novo':'Novo','cartão':'Cartão','cartao':'Cartão','refinanciamento':'Refinanciamento',
+  'margem complementar':'Novo'}   // aumento (26/10/2026): no Work a Margem Complementar entra como NOVO
 const QU_OBRIG=['Número do Contrato','Tipo de Operação','Nome da Tabela','Status','Data da Proposta','CPF','Nome','Prazo','Valor Base','Valor da Parcela','Valor Líquido ao Cliente','Taxa','Login']
 // CSV do portal: UTF-8 com BOM e ";". Se alguém salvar de novo no Excel pode virar ANSI e/ou "," — aceita os dois.
 function quLerCsv(buf){
@@ -5329,6 +5330,8 @@ function WorkBankQuali(){
 }
 
 function WorkBankExport(){
+  // quando o robô do escritório gravou a esteira da Quali/Finanto pela API (aviso se tiver mais de 1 h — robô parado)
+  const[idadeEst,setIdadeEst]=useState({})
   const th={padding:'8px 10px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}
   const td={padding:'7px 10px',fontSize:11,borderBottom:'1px solid '+C.border}
   const pnomes=useParceirosNomes()
@@ -5393,14 +5396,16 @@ function WorkBankExport(){
           supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle(),
           supabase.from('konsig_config').select('value').eq('key','c6_detalhes').maybeSingle()   // taxa do contrato C6 (PDF)
         ]):Promise.resolve(null),
-        // QualiBanking pela API (21/10/2026): tabela portabilidades (sync-qualibanking), sem subir o relatório — só
-        // portabilidade; o período é o da tela, como a CredFranco. Linha montada pelo mesmo quLinha do cartão do .csv.
+        // QualiBanking pela API: desde 26/10/2026 a esteira COMPLETA do robô quali-api.mjs (chave nova: Novo, Margem
+        // Complementar/aumento, Consignado Privado, Cartão e portabilidades), em konsig_config.quali_esteira, já com o parceiro.
+        // Sem ela (robô parado), a tabela portabilidades da sync-qualibanking (só portabilidade), como em 21/10. O período é o
+        // da tela, como a CredFranco. Linha montada pelo mesmo quLinha do cartão do .csv.
         querQa?Promise.all([
           paginar('portabilidades','status_date,status_key,'+QU_API_COLS,qy=>qy.order('id')),
           paginar('digitacoes','proposta,agente',qy=>qy.eq('banco','QUALIBANKING').order('id')),
-          supabase.from('konsig_config').select('key,value').in('key',['wb_codigo_banco','quali_parceiro_por_digitador'])
+          supabase.from('konsig_config').select('key,value,updated_at').in('key',['wb_codigo_banco','quali_parceiro_por_digitador','quali_esteira'])
         ]):Promise.resolve(null),
-        querFa?supabase.from('konsig_config').select('key,value').in('key',['finanto_esteira','wb_codigo_banco']):Promise.resolve(null)
+        querFa?supabase.from('konsig_config').select('key,value,updated_at').in('key',['finanto_esteira','wb_codigo_banco']):Promise.resolve(null)
       ])
       let out=[],mapa=new Map()
       const FIM_OK=/^integrated$/,FIM_RUIM=/cancel|reject|reprov|expired|retained|invalid_operation_rules|error_accept|denied/i   // status da JoinBank (Quali e Finanto)
@@ -5456,9 +5461,11 @@ function WorkBankExport(){
         })))
       }
       if(qa){
-        const[port,digQ,cfgQ]=qa
+        let[port,digQ,cfgQ]=qa
         if(cfgQ.error)throw cfgQ.error
-        const kv={};(cfgQ.data||[]).forEach(x=>kv[x.key]=x.value)
+        const kv={};(cfgQ.data||[]).forEach(x=>{kv[x.key]=x.value;if(x.key==='quali_esteira')setIdadeEst(o=>({...o,QUALI:x.updated_at}))})
+        let qEst=null;try{const e=JSON.parse(kv.quali_esteira||'null');if(e&&Object.keys(e).length)qEst=Object.values(e)}catch{}
+        if(qEst)port=qEst   // esteira completa do robô (com o parceiro já resolvido em cada contrato)
         let salvo={},manual={};try{salvo=JSON.parse(kv.wb_codigo_banco||'{}')}catch{};try{manual=JSON.parse(kv.quali_parceiro_por_digitador||'{}')}catch{}
         if(!cf)setCfCod({...WBC_NUM_PADRAO,...salvo})
         // parceiro como no robô da Quali: digitação do contrato → digitador cadastrado à mão → login de um parceiro só
@@ -5470,12 +5477,12 @@ function WorkBankExport(){
           return{_fonte:'QUALIAPI',_rel:rel,proposta:String(a.contract_number),chave:'QA'+a.contract_number,cpf:rel['CPF'],cliente:rel['Nome'],
             data:rel['Data da Proposta'],situacao:FIM_OK.test(st)?'INT':(FIM_RUIM.test(st)?'REP':'AND'),situacao_banco:rel['Status'],
             vr_bruto:Number(rel['Valor Base'])||0,vr_parcela:Number(rel['Valor da Parcela'])||0,vr_liquido:Number(rel['Valor Líquido ao Cliente'])||0,
-            operacao:rel['Tipo de Operação'],parceiro:agQ(a),banco:'QUALIBANKING',produto:rel['Nome da Tabela'],prazo:Number(rel['Prazo'])||null,
+            operacao:rel['Tipo de Operação'],parceiro:porCtr.get(String(a.contract_number||'').toUpperCase())||(qEst?a.parceiro:'')||agQ(a),banco:'QUALIBANKING',produto:rel['Nome da Tabela'],prazo:Number(rel['Prazo'])||null,
             mov:String(a.status_date||'').slice(0,10)}}))
       }
       if(fa){
         if(fa.error)throw fa.error
-        const kv={};(fa.data||[]).forEach(x=>kv[x.key]=x.value)
+        const kv={};(fa.data||[]).forEach(x=>{kv[x.key]=x.value;if(x.key==='finanto_esteira')setIdadeEst(o=>({...o,FINANTO:x.updated_at}))})
         let salvo={},est={};try{salvo=JSON.parse(kv.wb_codigo_banco||'{}')}catch{};try{est=JSON.parse(kv.finanto_esteira||'{}')}catch{}
         if(!cf&&!qa)setCfCod({...WBC_NUM_PADRAO,...salvo})
         out=out.concat(Object.values(est).filter(a=>a&&a.contract_number).map(a=>{const rel=quApiParaRelatorio(a),st=String(a.status_key||'')
@@ -5617,7 +5624,9 @@ function WorkBankExport(){
         <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
         {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
       </div>
-      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API traz só portabilidade e, em dia de muito movimento, a API perde alguns contratos. O "Novo" e o que a API perdeu continuam pelo cartão do relatório lá em cima. Se usar o relatório para a Quali, não mande a Quali também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
+      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API agora traz TODOS os contratos (Novo, aumento/Margem Complementar, Consignado Privado, Cartão e portabilidades), lidos pelo robô do escritório a cada 10 min com a chave nova. Não precisa mais subir o relatório da Quali no cartão lá em cima — se subir, não mande a Quali também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
+      {[['QUALI','QUALIAPI','QualiBanking'],['FINANTO','FINANTOAPI','Finanto']].map(([k,id,nome])=>{const t=Date.parse(idadeEst[k]||'');if(!t||!(fonte===id||fonte==='TODOS'))return null;const h=(Date.now()-t)/3600000;if(h<1)return null
+        return<div key={k} style={{fontSize:11,fontWeight:700,color:C.warn,padding:'6px 10px',borderRadius:8,background:C.warn+'14',border:'1px solid '+C.warn+'55'}}>⚠️ A leitura da {nome} pela API é de {new Date(t).toLocaleString('pt-BR').slice(0,17)} (há {h<48?Math.round(h)+' h':Math.round(h/24)+' dias'}) — o robô do escritório pode estar parado; os status podem estar desatualizados.</div>})}
       {(fonte==='FINANTOAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A Finanto pela API traz TODOS os contratos (Novo, Refinanciamento e portabilidades), lidos pelo robô do escritório a cada 30 min. Não precisa mais subir o relatório da Finanto no cartão lá em cima — se subir, não mande a Finanto também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
@@ -5904,7 +5913,7 @@ function EsteiraCompra(){
       crc_cliente:null,data_nosso_credito:(r.situacao==='INT')?diaBR(r.datahoras):null
     }})
     setRows(mapped);setLoading(false)
-    const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at').not('key','in','(finanto_esteira,c6_detalhes,aki_esteira,c6_esteira)')   // sem as esteiras grandes dos robôs
+    const{data:cfg}=await supabase.from('konsig_config').select('key,value,updated_at').not('key','in','(finanto_esteira,quali_esteira,c6_detalhes,aki_esteira,c6_esteira)')   // sem as esteiras grandes dos robôs
     if(cfg){const m={};cfg.forEach(c=>m[c.key]=c);setSyncInfo(m)}
     const{data:pl}=await supabase.from('parceiros').select('id,nome,telefone_notificacao,receber_notificacoes').order('nome')
     if(pl)setParcList(pl)
