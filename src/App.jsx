@@ -5563,7 +5563,7 @@ function EsteiraPortal({P}){
   const[fSit,setFSit]=useState('aberto'),[busca,setBusca]=useState(''),[fParc,setFParc]=useState('')
   const carregar=async()=>{
     setLoading(true);setErro('')
-    const{data,error}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['esteira','status','ativo','aviso_modo','aviso_ativo','backfill','login_recusado'].map(k=>P.id+'_'+k))
+    const{data,error}=await supabase.from('konsig_config').select('key,value,updated_at').in('key',['esteira','status','ativo','aviso_modo','aviso_ativo','backfill','login_recusado','parceiro_manual'].map(k=>P.id+'_'+k))
     if(error)setErro('Não consegui carregar: '+error.message)
     const m={};(data||[]).forEach(x=>{const k='aki_'+x.key.slice(P.id.length+1);m[k]=x.value;if(k==='aki_esteira')m._em=x.updated_at});setCfg(m);setLoading(false)
   }
@@ -5577,18 +5577,62 @@ function EsteiraPortal({P}){
     if(P.linha)l=l.filter(Boolean).map(P.linha)   // Finanto: a esteira vem no formato da API (portabilidades) — vira o formato da tela
     const dt=p=>String(p.fim||p.ult||p.cad||'')
     return l.sort((a,b)=>dt(b).localeCompare(dt(a))||String(b.prop).localeCompare(String(a.prop)))},[cfg.aki_esteira])
+  // parceiro escolhido à mão (27/10/2026, Carlos: "colocar uma forma de eu alterar manualmente ali também caso não
+  // possua o parceiro") — só AKI e C6 (P.parcManual). <id>_parceiro_manual = {proposta: nome do cadastro}; o robô lê a cada
+  // ciclo e põe acima da digitação e do login. A tela mostra a escolha na hora, antes de o robô aplicar.
+  const manual=useMemo(()=>{try{const j=JSON.parse(cfg.aki_parceiro_manual||'{}');return j&&typeof j==='object'&&!Array.isArray(j)?j:{}}catch{return{}}},[cfg.aki_parceiro_manual])
+  const[provs,setProvs]=useState(['CENTRAL BANCARIA INTERMEDIAÇÃO DE NEGOCIOS LTDA'])   // provisório (Central) = sem parceiro, igual ao robô
+  const ehProv=n=>provs.includes(n)
+  const manNome=p=>P.parcManual?String(manual[p.prop]||'').trim():''
+  const parcEf=p=>{const m=manNome(p);return m?(ehProv(m)?'':m):(p.parceiro||'')}
+  const[cadParc,setCadParc]=useState(null),[editParc,setEditParc]=useState(null),[escolha,setEscolha]=useState(''),[salvParc,setSalvParc]=useState(false)
+  useEffect(()=>{if(!P.parcManual)return
+    // igual ao robô: nome repetido no cadastro → a última linha (por id) diz se recebe no WhatsApp
+    lerTudo(()=>supabase.from('parceiros').select('nome,ativo,telefone_notificacao,receber_notificacoes').order('id')).then(rows=>{
+      const m=new Map();rows.forEach(x=>{const n=(x.nome||'').trim();if(!n)return;const a=m.get(n)
+        m.set(n,{nome:n,ativo:!!(a&&a.ativo)||x.ativo!==false,zap:x.receber_notificacoes!==false&&!!String(x.telefone_notificacao||'').trim()})})
+      setCadParc([...m.values()].sort((a,b)=>a.nome.localeCompare(b.nome)))
+    }).catch(e=>{setCadParc([]);setMsg('❌ Não consegui carregar o cadastro de parceiros: '+(e.message||e))})
+    supabase.from('konsig_config').select('value').eq('key','parceiros_provisorios').maybeSingle().then(({data})=>{
+      try{const c=JSON.parse((data&&data.value)||'null');if(Array.isArray(c))setProvs(c.map(s=>String(s).trim()))}catch{}})
+  },[P.id])
   const aberto=p=>!AKI_SIT[p.situacao]
   const GR=[{id:'aberto',l:'Em andamento',f:aberto},{id:'INT',l:'Integradas',f:p=>p.situacao==='INT'},{id:'REP',l:'Reprovadas',f:p=>p.situacao==='REP'},{id:'CAN',l:'Canceladas',f:p=>p.situacao==='CAN'},{id:'todas',l:'Todas',f:()=>true}]
-  const parcs=useMemo(()=>[...new Set(lista.map(p=>p.parceiro||'(sem parceiro)'))].sort(),[lista])
+  const parcs=useMemo(()=>[...new Set(lista.map(p=>parcEf(p)||'(sem parceiro)'))].sort(),[lista,manual,provs])
+  useEffect(()=>{if(fParc&&!parcs.includes(fParc))setFParc('')},[parcs])   // a última "sem parceiro" ganhou nome: o filtro não fica preso
   const q=busca.trim().toLowerCase()
   const vis=lista.filter((GR.find(g=>g.id===fSit)||GR[0]).f)
-    .filter(p=>!fParc||(p.parceiro||'(sem parceiro)')===fParc)
-    .filter(p=>!q||[p.prop,p.nome,p.cpf,p.parceiro,p.convenio,p.atividade].some(x=>String(x||'').toLowerCase().includes(q)))
+    .filter(p=>!fParc||(parcEf(p)||'(sem parceiro)')===fParc)
+    .filter(p=>!q||[p.prop,p.nome,p.cpf,parcEf(p),p.convenio,p.atividade].some(x=>String(x||'').toLowerCase().includes(q)))
   const fmt=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
   const dBR=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(2,4):'—'
   const ligado=cfg.aki_ativo==='1',valendo=cfg.aki_aviso_modo==='parceiros'
   const avisosOff=!!P.avisoAtivo&&cfg.aki_aviso_ativo!=='1'   // Finanto: avisos têm chave própria (finanto_aviso_ativo)
   const recusado=(cfg.aki_login_recusado||'').trim()
+  const parado=!!recusado||/^(⏸️|🔒)/.test(String(cfg.aki_status||''))   // ligado, mas sem senha ou com a senha recusada: não roda
+  const salvarParc=async(prop,nome)=>{
+    const ant=String(manual[prop]||'').trim()
+    if(nome===ant){setEditParc(null);return}
+    const info=(cadParc||[]).find(x=>x.nome===nome),semZap=!!nome&&!(info&&info.zap)
+    if(!window.confirm(nome?'Parceiro da proposta '+prop+': '+nome+'?\n\nVale acima da digitação e do login. Se a proposta teve aviso nos últimos 5 dias, continua no mesmo ponto e '+nome+' ainda não recebeu esse aviso, o robô reenvia para '+nome+'.'+(semZap?'\n\n⚠️ '+nome+' não tem WhatsApp de aviso cadastrado — não vai receber os avisos.':'')
+      :'Voltar a proposta '+prop+' para o parceiro automático (digitação ou login de quem digitou)?\n\nSe o parceiro automático for outro e ainda não tiver recebido o aviso deste ponto (últimos 5 dias), o robô reenvia para ele.'))return
+    setSalvParc(true)
+    try{
+      const k=P.id+'_parceiro_manual'
+      const{data,error}=await supabase.from('konsig_config').select('value').eq('key',k).maybeSingle()
+      if(error)throw error
+      let m={};if(data&&data.value&&data.value.trim()){m=JSON.parse(data.value);if(!m||typeof m!=='object'||Array.isArray(m))throw new Error('a lista gravada está estragada')}
+      if(nome)m[prop]=nome;else delete m[prop]
+      const v=JSON.stringify(m),now=new Date().toISOString()
+      const{error:e2}=await supabase.from('konsig_config').upsert([{key:k,value:v,updated_at:now}],{onConflict:'key'})
+      if(e2)throw e2
+      setCfg(c=>({...c,aki_parceiro_manual:v}));setEditParc(null)
+      let agora=false
+      if(ligado&&!parado){const{error:e3}=await supabase.from('konsig_config').upsert([{key:P.id+'_run_now',value:String(Date.now()),updated_at:now}],{onConflict:'key'});agora=!e3}
+      setMsg('✓ Proposta '+prop+': '+(nome?'parceiro '+nome:'volta ao parceiro automático')+' — '+(agora?'pedi ao robô para aplicar agora (até 1 min). Clique em Recarregar depois.':!ligado?'gravado, mas o robô '+P.nome+' está desligado: vale quando ele for ligado.':parado?'gravado, mas o robô '+P.nome+' está parado (senha recusada ou não cadastrada no PC): vale quando ele voltar a rodar.':'o robô aplica no próximo ciclo (até 15 min).')+(semZap?' ⚠️ '+nome+' não tem WhatsApp de aviso cadastrado (📣 Avisos aos parceiros) — não vai receber.':''))
+    }catch(e){setMsg('❌ Não salvei o parceiro: '+(e.message||e))}
+    setSalvParc(false)
+  }
   const card={background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:14}
   const th={padding:'6px 8px',textAlign:'left',color:C.muted,fontSize:9,fontWeight:600,whiteSpace:'nowrap'}
   const td={padding:'6px 8px',fontSize:11,verticalAlign:'middle'}
@@ -5642,7 +5686,7 @@ function EsteiraPortal({P}){
         </div>
         <div style={{flex:'1 1 240px',border:'1px solid '+C.border,borderLeft:'4px solid '+(valendo?C.accent2:C.warn),borderRadius:10,padding:'9px 11px'}}>
           <div style={{fontSize:12,fontWeight:700}}>Avisos no WhatsApp: {avisosOff?'desligados (nada sai, nem prévia)':valendo?'valendo para os parceiros':'prévia (só você recebe)'}</div>
-          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{P.avisoObs||'integrada, reprovada, cancelada e mudança de atividade · parceiro pela digitação ou pelo login de quem digitou'}</div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{P.avisoObs||('integrada, reprovada, cancelada e mudança de atividade · parceiro pela digitação ou pelo login de quem digitou'+(P.parcManual?' — ou escolhido à mão na coluna Parceiro (✏️)':''))}</div>
           {avisosOff?<button style={{...btn(C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm('Ligar os avisos '+P.nome+' em PRÉVIA?\n\nSó você recebe, com "iria para: …". Para valer para os parceiros, use depois o botão "Ligar para os parceiros".'))return;salvar('aki_aviso_modo','previa','');salvar('aki_aviso_ativo','1','👀 Avisos '+P.nome+' ligados em prévia — só você recebe')}}>👀 Ligar avisos (prévia)</button>:
           <button style={{...btn(valendo?C.warn:C.accent2,false),marginTop:6}} onClick={()=>{if(!window.confirm(valendo?'Voltar os avisos '+P.nome+' para prévia? Só você recebe.'+(P.extraPrevia||''):'Ligar os avisos '+P.nome+' para os parceiros?\n\nA partir do próximo ciclo, cada parceiro da lista de avisos recebe no WhatsApp as mudanças das propostas DELE no '+P.titulo+' (você continua com a cópia).'+(P.extraValer||'')))return;salvar('aki_aviso_modo',valendo?'previa':'parceiros',valendo?'👀 Avisos '+P.nome+' voltaram para prévia':'✅ Avisos '+P.nome+' ligados para os parceiros')}}>{valendo?'👀 Voltar para prévia':'✅ Ligar para os parceiros'}</button>}
         </div>
@@ -5668,7 +5712,24 @@ function EsteiraPortal({P}){
         <tbody>{vis.map(p=><tr key={p.prop} style={{borderBottom:'1px solid '+C.border}}>
           <td style={{...td,fontWeight:600}}>{p.prop}</td>
           <td style={td}>{p.nome||'—'}</td>
-          <td style={{...td,color:p.parceiro?C.text:C.danger}}>{p.parceiro||(p.parceiro_prov?'Central (provisório)':'sem parceiro')}</td>
+          <td style={{...td,color:parcEf(p)?C.text:C.danger}}>{!P.parcManual?(p.parceiro||(p.parceiro_prov?'Central (provisório)':'sem parceiro'))
+            :editParc===p.prop?<span style={{display:'inline-flex',gap:4,alignItems:'center',flexWrap:'wrap'}}>
+              {/* só grava no "✓ Salvar": procurar o nome pelo teclado não pode escolher o parceiro errado */}
+              <select autoFocus disabled={salvParc||!cadParc} value={escolha} onChange={e=>setEscolha(e.target.value)} style={{fontSize:11,padding:'2px 4px',borderRadius:6,border:'1px solid '+C.border,maxWidth:230,background:C.surface,color:C.text}}>
+                <option value="">— automático (digitação ou login) —</option>
+                {manNome(p)&&!(cadParc||[]).some(x=>x.nome===manNome(p))&&<option value={manNome(p)}>{manNome(p)}{cadParc&&cadParc.length?' (fora do cadastro)':''}</option>}
+                {(cadParc||[]).filter(x=>(x.ativo&&!ehProv(x.nome))||x.nome===manNome(p)).map(x=><option key={x.nome} value={x.nome}>{x.nome}{x.zap?'':' (sem WhatsApp)'}</option>)}
+              </select>
+              <button disabled={salvParc||!cadParc} onClick={()=>salvarParc(p.prop,escolha)} style={btn(C.accent2,true)}>✓ Salvar</button>
+              <button onClick={()=>setEditParc(null)} style={{border:'none',background:'none',cursor:'pointer',color:C.muted,fontSize:12}}>✕</button>
+              {!cadParc&&<span style={{fontSize:10,color:C.muted}}>carregando parceiros…</span>}
+              {salvParc&&<span style={{fontSize:10,color:C.muted}}>salvando…</span>}
+            </span>
+            :<span onClick={()=>{setEscolha(manNome(p));setEditParc(p.prop)}} title={manNome(p)?'escolhido à mão — clique para trocar ou voltar ao automático':'clique para escolher o parceiro à mão'} style={{cursor:'pointer',borderBottom:'1px dashed '+C.border}}>
+              {manNome(p)?<>✋ {ehProv(manNome(p))?'Central (provisório)':manNome(p)}
+                  {!!(cadParc&&cadParc.length)&&!ehProv(manNome(p))&&!cadParc.some(x=>x.nome===manNome(p))&&<span style={{fontSize:9,color:C.danger}}> ⚠️ fora do cadastro — não recebe avisos</span>}
+                  {!(p.parceiro_fonte==='manual'&&p.parceiro===manNome(p))&&p.parceiro_prov!==manNome(p)&&<span style={{fontSize:9,color:C.muted}}>{!ligado?' (robô desligado — vale quando ligar)':parado?' (robô parado — vale quando voltar a rodar)':' (o robô aplica no próximo ciclo)'}</span>}</>
+                :<>{p.parceiro||(p.parceiro_prov?'Central (provisório)':'sem parceiro')}{p.parceiro_fonte==='manual'&&<span style={{fontSize:9,color:C.muted}}> (volta ao automático no próximo ciclo)</span>}</>} <span style={{opacity:.45}}>✏️</span></span>}</td>
           <td style={td}><span style={{padding:'2px 7px',borderRadius:6,fontSize:10,fontWeight:700,color:corSit(p),background:corSit(p)+'1A'}}>{AKI_SIT[p.situacao]||p.situacao||'—'}</span></td>
           <td style={{...td,maxWidth:220}}>{p.atividade||'—'}</td>
           {P.formalizacao&&<td style={{...td,maxWidth:180}}>{[p.formalizacao,p.status_form].filter(Boolean).join(' · ')||'—'}</td>}
@@ -5686,8 +5747,8 @@ function EsteiraPortal({P}){
 
 // telas de portal (mesmo componente): AKI CAPITAL (19/10) e C6 CONSIGNADO (20/10)
 const PORTAIS={
-  aki:{id:'aki',titulo:'AKI CAPITAL',nome:'da AKI',icone:'🟠',bat:'CADASTRAR-SENHA-AKI.bat',formalizacao:false,wb:true},
-  c6:{id:'c6',titulo:'C6 CONSIGNADO',nome:'do C6',icone:'🟣',bat:'CADASTRAR-SENHA-C6.bat',formalizacao:true,
+  aki:{id:'aki',titulo:'AKI CAPITAL',nome:'da AKI',icone:'🟠',bat:'CADASTRAR-SENHA-AKI.bat',formalizacao:false,wb:true,parcManual:true},
+  c6:{id:'c6',titulo:'C6 CONSIGNADO',nome:'do C6',icone:'🟣',bat:'CADASTRAR-SENHA-C6.bat',formalizacao:true,parcManual:true,
     extraValer:'\n\nA CredFranco PARA de avisar o C6 (fica só para conferir).',extraPrevia:'\n\nA CredFranco volta a avisar o C6.'}}
 function EsteiraAki(){return<EsteiraPortal key="aki" P={PORTAIS.aki}/>}
 function EsteiraC6(){return<EsteiraPortal key="c6" P={PORTAIS.c6}/>}
