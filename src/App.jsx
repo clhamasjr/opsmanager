@@ -5007,25 +5007,6 @@ const quBanco=r=>QU_BANCOS[String(r['Número do Contrato']||'').trim().slice(0,3
 const QU_TIPO={'refinanciamento da portabilidade':'PORTAB/REFIN','portab/refin':'PORTAB/REFIN','portabilidade + refinanciamento':'PORTABILIDADE',
   'portabilidade':'PORTABILIDADE','novo':'Novo','cartão':'Cartão','cartao':'Cartão','refinanciamento':'Refinanciamento',
   'margem complementar':'Novo'}   // aumento (26/10/2026): no Work a Margem Complementar entra como NOVO
-const QU_OBRIG=['Número do Contrato','Tipo de Operação','Nome da Tabela','Status','Data da Proposta','CPF','Nome','Prazo','Valor Base','Valor da Parcela','Valor Líquido ao Cliente','Taxa','Login']
-// CSV do portal: UTF-8 com BOM e ";". Se alguém salvar de novo no Excel pode virar ANSI e/ou "," — aceita os dois.
-function quLerCsv(buf){
-  let t;try{t=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch{t=new TextDecoder('windows-1252').decode(buf)}
-  t=t.replace(/^﻿/,'')
-  const l1=t.slice(0,t.indexOf('\n')>0?t.indexOf('\n'):t.length),sep=(l1.split(';').length>=l1.split(',').length)?';':','
-  const linhas=[];let campo='',linha=[],q=false
-  for(let i=0;i<t.length;i++){const c=t[i]
-    if(q){if(c==='"'){if(t[i+1]==='"'){campo+='"';i++}else q=false}else campo+=c;continue}
-    if(c==='"'){q=true;continue}
-    if(c===sep){linha.push(campo);campo='';continue}
-    if(c==='\r')continue
-    if(c==='\n'){linha.push(campo);linhas.push(linha);linha=[];campo='';continue}
-    campo+=c}
-  if(campo||linha.length){linha.push(campo);linhas.push(linha)}
-  const cab=(linhas[0]||[]).map(h=>String(h).trim())
-  const rows=linhas.slice(1).filter(l=>l.some(v=>String(v).trim())).map(l=>{const o={};cab.forEach((h,i)=>{if(h&&!(h in o))o[h]=l[i]??''});return o})
-  return{cab,rows}
-}
 // trava de promotora: CredFranco/SCF nunca saem; a palavra "promotora" sozinha é barrada em tudo, menos no login do
 // digitador (NIC_CTR_USUARIO) — 6 logins da Quali têm "promotora" no e-mail e o padrão do Carlos traz o login como é
 const quProibido=(v,h)=>typeof v==='string'&&(h==='NIC_CTR_USUARIO'?/cred\s*franco|\bscf\b/i:/cred\s*franco|\bscf\b|promotora/i).test(v)
@@ -5231,104 +5212,6 @@ function WorkBankPromo(){
     {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
   </div>
 }
-function WorkBankQuali(){
-  const[rows,setRows]=useState(null),[nome,setNome]=useState(''),[msg,setMsg]=useState('')
-  const[codigos,setCodigos]=useState({}),[codFin,setCodFin]=useState(''),[salvando,setSalvando]=useState(false)
-  // 15/10/2026, Carlos: sobe a planilha geral e o sistema filtra "somente os últimos 2 meses de propostas" — pela data da
-  // proposta (digitação), do mesmo dia de 2 meses atrás até hoje. "Tudo" fica como opção.
-  const[periodo,setPeriodo]=useState('2m')
-  const fileRef=useRef(null)
-  // códigos de banco do WorkBank: o mesmo JSON que as telas de produção e comissão usam
-  const lerCodigos=async()=>{const{data}=await supabase.from('konsig_config').select('value').eq('key','wb_codigo_banco').maybeSingle()
-    let c={};try{c=JSON.parse(data?.value||'{}')}catch{};setCodigos(c);return c}
-  useEffect(()=>{lerCodigos()},[])
-  const salvarCodFin=async()=>{
-    const n=Number(String(codFin).replace(/\D/g,''))
-    if(!(n>0)){setMsg('❌ Digite o código da Finanto no WorkBank (só números)');return}
-    setSalvando(true)
-    const atual=await lerCodigos(),novo={...atual,FINANTO:n}
-    const now=new Date().toISOString()
-    const{error}=await supabase.from('konsig_config').upsert([{key:'wb_codigo_banco',value:JSON.stringify(novo),updated_at:now}],{onConflict:'key'})
-    setSalvando(false)
-    if(error){setMsg('❌ '+error.message);return}
-    setCodigos(novo);setCodFin('');setMsg('✓ Código da Finanto salvo: '+n+' — já pode gerar o arquivo')
-  }
-  const ler=f=>{
-    if(!f)return
-    setMsg('Lendo '+f.name+'…')
-    const rd=new FileReader()
-    rd.onload=ev=>{
-      try{
-        const{cab,rows:rs}=quLerCsv(new Uint8Array(ev.target.result))
-        const falta=QU_OBRIG.filter(h=>!cab.includes(h))
-        if(falta.length){setRows(null);setMsg('❌ '+f.name+' não parece o relatório da QualiBanking/Finanto — faltam as colunas: '+falta.join(', '));return}
-        setRows(rs.filter(r=>String(r['Número do Contrato']||'').trim()));setNome(f.name);setMsg('')
-      }catch(e){setRows(null);setMsg('❌ Não consegui ler o arquivo: '+(e.message||e))}
-    }
-    rd.readAsArrayBuffer(f)
-  }
-  const R=useMemo(()=>{
-    if(!rows)return null
-    const hoje=new Date();hoje.setHours(12,0,0,0)
-    const todas=rows.map(r=>quLinha(r,hoje,codigos))
-    const corte=quCorte2Meses(hoje)
-    const linhas=periodo==='2m'?todas.filter(o=>o.DAT_EMPRESTIMO&&o.DAT_EMPRESTIMO>=corte):todas
-    const foraPeriodo=todas.length-linhas.length
-    const porTipo={},porBanco={};linhas.forEach(o=>{const k=o.DSC_TIPO_PROPOSTA_EMPRESTIMO||'?';porTipo[k]=(porTipo[k]||0)+1;porBanco[o.NOM_BANCO]=(porBanco[o.NOM_BANCO]||0)+1})
-    const datas=linhas.map(o=>o.DAT_EMPRESTIMO).filter(Boolean).sort((a,b)=>a-b)
-    return{linhas,porTipo,porBanco,total:linhas.reduce((s,o)=>s+(o.VAL_BRUTO||0),0),de:datas[0],ate:datas[datas.length-1],
-      averbadas:linhas.filter(o=>o.DAT_CREDITO).length,semCpf:linhas.filter(o=>!o.COD_CPF_CLIENTE).length,
-      semCodigo:linhas.filter(o=>!o.NUM_BANCO).length,corte,foraPeriodo,total2:todas.length}
-  },[rows,codigos,periodo])
-  const temFinanto=!!(R&&R.porBanco.FINANTO)
-  const gerar=()=>{
-    if(!R||!R.linhas.length)return
-    if(R.semCodigo){setMsg('❌ Falta o código da Finanto no WorkBank — preencha o campo abaixo e clique em Salvar');return}
-    const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
-    if(aoa.some(l=>l.some((v,j)=>quProibido(v,WB_HDR[j])))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
-    const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...aoa],{cellDates:true})
-    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
-    const bancos=Object.keys(R.porBanco).sort((a,b)=>a==='QUALIBANKING'?-1:b==='QUALIBANKING'?1:a.localeCompare(b))
-    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - '+bancos.join(' e ')+'.xlsx',{cellDates:true})
-    setMsg('✓ '+R.linhas.length+' propostas no arquivo ('+Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')+') — pode gerar quantas vezes precisar')
-  }
-  const dt=d=>d?d.toLocaleDateString('pt-BR'):'—'
-  const cf=Number(codigos.FINANTO)>0?Number(codigos.FINANTO):null
-  return<div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+C.info,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:8}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-      <div>
-        <div style={{fontSize:13,fontWeight:800}}>🏦 QualiBanking e Finanto — relatório do banco → arquivo do Work</div>
-        <div style={{fontSize:11,color:C.muted}}>Exporte o relatório de propostas no portal (.csv) e escolha aqui. O banco sai sozinho pelo contrato (QUA… = QualiBanking, FIN… = Finanto). Sai o arquivo do Work pronto, sem passar pelo Excel.</div>
-      </div>
-      <div style={{display:'flex',gap:8,alignItems:'center'}}>
-        <select value={periodo} onChange={e=>setPeriodo(e.target.value)} title="pela data da proposta (digitação)" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'7px 9px',fontSize:12,fontWeight:700,outline:'none'}}>
-          <option value="2m">📅 Últimos 2 meses</option>
-          <option value="tudo">Tudo do relatório</option>
-        </select>
-        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ler(e.target.files&&e.target.files[0]);e.target.value=''}}/>
-        <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.info,background:C.info+'15',color:C.info,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher relatório (.csv)</button>
-        <button onClick={gerar} disabled={!R||!R.linhas.length} style={{padding:'8px 18px',borderRadius:8,border:'none',background:R&&R.linhas.length&&!R.semCodigo?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:R&&R.linhas.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
-      </div>
-    </div>
-    {R&&<div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11}}>
-      <span style={{color:C.muted}}>📎 <b style={{color:C.text}}>{nome}</b></span>
-      <span>· <b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
-      <span>· {Object.entries(R.porBanco).map(([k,n])=>k+' '+n).join(' · ')}</span>
-      <span>· digitadas de <b>{dt(R.de)}</b> a <b>{dt(R.ate)}</b></span>
-      {periodo==='2m'&&R.foraPeriodo>0&&<span style={{color:C.muted}}>· {R.foraPeriodo} de {R.total2} ficaram de fora (digitadas antes de {dt(R.corte)})</span>}
-      <span>· {Object.entries(R.porTipo).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
-      <span>· {R.averbadas} com data de averbação</span>
-      {R.semCpf>0&&<span style={{color:C.warn,fontWeight:700}}>· ⚠️ {R.semCpf} sem CPF</span>}
-    </div>}
-    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',fontSize:11,color:C.muted}}>
-      <span>Códigos no WorkBank: QualiBanking <b style={{color:C.text}}>{Number(codigos.QUALI)>0?Number(codigos.QUALI):22}</b> · Finanto {cf?<b style={{color:C.text}}>{cf}</b>:<b style={{color:temFinanto?C.danger:C.warn}}>sem código</b>}</span>
-      <input value={codFin} onChange={e=>setCodFin(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')salvarCodFin()}} placeholder={cf?'trocar o código da Finanto':'código da Finanto no WorkBank'} style={{background:C.surface,border:'1px solid '+(temFinanto&&!cf?C.danger:C.border),borderRadius:7,color:C.text,padding:'5px 9px',fontSize:11,width:200,outline:'none'}}/>
-      <button onClick={salvarCodFin} disabled={salvando||!codFin.trim()} style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.accent,background:C.accent+'14',color:C.accent,fontWeight:700,fontSize:11,cursor:'pointer'}}>{salvando?'salvando…':'Salvar'}</button>
-    </div>
-    {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
-  </div>
-}
-
 function WorkBankExport(){
   // quando o robô do escritório gravou a esteira da Quali/Finanto pela API (aviso se tiver mais de 1 h — robô parado)
   const[idadeEst,setIdadeEst]=useState({})
@@ -5499,10 +5382,9 @@ function WorkBankExport(){
   useEffect(()=>{carregar()},[fonte])
   const pesquisar=()=>setFl({de,ate,sit,parc,busca,incMov})
   const limpar=()=>{setDe('');setAte('');setSit('todas');setParc('');setBusca('');setIncMov(true);setFl({de:'',ate:'',sit:'todas',parc:'',busca:'',incMov:true})}
-  // carregando/erro: os cartões da Quali e da promotora ficam montados na mesma posição (não perdem o arquivo escolhido)
+  // carregando/erro: o cartão da promotora fica montado na mesma posição (não perde o arquivo escolhido)
   if(loading||err)return<div style={{display:'flex',flexDirection:'column',gap:12}}>
     <div style={loading?{padding:40,textAlign:'center',color:C.muted}:{padding:20,color:C.danger}}>{loading?'Carregando esteiras...':err}</div>
-    <WorkBankQuali/>
     <WorkBankPromo/>
   </div>
   const q=(fl.busca||'').trim().toLowerCase(),qd=q.replace(/\D/g,'')
@@ -5587,7 +5469,6 @@ function WorkBankExport(){
       </div>
       <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
     </div>
-    <WorkBankQuali/>
     <WorkBankPromo/>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'todos os bancos':((WB_FONTES.find(f=>f.id===fonte)||{}).l||fonte)}/>
@@ -5624,10 +5505,10 @@ function WorkBankExport(){
         <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
         {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
       </div>
-      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API agora traz TODOS os contratos (Novo, aumento/Margem Complementar, Consignado Privado, Cartão e portabilidades), lidos pelo robô do escritório a cada 10 min com a chave nova. Não precisa mais subir o relatório da Quali no cartão lá em cima — se subir, não mande a Quali também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
+      {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API agora traz TODOS os contratos (Novo, aumento/Margem Complementar, Consignado Privado, Cartão e portabilidades), lidos pelo robô do escritório a cada 10 min com a chave nova. Não precisa mais subir o relatório da Quali.</div>}
       {[['QUALI','QUALIAPI','QualiBanking'],['FINANTO','FINANTOAPI','Finanto']].map(([k,id,nome])=>{const t=Date.parse(idadeEst[k]||'');if(!t||!(fonte===id||fonte==='TODOS'))return null;const h=(Date.now()-t)/3600000;if(h<1)return null
         return<div key={k} style={{fontSize:11,fontWeight:700,color:C.warn,padding:'6px 10px',borderRadius:8,background:C.warn+'14',border:'1px solid '+C.warn+'55'}}>⚠️ A leitura da {nome} pela API é de {new Date(t).toLocaleString('pt-BR').slice(0,17)} (há {h<48?Math.round(h)+' h':Math.round(h/24)+' dias'}) — o robô do escritório pode estar parado; os status podem estar desatualizados.</div>})}
-      {(fonte==='FINANTOAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A Finanto pela API traz TODOS os contratos (Novo, Refinanciamento e portabilidades), lidos pelo robô do escritório a cada 30 min. Não precisa mais subir o relatório da Finanto no cartão lá em cima — se subir, não mande a Finanto também por aqui no mesmo dia (o mesmo contrato iria duas vezes ao Work).</div>}
+      {(fonte==='FINANTOAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A Finanto pela API traz TODOS os contratos (Novo, Refinanciamento e portabilidades), lidos pelo robô do escritório a cada 30 min. Não precisa mais subir o relatório da Finanto.</div>}
     </div>
     <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border,maxHeight:480,overflowY:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr style={{background:C.surface,position:'sticky',top:0}}>{['Banco','Proposta','Cliente','Digitada','Situação','Valor','Parcelas','Produto','Parceiro'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
       {g.slice(0,200).map((r,i)=>{const w=wbd.get(r.chave||r.proposta)||{};const cref=r._fonte==='CREFISA';return<tr key={i}>
