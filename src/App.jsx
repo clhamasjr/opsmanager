@@ -5454,8 +5454,11 @@ function WorkBankExport(){
       if(brb){
         if(brb.error)throw brb.error
         const x0=(brb.data||[]).find(x=>x.key==='brb_esteira'),xs=(brb.data||[]).find(x=>x.key==='brb_status');let est={};try{est=JSON.parse((x0&&x0.value)||'{}')}catch{}
-        setIdadeEst(o=>({...o,BRB:x0?x0.updated_at:'',BRB_ST:xs?String(xs.value||''):''}))
-        out=out.concat(Object.values(est).filter(x=>x&&x.proposta_id).map(x=>({_fonte:'BRBAPI',_x:x,proposta:String(x.proposta_id),chave:'BRB'+x.proposta_id,
+        // proposta SEM cliente (simulação/cancelada sem CPF e nome, valor 0) fica fora — o main.py do Carlos também pulava (dava
+        // erro nessas e seguia); no 1º arquivo de 28/10 saíram 10 linhas sem nome e CPF
+        const brbTodas=Object.values(est).filter(x=>x&&x.proposta_id),brbOk=brbTodas.filter(x=>String(x.cpf||'').trim()&&String(x.nome||'').trim())
+        setIdadeEst(o=>({...o,BRB:x0?x0.updated_at:'',BRB_ST:xs?String(xs.value||''):'',BRB_SEMCLI:brbTodas.length-brbOk.length}))
+        out=out.concat(brbOk.map(x=>({_fonte:'BRBAPI',_x:x,proposta:String(x.proposta_id),chave:'BRB'+x.proposta_id,
           cpf:x.cpf,cliente:x.nome,data:brbDia(x.created_at),situacao:brbSit(x),situacao_banco:x.status_atual||'',
           vr_bruto:brbBruto(x)||0,vr_parcela:Number(x.valor_parcelas)||0,vr_liquido:Number(x.valor_liquido)||0,operacao:x.operacao,
           parceiro:x.agente||'',banco:'BRB',produto:x.tabela||'',prazo:Number(x.prazo)||null,mov:brbDia(x.status_data)})))
@@ -5596,6 +5599,7 @@ function WorkBankExport(){
       {fonte==='TODOS'&&WB_FONTES.some(f=>f.pausada)&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>⏸️ Pausado na exportação (não entra no arquivo até ser reativado): {WB_FONTES.filter(f=>f.pausada).map(f=>f.l).join(', ')}</div>}
       {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API agora traz TODOS os contratos (Novo, aumento/Margem Complementar, Consignado Privado, Cartão e portabilidades), lidos pelo robô do escritório a cada 10 min com a chave nova. Não precisa mais subir o relatório da Quali.</div>}
       {(fonte==='BRBAPI'||fonte==='TODOS')&&!idadeEst.BRB&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>⚠️ O robô do BRB InConta ainda não leu nenhuma proposta — até lá o BRB não entra no arquivo. {idadeEst.BRB_ST?('Robô: '+idadeEst.BRB_ST):'Falta cadastrar o usuário e a senha no PC do escritório (CADASTRAR-SENHA-BRB.bat).'}</div>}
+      {(fonte==='BRBAPI'||fonte==='TODOS')&&idadeEst.BRB_SEMCLI>0&&<div style={{fontSize:10,color:C.muted}}>ℹ️ BRB InConta: {idadeEst.BRB_SEMCLI} proposta{idadeEst.BRB_SEMCLI>1?'s':''} sem cliente (simulação ou cancelada sem CPF e nome) ficaram fora do arquivo.</div>}
       {(fonte==='BRBAPI'||fonte==='TODOS')&&idadeEst.BRB&&/^[🔒❌⏸️⚠]/u.test(idadeEst.BRB_ST||'')&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>Robô do BRB InConta: {idadeEst.BRB_ST}</div>}
       {[['QUALI','QUALIAPI','QualiBanking'],['FINANTO','FINANTOAPI','Finanto'],['BRB','BRBAPI','BRB InConta']].map(([k,id,nome])=>{const t=Date.parse(idadeEst[k]||'');if(!t||!(fonte===id||fonte==='TODOS'))return null;const h=(Date.now()-t)/3600000;if(h<(k==='BRB'?2:1))return null
         return<div key={k} style={{fontSize:11,fontWeight:700,color:C.warn,padding:'6px 10px',borderRadius:8,background:C.warn+'14',border:'1px solid '+C.warn+'55'}}>⚠️ A leitura da {nome} pela API é de {new Date(t).toLocaleString('pt-BR').slice(0,17)} (há {h<48?Math.round(h)+' h':Math.round(h/24)+' dias'}) — o robô do escritório pode estar parado; os status podem estar desatualizados.</div>})}
