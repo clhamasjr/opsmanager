@@ -4688,9 +4688,10 @@ function cfParseComissaoNeo(wb){
 }
 const WB_HDR=["NUM_BANCO","NOM_BANCO","NUM_PROPOSTA","NUM_CONTRATO","DSC_TIPO_PROPOSTA_EMPRESTIMO","COD_PRODUTO","DSC_PRODUTO","DAT_CTR_INCLUSAO","DSC_SITUACAO_EMPRESTIMO","DAT_EMPRESTIMO","COD_EMPREGADOR","DSC_CONVENIO","COD_ORGAO","NOM_ORGAO","COD_PRODUTOR_VENDA","NOM_PRODUTOR_VENDA","NIC_CTR_USUARIO","COD_CPF_CLIENTE","NOM_CLIENTE","DAT_NASCIMENTO","NUM_IDENTIDADE","NOM_LOGRADOURO","NUM_PREDIO","DSC_CMPLMNT_ENDRC","NOM_BAIRRO","NOM_LOCALIDADE","SIG_UNIDADE_FEDERACAO","COD_ENDRCMNT_PSTL","NUM_TELEFONE","NUM_TELEFONE_CELULAR","NOM_MAE","NOM_PAI","NUM_BENEFICIO","QTD_PARCELA","VAL_PRESTACAO","VAL_BRUTO","VAL_SALDO_RECOMPRA","VAL_SALDO_REFINANCIAMENTO","VAL_LIQUIDO","PCR_PMT_PAGO_REF","DAT_CREDITO","DAT_CONFIRMACAO","VAL_REPASSE","PCL_COMISSAO","VAL_COMISSAO","COD_UNIDADE_EMPRESA","COD_SITUACAO_EMPRESTIMO","DAT_ESTORNO","DSC_OBSERVACAO","NUM_CPF_AGENTE","NUM_OBJETO_ECT","PCL_TAXA_EMPRESTIMO","DSC_TIPO_FORMULARIO_EMPRESTIMO","DSC_TIPO_CREDITO_EMPRESTIMO","NOM_GRUPO_UNIDADE_EMPRESA","COD_PROPOSTA_EMPRESTIMO","COD_GRUPO_UNIDADE_EMPRESA","COD_TIPO_FUNCAO","COD_TIPO_PROPOSTA_EMPRESTIMO","COD_LOJA_DIGITACAO","VAL_SEGURO"]
 // Fontes de esteira integradas — novas esteiras entram aqui (num = código do banco no WorkBank)
-// foraDaLista (28/10/2026, Carlos: "é somente para você tirar ele da lista dos bancos ali"): some só da caixa de seleção;
-// continua no "🏦 Todos os bancos" e no arquivo. Para voltar, apague o foraDaLista.
-const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP',foraDaLista:true},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'},{id:'QUALIAPI',l:'QualiBanking (API)'},{id:'FINANTOAPI',l:'Finanto (API)'}]   // CredFranco: código por banco (cfLinha); QualiBanking e Finanto API: quLinha
+// pausada (28/10/2026, Carlos: "tire ele daqui temporariamente até que nosso sistema volte, porque vai ficar puxando
+// propostas antigas que a gente já até pagou"): some da lista E do "🏦 Todos os bancos" — não vai para o arquivo.
+// O cartão da promotora CREFISA/HAPPY/ICRED não muda. Para REATIVAR, apague o pausada:true.
+const WB_FONTES=[{id:'NEOCREDITO',l:'NeoCrédito (Konsig)',num:410},{id:'CREFISA',l:'Crefisa (Baixa Renda)',num:789,nom:'CREFISACP',pausada:true},{id:'CREDFRANCO',l:'CredFranco (18006 · 19094)'},{id:'QUALIAPI',l:'QualiBanking (API)'},{id:'FINANTOAPI',l:'Finanto (API)'}]   // CredFranco: código por banco (cfLinha); QualiBanking e Finanto API: quLinha
 /* ═══ Trocar o parceiro de uma proposta — grava em digitacoes.agente ═══
    Quem recebe os avisos no WhatsApp vem de digitacoes.agente, não do digitador do Konsig.
    Quando a extração do banco chega sem esse campo, a proposta fica órfã: não entra na batida
@@ -5260,7 +5261,7 @@ function WorkBankExport(){
     setLoading(true);setErr('')
     try{
       const querNeo=fonte==='NEOCREDITO'||fonte==='TODOS'
-      const querCref=fonte==='CREFISA'||fonte==='TODOS'
+      const querCref=(fonte==='CREFISA'||fonte==='TODOS')&&!WB_FONTES.find(f=>f.id==='CREFISA').pausada   // pausada: nem no Todos
       const querCf=fonte==='CREDFRANCO'||fonte==='TODOS'
       const querQa=fonte==='QUALIAPI'||fonte==='TODOS'
       // Finanto pela API (23/10/2026): o robô do PC (finanto.mjs) grava TODOS os contratos em konsig_config.finanto_esteira, no
@@ -5482,7 +5483,7 @@ function WorkBankExport(){
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
         <select value={fonte} onChange={e=>setFonte(e.target.value)} style={{...inp,fontWeight:700,minWidth:190}}>
           <option value="TODOS">🏦 Todos os bancos</option>
-          {WB_FONTES.filter(f=>!f.foraDaLista).map(f=><option key={f.id} value={f.id}>{f.l}</option>)}
+          {WB_FONTES.filter(f=>!f.pausada).map(f=><option key={f.id} value={f.id}>{f.l}</option>)}
         </select>
         <span style={{fontSize:11,color:C.muted}}>digitadas de</span>
         <input type="date" value={de} onChange={e=>setDe(e.target.value)} style={inp}/>
@@ -5507,6 +5508,7 @@ function WorkBankExport(){
         <button onClick={gerar} disabled={!g.length} style={{padding:'10px 22px',borderRadius:9,border:'none',background:g.length?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:13,cursor:g.length?'pointer':'default'}}>📄 Gerar arquivo WorkBank ({g.length})</button>
         {msg&&<span style={{fontSize:11,color:C.accent2,fontWeight:600}}>{msg}</span>}
       </div>
+      {fonte==='TODOS'&&WB_FONTES.some(f=>f.pausada)&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>⏸️ Pausado na exportação (não entra no arquivo até ser reativado): {WB_FONTES.filter(f=>f.pausada).map(f=>f.l).join(', ')}</div>}
       {(fonte==='QUALIAPI'||fonte==='TODOS')&&<div style={{fontSize:10,color:C.muted}}>ℹ️ A QualiBanking pela API agora traz TODOS os contratos (Novo, aumento/Margem Complementar, Consignado Privado, Cartão e portabilidades), lidos pelo robô do escritório a cada 10 min com a chave nova. Não precisa mais subir o relatório da Quali.</div>}
       {[['QUALI','QUALIAPI','QualiBanking'],['FINANTO','FINANTOAPI','Finanto']].map(([k,id,nome])=>{const t=Date.parse(idadeEst[k]||'');if(!t||!(fonte===id||fonte==='TODOS'))return null;const h=(Date.now()-t)/3600000;if(h<1)return null
         return<div key={k} style={{fontSize:11,fontWeight:700,color:C.warn,padding:'6px 10px',borderRadius:8,background:C.warn+'14',border:'1px solid '+C.warn+'55'}}>⚠️ A leitura da {nome} pela API é de {new Date(t).toLocaleString('pt-BR').slice(0,17)} (há {h<48?Math.round(h)+' h':Math.round(h/24)+' dias'}) — o robô do escritório pode estar parado; os status podem estar desatualizados.</div>})}
