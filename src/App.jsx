@@ -129,29 +129,39 @@ function PeriodBar({per,setPer,loading,customDf,customDt,setCustomDf,setCustomDt
 
 /* ═══ EXPORT XLSX ═══ */
 function exportXlsx(ops,filename){
-  const ws=XLSX.utils.json_to_sheet(ops.map(o=>({Data:o.data,Banco:o.banco,CPF:o.cpf,Cliente:o.cliente,Proposta:o.proposta,'Operação':o.operacao,'Situação':o.situacao,'Sit.Banco':o.situacaoBanco,'Convênio':o.convenio,Agente:o.agente,Bruto:o.vrBruto,Líquido:o.vrLiquido,Repasse:o.vrRepasse,Parcela:o.vrParcela,CRC:o.crcCliente,'Nosso Crédito':o.dataNossoCredito})))
+  const ws=XLSX.utils.json_to_sheet(ops.map(o=>({Data:o.data,Banco:o.banco,CPF:o.cpf,Cliente:o.cliente,Proposta:o.proposta,'Operação':o.operacao,'Situação':o.situacao,'Sit.Banco':o.situacaoBanco,'Convênio':o.convenio,Agente:semParceiro(o)?'(SEM PARCEIRO)':o.agente,Digitador:o.usuario||'',Bruto:o.vrBruto,Líquido:o.vrLiquido,Repasse:o.vrRepasse,Parcela:o.vrParcela,CRC:o.crcCliente,'Nosso Crédito':o.dataNossoCredito})))
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Dados');XLSX.writeFile(wb,filename+'.xlsx')
 }
+// proposta sem parceiro identificado (agente vazio) — dá pra filtrar e exportar só elas
+const SEM_PARC='__sem_parceiro__'
+const semParceiro=o=>!String(o.agente||'').trim()
+const filtraParceiro=(o,f)=>!f||(f===SEM_PARC?semParceiro(o):o.agente===f)
+// lista de parceiros pro seletor, com a quantidade de propostas de cada um (e "sem parceiro" no topo)
+const opcoesParceiro=ops=>{const m={};let sem=0
+  ops.forEach(o=>{if(semParceiro(o))sem++;else m[o.agente]=(m[o.agente]||0)+1})
+  return{sem,lista:Object.keys(m).sort((a,b)=>a.localeCompare(b)).map(a=>({a,n:m[a]}))}}
 function canManage(){try{const s=JSON.parse(localStorage.getItem('om-session')||'{}');return s.perfil==='admin'||s.perfil==='gestor'}catch(e){return false}}
 function ExportBtn({ops,name}){if(!canManage())return null;return<button onClick={()=>exportXlsx(ops,name||'export')} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 ({ops.length})</button>}
 
-function ExportModal({open,onClose,ops}){
+function ExportModal({open,onClose,ops,origem,nomeBase}){
   const[fBanco,sFBanco]=useState(''),[fAgente,sFAgente]=useState(''),[fOp,sFOp]=useState(''),[fSit,sFSit]=useState(''),[fConv,sFConv]=useState('')
   if(!open)return null
   const bancos=[...new Set(ops.map(o=>o.banco).filter(Boolean))].sort()
-  const agentes=[...new Set(ops.map(o=>o.agente).filter(Boolean))].sort()
+  const ag=opcoesParceiro(ops)
   const operacoes=[...new Set(ops.map(o=>o.operacao).filter(Boolean))].sort()
   const situacoes=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
   const convenios=[...new Set(ops.map(o=>o.convenio).filter(Boolean))].sort()
-  const fd=ops.filter(o=>(!fBanco||o.banco===fBanco)&&(!fAgente||o.agente===fAgente)&&(!fOp||o.operacao===fOp)&&(!fSit||o.situacao===fSit)&&(!fConv||o.convenio===fConv))
+  const fd=ops.filter(o=>(!fBanco||o.banco===fBanco)&&filtraParceiro(o,fAgente)&&(!fOp||o.operacao===fOp)&&(!fSit||o.situacao===fSit)&&(!fConv||o.convenio===fConv))
+  const nomeArq=(nomeBase||'opsmanager-export')+(fAgente?('-'+(fAgente===SEM_PARC?'sem-parceiro':fAgente.toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,40))):'')
   const sel=s=>({background:C.surface,border:'1px solid '+C.border,borderRadius:6,color:C.text,padding:'6px 10px',fontSize:11,width:'100%'})
   return<div style={{position:'fixed',inset:0,background:'#000c',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,border:'1px solid '+C.border,borderRadius:18,width:640,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}}>
       <div style={{padding:'16px 22px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between'}}><h3 style={{fontWeight:700,fontSize:15,margin:0}}>Exportar com Filtros</h3><button onClick={onClose} style={{background:'none',border:'none',color:C.muted,fontSize:22,cursor:'pointer'}}>×</button></div>
       <div style={{padding:'16px 22px',display:'flex',flexDirection:'column',gap:12}}>
+        {origem&&<div style={{fontSize:11,background:C.abg,color:C.accent,borderRadius:8,padding:'8px 12px'}}>Partindo do filtro da tela: <b>{origem}</b>. Os campos abaixo refinam ainda mais.</div>}
         <div className="rg3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
           <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>BANCO</label><select value={fBanco} onChange={e=>sFBanco(e.target.value)} style={sel()}><option value="">Todos</option>{bancos.map(b=><option key={b} value={b}>{b}</option>)}</select></div>
-          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>PARCEIRO</label><select value={fAgente} onChange={e=>sFAgente(e.target.value)} style={sel()}><option value="">Todos</option>{agentes.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+          <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>PARCEIRO</label><select value={fAgente} onChange={e=>sFAgente(e.target.value)} style={sel()}><option value="">Todos</option>{ag.sem>0&&<option value={SEM_PARC}>— Sem parceiro — ({ag.sem})</option>}{ag.lista.map(x=><option key={x.a} value={x.a}>{x.a} ({x.n})</option>)}</select></div>
           <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>OPERAÇÃO</label><select value={fOp} onChange={e=>sFOp(e.target.value)} style={sel()}><option value="">Todas</option>{operacoes.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
           <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>SITUAÇÃO</label><select value={fSit} onChange={e=>sFSit(e.target.value)} style={sel()}><option value="">Todas</option>{situacoes.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
           <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:2}}>CONVÊNIO</label><select value={fConv} onChange={e=>sFConv(e.target.value)} style={sel()}><option value="">Todos</option>{convenios.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
@@ -159,7 +169,7 @@ function ExportModal({open,onClose,ops}){
         </div>
         <div style={{background:C.surface,borderRadius:10,padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div><strong style={{color:C.accent}}>{fd.length}</strong> registros — {fmtCur(fd.reduce((s,o)=>s+(o.vrBruto||0),0))}</div>
-          <button onClick={()=>{exportXlsx(fd,'opsmanager-export');onClose()}} disabled={!fd.length} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'10px 24px',fontWeight:700,fontSize:13,cursor:'pointer',opacity:fd.length?.1:.4}}>📤 Exportar XLSX</button>
+          <button onClick={()=>{exportXlsx(fd,nomeArq);onClose()}} disabled={!fd.length} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'10px 24px',fontWeight:700,fontSize:13,cursor:fd.length?'pointer':'default',opacity:fd.length?1:.4}}>📤 Exportar XLSX</button>
         </div>
       </div>
     </div>
@@ -1076,8 +1086,16 @@ function Operacoes({onImport,myAgents,onDone}){
   const[io,sio]=useState(false),[se,sse]=useState(''),[fs,sfs]=useState(''),[selP,setSelP]=useState(null),[showExp,setShowExp]=useState(false)
   const[importMsg,setImportMsg]=useState(''),[importing,setImporting]=useState(false)
   const quickRef=useRef(null)
+  const[fp,sfp]=useState(''),[fb,sfb]=useState(''),[fo,sfo]=useState(''),[fc,sfc]=useState('')
   const aS=[...new Set(ops.map(o=>o.situacao).filter(Boolean))].sort()
-  const fd=ops.filter(o=>!fs||o.situacao===fs).filter(o=>{if(!se)return true;const s=se.toLowerCase();return(o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s)||(o.usuario||'').toLowerCase().includes(s)}).sort((a,b)=>(b.data||'').localeCompare(a.data||''))
+  const aB=[...new Set(ops.map(o=>o.banco).filter(Boolean))].sort()
+  const aO=[...new Set(ops.map(o=>o.operacao).filter(Boolean))].sort()
+  const aC=[...new Set(ops.map(o=>o.convenio).filter(Boolean))].sort()
+  const aP=opcoesParceiro(ops)
+  const fd=ops.filter(o=>(!fs||o.situacao===fs)&&filtraParceiro(o,fp)&&(!fb||o.banco===fb)&&(!fo||o.operacao===fo)&&(!fc||o.convenio===fc)).filter(o=>{if(!se)return true;const s=se.toLowerCase();return(o.cliente||'').toLowerCase().includes(s)||(o.agente||'').toLowerCase().includes(s)||(o.cpf||'').includes(s)||(o.usuario||'').toLowerCase().includes(s)||String(o.proposta||'').includes(s)}).sort((a,b)=>(b.data||'').localeCompare(a.data||''))
+  const temFiltro=!!(se||fs||fp||fb||fo||fc)
+  const limpar=()=>{sse('');sfs('');sfp('');sfb('');sfo('');sfc('')}
+  const selSt=ativo=>({background:ativo?C.abg:C.surface,border:'1px solid '+(ativo?C.accent:C.border),borderRadius:7,color:ativo?C.accent:C.text,padding:'7px 10px',fontSize:12,maxWidth:260,fontWeight:ativo?600:400})
   const norm=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,' ').trim()
   const quickImport=async(file)=>{
     if(!file)return
@@ -1116,19 +1134,29 @@ function Operacoes({onImport,myAgents,onDone}){
   }
   return(
     <div style={{display:'flex',flexDirection:'column',gap:12}}>
-      <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Opera\u00e7\u00f5es</h2><div style={{display:'flex',gap:6}}>
-        {canManage()&&<><button onClick={()=>setShowExp(true)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar</button>
+      <div style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}><h2 style={{fontWeight:800,fontSize:20}}>Operações</h2><div style={{display:'flex',gap:6}}>
+        {canManage()&&<><button onClick={()=>setShowExp(true)} title="Exporta o que está filtrado na tela (dá pra refinar mais na janela)" style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.text,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>📤 Exportar ({fd.length})</button>
         <button onClick={()=>quickRef.current?.click()} disabled={importing} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:importing?'wait':'pointer',fontWeight:600,fontSize:12,opacity:importing?.6:1}}>📥 {importing?'Importando...':'Importar WorkBank'}</button>
         <input ref={quickRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>quickImport(e.target.files?.[0])}/>
         <button onClick={()=>sio(true)} style={{background:C.surface,border:'1px solid '+C.accent,borderRadius:8,color:C.accent,padding:'6px 14px',cursor:'pointer',fontWeight:600,fontSize:11}}>Importar Manual</button></>}
       </div></div>
-      {importMsg&&<div style={{background:importMsg.includes('\u2713')?C.accent2+'22':importMsg.includes('Erro')?C.danger+'22':C.warn+'22',color:importMsg.includes('\u2713')?C.accent2:importMsg.includes('Erro')?C.danger:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>{importMsg}</span>{!importing&&<button onClick={()=>setImportMsg('')} style={{background:'none',border:'none',color:'inherit',cursor:'pointer',fontSize:14}}>\u00d7</button>}</div>}
+      {importMsg&&<div style={{background:importMsg.includes('\u2713')?C.accent2+'22':importMsg.includes('Erro')?C.danger+'22':C.warn+'22',color:importMsg.includes('\u2713')?C.accent2:importMsg.includes('Erro')?C.danger:C.warn,padding:'8px 14px',borderRadius:8,fontSize:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>{importMsg}</span>{!importing&&<button onClick={()=>setImportMsg('')} style={{background:'none',border:'none',color:'inherit',cursor:'pointer',fontSize:14}}>×</button>}</div>}
       <PeriodBar per={per} setPer={setPer} loading={loading} customDf={customDf} customDt={customDt} setCustomDf={setCustomDf} setCustomDt={setCustomDt} onApplyCustom={applyCustom}/>
-      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}><input value={se} onChange={e=>sse(e.target.value)} placeholder="Buscar..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none',flex:1,minWidth:160}}/><select value={fs} onChange={e=>sfs(e.target.value)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 11px',fontSize:12}}><option value="">Todos</option>{aS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-      <div style={{fontSize:10,color:C.muted}}>{fd.length} de {count} \u2014 {fmtCur(fd.reduce((s,o)=>s+(o.vrBruto||0),0))}</div>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+        <input value={se} onChange={e=>sse(e.target.value)} placeholder="Buscar cliente, CPF, proposta, digitador..." style={{background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 12px',fontSize:12,outline:'none',flex:1,minWidth:200}}/>
+        <select value={fp} onChange={e=>sfp(e.target.value)} style={selSt(fp)}><option value="">Todos os parceiros</option>{aP.sem>0&&<option value={SEM_PARC}>— Sem parceiro — ({aP.sem})</option>}{aP.lista.map(x=><option key={x.a} value={x.a}>{x.a} ({x.n})</option>)}</select>
+        <select value={fb} onChange={e=>sfb(e.target.value)} style={selSt(fb)}><option value="">Todos os bancos</option>{aB.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        <select value={fo} onChange={e=>sfo(e.target.value)} style={selSt(fo)}><option value="">Todas as operações</option>{aO.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        <select value={fs} onChange={e=>sfs(e.target.value)} style={selSt(fs)}><option value="">Todas as situações</option>{aS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        <select value={fc} onChange={e=>sfc(e.target.value)} style={selSt(fc)}><option value="">Todos os convênios</option>{aC.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        {temFiltro&&<button onClick={limpar} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:7,color:C.muted,padding:'7px 12px',fontSize:11,cursor:'pointer'}}>✕ Limpar filtros</button>}
+      </div>
+      <div style={{fontSize:10,color:C.muted}}>{fd.length} de {count} — {fmtCur(fd.reduce((s,o)=>s+(o.vrBruto||0),0))}{fd.length>500?' \u00b7 mostrando as 500 mais recentes (o Exportar leva todas)':''}</div>
       <div style={{overflowX:'auto',borderRadius:10,border:'1px solid '+C.border}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}><thead><tr style={{background:C.surface}}>{['Data','CPF','Cliente','Banco','Op.','Situa\u00e7\u00e3o','Agente','Digitador','Vl.Base'].map(h=><th key={h} style={{padding:'8px 9px',textAlign:'left',color:C.muted,fontSize:8,textTransform:'uppercase'}}>{h}</th>)}</tr></thead><tbody>{fd.slice(0,500).map(o=><tr key={o.id} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'7px 9px',whiteSpace:'nowrap'}}>{fmtDate(o.data)}</td><td style={{padding:'7px 9px',fontSize:10,color:C.muted,whiteSpace:'nowrap'}}>{o.cpf||'\u2014'}</td><td style={{padding:'7px 9px',maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.cliente||'\u2014'}</td><td style={{padding:'7px 9px'}}>{o.banco}</td><td style={{padding:'7px 9px'}}>{o.operacao}</td><td style={{padding:'7px 9px'}}><Badge text={o.situacao||'\u2014'} color={sitCol(o.situacao)}/></td><td style={{padding:'7px 9px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer',color:C.accent}} onClick={()=>setSelP(o.agente)}>{o.agente}</td><td style={{padding:'7px 9px',fontSize:10,color:C.muted,maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={o.usuario||''}>{o.usuario||'\u2014'}</td><td style={{padding:'7px 9px',fontWeight:600}}>{fmtCur(o.vrBruto)}</td></tr>)}</tbody></table></div>
       <ImportModal open={io} onClose={()=>sio(false)} onImport={onImport} onDone={onDone}/>
-      <ExportModal open={showExp} onClose={()=>setShowExp(false)} ops={ops}/>
+      <ExportModal open={showExp} onClose={()=>setShowExp(false)} ops={fd}
+        origem={temFiltro?[fp&&(fp===SEM_PARC?'Sem parceiro':fp),fb,fo,fs,fc,se&&('busca "'+se+'"')].filter(Boolean).join(' · '):''}
+        nomeBase={'operacoes'+(fp?('-'+(fp===SEM_PARC?'sem-parceiro':fp.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').slice(0,40))):'')}/>
       <PartnerHealth name={selP} ops={ops} onClose={()=>setSelP(null)}/>
     </div>
   )
@@ -2687,8 +2715,8 @@ function Usuarios({user}){
   if(user.perfil!=='admin')return<div style={{padding:28,textAlign:'center',color:C.muted}}>Restrito</div>
   const inp={background:C.surface,border:'1px solid '+C.border,borderRadius:7,color:C.text,padding:'7px 10px',fontSize:12,width:'100%',boxSizing:'border-box',fontFamily:'Outfit,sans-serif'}
   return<div style={{display:'flex',flexDirection:'column',gap:14}}>
-    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usu\u00e1rios ({users.length})</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
-    {msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:C.muted,cursor:'pointer'}}>\u00d7</button></div>}
+    <div style={{display:'flex',justifyContent:'space-between'}}><h2 style={{fontWeight:800,fontSize:20}}>Usuários ({users.length})</h2><button onClick={()=>setShowNew(!showNew)} style={{background:C.accent,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,fontSize:12,cursor:'pointer'}}>+ Novo</button></div>
+    {msg&&<div style={{background:C.accent+'22',color:C.accent,padding:'8px 12px',borderRadius:8,fontSize:12}}>{msg}<button onClick={()=>setMsg('')} style={{float:'right',background:'none',border:'none',color:C.muted,cursor:'pointer'}}>×</button></div>}
     {showNew&&<form onSubmit={createUser} style={{background:C.card,border:'1px solid '+C.border,borderRadius:14,padding:16,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:10,alignItems:'end'}}>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>NOME</label><input value={nome} onChange={e=>setNome(e.target.value)} required autoComplete="off" style={inp}/></div>
       <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>EMAIL / LOGIN</label><input value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="off" style={inp}/></div>
@@ -2705,11 +2733,11 @@ function Usuarios({user}){
         <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>SENHA</label><input value={edSenha} onChange={e=>setEdSenha(e.target.value)} autoComplete="new-password" style={{...inp,border:'1px solid '+C.warn}}/></div>
         <div><label style={{fontSize:9,color:C.muted,fontWeight:600,display:'block',marginBottom:3}}>PERFIL</label><select value={edPerfil} onChange={e=>setEdPerfil(e.target.value)} style={inp}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option><option value="parceiro">Parceiro</option></select></div>
         {edPerfil==='parceiro'&&<div style={{gridColumn:'1/-1'}}><label style={{fontSize:9,color:C.accent,fontWeight:600,display:'block',marginBottom:3}}>PARCEIRO VINCULADO *</label><select value={edParceiroId} onChange={e=>setEdParceiroId(e.target.value)} required style={{...inp,border:'1px solid '+C.accent}}><option value="">Selecione o parceiro...</option>{allParceiros.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} {p.telefone?'('+p.telefone+')':''}</option>)}</select></div>}
-        <div style={{display:'flex',gap:6}}><button onClick={saveEdit} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button><button onClick={()=>setEditUser(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.muted,padding:'8px 12px',cursor:'pointer'}}>\u00d7</button></div>
+        <div style={{display:'flex',gap:6}}><button onClick={saveEdit} style={{background:C.accent2,color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',fontWeight:600,cursor:'pointer'}}>Salvar</button><button onClick={()=>setEditUser(null)} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:8,color:C.muted,padding:'8px 12px',cursor:'pointer'}}>×</button></div>
       </div>
     </div>}
     {editTelas&&<div style={{background:C.card,border:'1px solid '+C.accent+'66',borderRadius:14,padding:16}}>
-      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Permiss\u00f5es de tela: <strong style={{color:C.accent}}>{editTelas.nome}</strong></div>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Permissões de tela: <strong style={{color:C.accent}}>{editTelas.nome}</strong></div>
       <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
         {ALL_TELAS.map(t=>{const has=(editTelas.telas||[]).includes(t);return<button key={t} onClick={async()=>{const nTelas=has?(editTelas.telas||[]).filter(x=>x!==t):[...(editTelas.telas||[]),t];await supabase.from('usuarios').update({telas:nTelas}).eq('id',editTelas.id);setEditTelas({...editTelas,telas:nTelas});await reload()}} style={{padding:'6px 14px',borderRadius:8,border:'1px solid '+(has?C.accent2:C.border),background:has?C.accent2+'22':'transparent',color:has?C.accent2:C.muted,fontSize:11,fontWeight:has?600:400,cursor:'pointer'}}>{has?'\u2713 ':''}{t}</button>})}
       </div>
@@ -2722,10 +2750,10 @@ function Usuarios({user}){
         <td style={{padding:'8px 10px'}}><div style={{display:'flex',alignItems:'center',gap:4}}><span style={{fontSize:10,fontFamily:'monospace'}}>{showSenha[u.id]?u.senha:'\u2022\u2022\u2022\u2022\u2022\u2022'}</span><button onClick={()=>setShowSenha(p=>({...p,[u.id]:!p[u.id]}))} style={{background:'none',border:'none',color:C.muted,fontSize:10,cursor:'pointer',padding:0}}>{showSenha[u.id]?'\ud83d\ude48':'\ud83d\udc41'}</button></div></td>
         <td style={{padding:'8px 10px'}}><select value={u.perfil} onChange={async e=>{const{error}=await supabase.from('usuarios').update({perfil:e.target.value}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else{setMsg('\u2713 Perfil de '+u.nome+' alterado');await reload()}}} style={{background:C.surface,border:'1px solid '+C.border,borderRadius:4,color:C.text,padding:'2px 6px',fontSize:10}}><option value="operador">Operador</option><option value="gestor">Gestor</option><option value="admin">Admin</option><option value="parceiro">Parceiro</option></select></td>
         <td style={{padding:'8px 10px'}}><select value={u.cod_supervisor||''} onChange={async e=>{const{error}=await supabase.from('usuarios').update({cod_supervisor:e.target.value||null}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else await reload()}} style={{background:C.surface,border:'1px solid '+(u.cod_supervisor?C.accent2:C.border),borderRadius:4,color:u.cod_supervisor?C.accent2:C.text,padding:'2px 6px',fontSize:10,minWidth:100}}><option value="">Todos (admin)</option>{sups.map(s=><option key={s.cod} value={s.cod}>{s.nome} ({s.cod})</option>)}</select></td>
-        <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas \u270f</button></td>
+        <td style={{padding:'8px 10px'}}><button onClick={()=>setEditTelas(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{(u.telas||[]).length} telas ✏</button></td>
         <td style={{padding:'8px 10px'}}><Badge text={u.ativo?'Ativo':'Inativo'} color={u.ativo?C.accent2:C.danger}/></td>
         <td style={{padding:'8px 10px'}}><div style={{display:'flex',gap:4}}>
-          <button onClick={()=>openEdit(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>\u270f Editar</button>
+          <button onClick={()=>openEdit(u)} style={{background:C.accent+'22',color:C.accent,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>✏ Editar</button>
           <button onClick={async()=>{const{error}=await supabase.from('usuarios').update({ativo:!u.ativo}).eq('id',u.id);if(error)setMsg('Erro: '+error.message);else{setMsg('\u2713 '+u.nome+(u.ativo?' desativado':' ativado'));await reload()}}} style={{background:u.ativo?'#EF444418':C.accent2+'22',color:u.ativo?C.danger:C.accent2,border:'none',borderRadius:6,padding:'3px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>{u.ativo?'Desativar':'Ativar'}</button>
         </div></td>
       </tr>)}</tbody></table></div>}
