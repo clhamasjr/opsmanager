@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { supabase } from './supabase.js'
 import * as XLSX from 'xlsx'
 import { quApiParaRelatorio, QU_API_COLS } from './wbQualiApi.js'
+import { cbLerPlanilha, cbMontar } from './wbCrefBanco.js'
 import { PROMO_OBRIG, PROMO_SEMENTE, PROMO_FORA, promoLerCsv, promoNomeUsuario, promoTemLixo, promoCorrigirNome, promoLinha, promoFora, promoChaveNome, promoBancoAceito, promoNotacaoCientifica } from './wbPromo.js'
 
 /* ═══ THEME ═══ */
@@ -5215,6 +5216,74 @@ function WorkBankPromo(){
     {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
   </div>
 }
+// Crefisa pela planilha do BANCO ("Contratos Esteira Analise", uma por acesso) → um arquivo do Work — regras em wbCrefBanco.js
+function WorkBankCrefBanco(){
+  const[arqs,setArqs]=useState([]),[msg,setMsg]=useState('')
+  const fileRef=useRef(null)
+  const lerArquivos=async fl=>{
+    const lista=[...(fl||[])];if(!lista.length)return
+    setMsg('Lendo '+lista.map(f=>f.name).join(', ')+'…')
+    const novos=[],erros=[]
+    for(const f of lista){
+      try{const{aba,rows}=cbLerPlanilha(XLSX,new Uint8Array(await f.arrayBuffer()))
+        novos.push({id:f.name+'|'+f.lastModified+'|'+f.size,nome:f.name,quando:f.lastModified,aba,rows})}   // quando = baixada em
+      catch(e){erros.push(f.name+': '+(e.message||e))}
+    }
+    // o MESMO arquivo escolhido de novo troca o anterior (não soma duas vezes); exportação nova do mesmo acesso tem outro nome
+    // e entra junto — nas propostas repetidas vale a baixada por último (cbMontar), e a tela avisa
+    setArqs(a=>[...a.filter(x=>!novos.some(n=>n.id===x.id)),...novos])
+    setMsg(erros.length?'❌ '+erros.join(' · '):'')
+  }
+  const quando=ms=>ms?new Date(ms).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'
+  const R=useMemo(()=>{if(!arqs.length)return null;const hoje=new Date();hoje.setHours(12,0,0,0);return cbMontar(arqs,WB_HDR,hoje)},[arqs])
+  const gerar=()=>{
+    if(!R||!R.linhas.length)return
+    if(R.estragadas){setMsg('❌ Número de proposta estragado pelo Excel (5,0796E+11) — exporte a planilha de novo no banco e escolha sem salvar no Excel');return}
+    if(R.semUsuario){setMsg('❌ '+R.semUsuario+' propostas sem o login do acesso (LOGIN_SUB_USUARIO) — no Work ficariam sem usuário');return}
+    const aoa=R.linhas.map(o=>WB_HDR.map(h=>o[h]))
+    if(aoa.some(l=>l.some((v,j)=>quProibido(v,WB_HDR[j])||(typeof v==='string'&&/meu\s*cred/i.test(v))))){setMsg('❌ Arquivo bloqueado: apareceu nome de promotora numa célula. Avise o suporte.');return}
+    const ws=XLSX.utils.aoa_to_sheet([WB_HDR,...aoa],{cellDates:true})
+    const bk=XLSX.utils.book_new();XLSX.utils.book_append_sheet(bk,ws,'Planilha1')
+    XLSX.writeFile(bk,'Arquivo Padrao WORKBANK - CREFISACP (banco).xlsx',{cellDates:true})
+    setMsg('✓ '+R.linhas.length+' propostas no arquivo — pode gerar quantas vezes precisar')
+  }
+  const podeGerar=R&&R.linhas.length>0&&!R.estragadas&&!R.semUsuario
+  const soma=o=>Object.values(o).reduce((s,n)=>s+n,0)
+  return<div style={{background:C.card,border:'1px solid '+C.border,borderLeft:'4px solid '+C.accent2,borderRadius:14,padding:14,display:'flex',flexDirection:'column',gap:8}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <div>
+        <div style={{fontSize:13,fontWeight:800}}>🏦 CREFISA — planilha do banco → arquivo do Work</div>
+        <div style={{fontSize:11,color:C.muted}}>No sistema da Crefisa, exporte a "Contratos Esteira Análise" de cada acesso e escolha as planilhas aqui do jeito que vieram — pode escolher as duas de uma vez. Sai um arquivo só (789 CREFISACP).</div>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <input ref={fileRef} type="file" multiple accept=".xlsx,.xls" style={{display:'none'}} onChange={e=>{lerArquivos(e.target.files);e.target.value=''}}/>
+        <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{padding:'8px 16px',borderRadius:8,border:'1px solid '+C.accent2,background:C.accent2+'15',color:C.accent2,fontWeight:700,fontSize:12,cursor:'pointer'}}>📂 Escolher planilhas (.xlsx)</button>
+        <button onClick={gerar} disabled={!podeGerar} style={{padding:'8px 18px',borderRadius:8,border:'none',background:podeGerar?C.accent2:C.border,color:'#fff',fontWeight:800,fontSize:12,cursor:podeGerar?'pointer':'default'}}>📄 Gerar arquivo WorkBank{R?(' ('+R.linhas.length+')'):''}</button>
+      </div>
+    </div>
+    {arqs.length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',fontSize:11}}>
+      {arqs.map(a=><span key={a.id} style={{padding:'3px 8px',borderRadius:7,background:C.abg,border:'1px solid '+C.border}}>📎 <b>{a.nome}</b> ({a.rows.length}) <span style={{color:C.muted}}>baixada {quando(a.quando)}</span>
+        <button onClick={()=>{setArqs(x=>x.filter(y=>y.id!==a.id));setMsg('')}} title="tirar esta planilha" style={{marginLeft:6,border:'none',background:'transparent',color:C.danger,cursor:'pointer',fontWeight:700}}>✕</button></span>)}
+      <button onClick={()=>{setArqs([]);setMsg('')}} style={{padding:'3px 10px',borderRadius:7,border:'1px solid '+C.border,background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>limpar</button>
+    </div>}
+    {R&&<div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11}}>
+      <span><b>{R.linhas.length}</b> propostas · {cfMoney(R.total)}</span>
+      <span>· de <b>{R.de||'—'}</b> a <b>{R.ate||'—'}</b></span>
+      <span>· {Object.entries(R.porSit).sort((a,b)=>b[1]-a[1]).map(([k,n])=>k+' '+n).join(' · ')}</span>
+      <span>· acessos: {Object.entries(R.porAcesso).map(([k,n])=>k+' ('+n+')').join(' · ')}</span>
+      {R.repetidas>0&&<span style={{color:C.muted}}>· {R.repetidas} repetidas entre as planilhas (vale a baixada por último)</span>}
+      {R.semProposta>0&&<span style={{color:C.muted}}>· {R.semProposta} sem número de proposta ficaram de fora</span>}
+      {soma(R.outros)>0&&<span style={{color:C.muted}}>· {soma(R.outros)} de outros bancos ficaram de fora ({Object.entries(R.outros).map(([k,n])=>k+' '+n).join(', ')})</span>}
+    </div>}
+    {R&&Object.keys(R.tiposNovos).length>0&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>⚠️ Tipo de contrato novo (vai ao Work como veio — confira): {Object.entries(R.tiposNovos).map(([k,n])=>k+' ('+n+')').join(' · ')}</div>}
+    {R&&R.acessoEmVarias.map(x=><div key={x.acesso} style={{fontSize:11,fontWeight:700,color:C.warn}}>⚠️ O acesso {x.acesso} está em {x.arquivos.length} planilhas ({x.arquivos.join(', ')}) — nas propostas repetidas vale a baixada por último. Se uma delas é antiga, tire no ✕.</div>)}
+    {R&&R.semData>0&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>⚠️ {R.semData} propostas sem data de digitação legível (DATA_DIGITACAO_BANCO) — vão ao Work sem a data do empréstimo</div>}
+    {R&&R.pagoSemCredito>0&&<div style={{fontSize:11,fontWeight:700,color:C.warn}}>⚠️ {R.pagoSemCredito} PAGO sem a data do pagamento (DATA_ULTIMO_SUB_STATUS_BANCO) — vão ao Work sem a data de crédito</div>}
+    {R&&R.semUsuario>0&&<div style={{fontSize:11,fontWeight:700,color:C.danger}}>❌ {R.semUsuario} propostas sem o login do acesso (LOGIN_SUB_USUARIO) — o arquivo não sai assim</div>}
+    {R&&R.estragadas>0&&<div style={{fontSize:11,fontWeight:700,color:C.danger}}>❌ {R.estragadas} propostas com o número estragado pelo Excel (5,0796E+11) — exporte de novo no banco</div>}
+    {msg&&<div style={{fontSize:11,fontWeight:600,color:msg.startsWith('❌')?C.danger:msg.startsWith('✓')?C.accent2:C.muted}}>{msg}</div>}
+  </div>
+}
 function WorkBankExport(){
   // quando o robô do escritório gravou a esteira da Quali/Finanto pela API (aviso se tiver mais de 1 h — robô parado)
   const[idadeEst,setIdadeEst]=useState({})
@@ -5389,6 +5458,7 @@ function WorkBankExport(){
   if(loading||err)return<div style={{display:'flex',flexDirection:'column',gap:12}}>
     <div style={loading?{padding:40,textAlign:'center',color:C.muted}:{padding:20,color:C.danger}}>{loading?'Carregando esteiras...':err}</div>
     <WorkBankPromo/>
+    <WorkBankCrefBanco/>
   </div>
   const q=(fl.busca||'').trim().toLowerCase(),qd=q.replace(/\D/g,'')
   const noPer=d=>!!d&&(!fl.de||d>=fl.de)&&(!fl.ate||d<=fl.ate)
@@ -5473,6 +5543,7 @@ function WorkBankExport(){
       <button onClick={carregar} style={{fontSize:11,padding:'7px 14px',borderRadius:8,border:'1px solid '+C.border,background:C.surface,color:C.accent,cursor:'pointer'}}>🔄 Recarregar dados</button>
     </div>
     <WorkBankPromo/>
+    <WorkBankCrefBanco/>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Stat label="Carregadas" value={(rows||[]).length} sub={fonte==='TODOS'?'todos os bancos':((WB_FONTES.find(f=>f.id===fonte)||{}).l||fonte)}/>
       <Stat label="No filtro atual" value={g.length} sub={cfMoney(gv)+(porMov?(' · '+porMov+' por mudança de status'):'')} color={C.accent}/>
