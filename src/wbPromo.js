@@ -3,7 +3,7 @@
    linha contra os 3 arquivos dele ("como vem da promotora.csv", "como presica ficar.csv", "Arquivo Padrao WORKBANK (35)"):
    - banco: CREFISA → 789 CREFISACP, HAPPY → 159, ICRED → 1526 (Carlos); outro banco sem código não gera;
    - proposta/contrato = COD. BANCO (número; o ICRED tem "CTC0006285326" e "0402032283/CAR", que vão como texto);
-   - tipo: Novo → Novo, Refin → REFINANCIAMENTO, "Refin / Portabilidade" → PORTAB/REFIN; produto, situação, CPF e cliente
+   - tipo: Novo → Novo, Refin → REFINANCIAMENTO (CREFISA "CLIENTES INATIVOS" → Novo, 29/10), "Refin / Portabilidade" → PORTAB/REFIN; produto, situação, CPF e cliente
      como vêm; empréstimo = DATA; crédito = DATA AVERBACAO ("-" = vazio); nascimento 01/01/1990; DIGITAL;
    - usuário (NIC_CTR_USUARIO) = o nome antes de "(SUB-USUÁRIO PARCEIRO) 1287.xxx". O sistema da promotora estraga acento e
      pontuação ("ESTA?FANE", "JANA?NA", "PE€ANHA") e o Work só acha o usuário com o nome exato — "se tiver uma . diferente
@@ -19,6 +19,10 @@ export const promoBancoAceito=b=>!!PROMO_BANCOS[String(b||'').trim().toUpperCase
 // .csv aberto e salvo no Excel: o número da proposta vira "5,0796E+11" e os dígitos se perdem — não dá para consertar
 export const promoNotacaoCientifica=v=>/^\d+([.,]\d+)?E[+-]?\d+$/i.test(String(v??'').trim())
 const PROMO_TIPO={'novo':'Novo','refin':'REFINANCIAMENTO','refin / portabilidade':'PORTAB/REFIN','portabilidade':'Portabilidade','cartão':'Cartão','cartao':'Cartão'}
+// 29/10/2026, Carlos: a Crefisa paga comissão de NOVO na tabela "CP BAIXA RENDA - CLIENTES INATIVOS ATE 30 DIAS" e no banco é
+// contrato novo, mas o relatório da promotora traz como Refin — sai como Novo
+export const promoTipo=(tp,banco,produto)=>{const t=PROMO_TIPO[String(tp||'').trim().toLowerCase()]||String(tp||'').trim()||null
+  return t==='REFINANCIAMENTO'&&banco==='CREFISACP'&&/CLIENTES\s+INATIVOS/i.test(String(produto||''))?'Novo':t}
 
 // .csv do portal: ANSI (windows-1252), ";", e uma linha em branco antes do cabeçalho. Aceita UTF-8 e "," se salvarem de novo.
 export function promoLerCsv(buf){
@@ -118,7 +122,7 @@ export function promoLinha(r,hdr,hoje,codigos,usuario){
   const b=promoBanco(r['BANCO']),cod=Number((codigos||{})[b.nom]??b.padrao)
   o.NUM_BANCO=cod>0?cod:null;o.NOM_BANCO=b.nom
   o.NUM_PROPOSTA=proposta(r['COD. BANCO']);o.NUM_CONTRATO=o.NUM_PROPOSTA
-  const tp=String(r['TIPO PRODUTO']||'').trim();o.DSC_TIPO_PROPOSTA_EMPRESTIMO=PROMO_TIPO[tp.toLowerCase()]||tp||null
+  o.DSC_TIPO_PROPOSTA_EMPRESTIMO=promoTipo(r['TIPO PRODUTO'],b.nom,r['PRODUTO'])
   o.DSC_PRODUTO=r['PRODUTO']??null
   o.DAT_CTR_INCLUSAO=hoje
   o.DSC_SITUACAO_EMPRESTIMO=r['STATUS']??null
